@@ -5,6 +5,7 @@ import itertools
 from typing import Type, Callable, Generator, Literal
 from queue import SimpleQueue
 from collections import deque
+import typing
 
 from rene.instruction import Instruction, InstructionType, Forward, Backward, _Dummy
 from rene.schedule import PipelineSchedule
@@ -44,16 +45,22 @@ class InstructionDAG:
             durations: A dict that maps instruction classes to a list of durations for each stage
             dependency_rules: A list of functions that define the dependency between instructions
 
-        Dependency rules
+        ## Dependency rules
 
         ```python
         def forward_dep(inst1: Forward, inst2: Forward) -> bool:
             return inst1.micro_batch_id == inst2.micro_batch_id and inst1.stage_id + 1 == inst2.stage_id
         ```
-        Dependency rules must be a type-annotated function that takes two arguments and returns `bool`.
+
+        Dependency rules must be a type-annotated function that takes two arguments and returns `True`
+        when there should be an dependency edge from `inst1` to `inst2` in the instruction DAG and
+        `False` otherwise. Try to make this generate the minimum number of edges, since it affects
+        the time complexity of critical path analysis (which is basically 2 * BFS + 1 * DFS).
+
         The two arguments must each be a subclass of `Instruction`, e.g. `Forward` and `Backward`.
-        Then, `InstructionDAG` will insepct the type annotations and only call these functions for
-        the right instruction types.
+        Then, `InstructionDAG` will insepct the type annotations and only call `forward_dep` for
+        `(inst1, inst2)` pairs where `isinstance(inst1, Forward)` and `isinstance(inst2, Forward)`,
+        for example.
         """
         self.schedule_type = schedule_type
         self.num_stages = num_stages
@@ -67,16 +74,15 @@ class InstructionDAG:
         for rule in self.dependency_rules:
             if not inspect.isfunction(rule):
                 raise ValueError("Dependency rules should be a function.")
-            signature = inspect.signature(rule)
-            if len(signature.parameters) != 2:
-                raise ValueError("Dependency rules must have exactly two arguments.")
-            for param in signature.parameters.values():
-                if param.annotation is param.empty:
-                    raise ValueError("Missing Instruction type annotation for dependency rule.")
-                param_name = param.annotation.split(".")[-1]
-                if param_name not in InstructionType.subclass_names:
+            type_hints = typing.get_type_hints(rule)
+            if "return" in type_hints:
+                type_hints.pop("return")
+            if len(type_hints) != 2:
+                raise ValueError("Dependency rules must have exactly two type-annotated arguments.")
+            for type_hint in type_hints.values():
+                if not isinstance(type_hint, InstructionType):
                     raise ValueError(
-                        f"Unexpected instruction type '{param_name}'. "
+                        f"Unexpected instruction type '{type_hint}'. "
                         f"Should be one of {InstructionType.subclass_names}"
                     )
 
@@ -137,13 +143,13 @@ class InstructionDAG:
         Checks the function type annotation and only call rules that
         have consistent type annotations with the types of `inst1` and `inst2`.
         """
-        def inst_matches_param(inst: Instruction, param: inspect.Parameter) -> bool:
-            param_name = param.annotation.split(".")[-1]
-            return param_name == type(inst).__name__
+        def inst_matches_param(inst: Instruction, param: type) -> bool:
+            return isinstance(inst, param)
 
         for rule in self.dependency_rules:
-            params = inspect.signature(rule).parameters.values()
-            if all(inst_matches_param(*args) for args in zip([inst1, inst2], params)):
+            type_hints = typing.get_type_hints(rule)
+            type_hints.pop("return")
+            if all(inst_matches_param(*args) for args in zip([inst1, inst2], type_hints.values())):
                 result = rule(inst1, inst2)
                 if not isinstance(result, bool):
                     raise RuntimeError("Dependency rule returned a non-boolean value.")
