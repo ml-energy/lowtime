@@ -143,13 +143,11 @@ class InstructionDAG:
         Checks the function type annotation and only call rules that
         have consistent type annotations with the types of `inst1` and `inst2`.
         """
-        def inst_matches_param(inst: Instruction, param: type) -> bool:
-            return isinstance(inst, param)
-
         for rule in self.dependency_rules:
             type_hints = typing.get_type_hints(rule)
-            type_hints.pop("return")
-            if all(inst_matches_param(*args) for args in zip([inst1, inst2], type_hints.values())):
+            if "return" in type_hints:
+                type_hints.pop("return")
+            if all(isinstance(inst, type) for inst, type in zip([inst1, inst2], type_hints.values())):
                 result = rule(inst1, inst2)
                 if not isinstance(result, bool):
                     raise RuntimeError("Dependency rule returned a non-boolean value.")
