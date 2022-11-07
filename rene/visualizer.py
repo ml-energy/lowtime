@@ -51,21 +51,7 @@ class PipelineVisualizer:
         """Draw the pipeline on the given Axes object."""
         for inst in self.dag.insts:
             # Draw rectangle for Instructions
-            rectangle_args = dict(
-                xy=(inst.actual_start, inst.stage_id),
-                width=inst.actual_duration,
-                height=1.0,
-            )
-            rectangle_args.update(self.rectangle_args[type(inst)])
-            rectangle = Rectangle(**rectangle_args)
-            ax.add_patch(rectangle)
-            # Annotate the micro batch number inside the rectangle
-            annotation_args = dict(
-                text=str(inst.micro_batch_id),
-                xy=(rectangle.get_x() + rectangle.get_width() / 2, rectangle.get_y() + 0.5),  # type: ignore
-            )
-            annotation_args.update(self.annotation_args[type(inst)])
-            ax.annotate(**annotation_args)
+            inst.draw(ax, self.rectangle_args, self.annotation_args)
 
         ax.set_axis_off()
         ax.autoscale()

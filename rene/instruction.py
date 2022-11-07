@@ -1,6 +1,10 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from typing import Any
+from matplotlib.axes import Axes
+
+from matplotlib.patches import Rectangle
 
 
 class InstructionType(type):
@@ -67,6 +71,32 @@ class Instruction(metaclass=InstructionType):
         """Declare that `other` depends on the completion of this instruction."""
         self.children.append(other)
         other.parents.append(self)
+
+    def draw(
+        self,
+        ax: Axes,
+        rectangle_args: dict[InstructionType, dict[str, Any]],
+        annotation_args: dict[InstructionType, dict[str, Any]],
+    ) -> None:
+        """Draw the instruction on the Axes object.
+
+        Override this method to change how instructions are drawn.
+        """
+        final_rectangle_args = dict(
+            xy=(self.actual_start, self.stage_id),
+            width=self.actual_duration,
+            height=1.0,
+        )
+        final_rectangle_args.update(rectangle_args[type(self)])
+        rectangle = Rectangle(**final_rectangle_args)
+        ax.add_patch(rectangle)
+        # Annotate the micro batch number inside the rectangle
+        final_annotation_args = dict(
+            text=str(self.micro_batch_id + 1),  # Draw with base index 1.
+            xy=(rectangle.get_x() + rectangle.get_width() / 2, rectangle.get_y() + 0.5),  # type: ignore
+        )
+        final_annotation_args.update(annotation_args[type(self)])
+        ax.annotate(**final_annotation_args)
 
 
 class Forward(Instruction):
