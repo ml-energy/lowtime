@@ -5,6 +5,8 @@
 
 René is a visualizer for pipeline parallel training schedules like 1F1B.
 
+[Why the name?](https://en.wikipedia.org/wiki/The_Treachery_of_Images)
+
 ## Architecture
 
 ```
