@@ -70,7 +70,12 @@ class InstructionDAG:
 
         self.scheduled = False
 
-        # Check the signature of depndency rules
+        # Sanity check.
+        for latencies in self.durations.values():
+            if len(latencies) != num_stages:
+                raise ValueError("`len(durations[instruction_type])` should be the same as `num_stages`")
+
+        # Check the signature of depndency rules.
         for rule in self.dependency_rules:
             if not inspect.isfunction(rule):
                 raise ValueError("Dependency rules should be a function.")
@@ -92,7 +97,7 @@ class InstructionDAG:
             stage = self.schedule_type(self.num_stages, self.num_micro_batches, stage_ind)
             prev_inst = None
             for inst in stage.steps():
-                inst.duration = self.durations[type(inst)][inst.stage_id - 1]
+                inst.duration = self.durations[type(inst)][inst.stage_id]
                 self._insts.append(inst)
                 if prev_inst is not None:
                     prev_inst.then(inst)
@@ -127,7 +132,8 @@ class InstructionDAG:
                 q.put(child)
 
         # Backward computation: Assign latest start and finish times
-        self.exit_node.latest_start = self.exit_node.earliest_start
+        # Exit node has duration 0, so latest finish and latest start should be the same.
+        self.exit_node.latest_finish = self.exit_node.latest_start = self.exit_node.earliest_start
         q.put(self.exit_node)
 
         while not q.empty():
