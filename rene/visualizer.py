@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import Any
 
 from matplotlib.axes import Axes
-from matplotlib.patches import Rectangle
+from matplotlib.ticker import FormatStrFormatter
 
 from rene.instruction import InstructionType, Forward, Backward
 from rene.dag import InstructionDAG
@@ -47,13 +47,27 @@ class PipelineVisualizer:
         self.annotation_args = annotation_args
         self.line_args = line_args
 
-    def draw(self, ax: Axes) -> None:
+    def draw(self, ax: Axes, draw_time_axis: bool = False) -> None:
         """Draw the pipeline on the given Axes object."""
         for inst in self.dag.insts:
             # Draw rectangle for Instructions
             inst.draw(ax, self.rectangle_args, self.annotation_args)
 
-        ax.set_axis_off()
+        if draw_time_axis:
+            ax.yaxis.set_visible(False)
+            ax.grid(visible=False)
+
+            total_time = self.dag.total_execution_time
+            ax.set_xlabel("time")
+            ax.xaxis.set_major_formatter(FormatStrFormatter('%.2f'))
+            ax.set_xticks([float(t * 5) for t in range(int(total_time) // 5)] + [total_time])
+
+            for side in ["top", "left", "right"]:
+                ax.spines[side].set_visible(False)
+            ax.spines["bottom"].set_bounds(0.0, total_time)
+        else:
+            ax.set_axis_off()
+
         ax.autoscale()
         ax.invert_yaxis()
 
