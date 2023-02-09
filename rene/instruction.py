@@ -1,15 +1,17 @@
+"""An instruction is an atomic an operation in pipeline training."""
+
 from __future__ import annotations
 
 from dataclasses import dataclass, field
 from typing import Any
-from matplotlib.axes import Axes
 
-from matplotlib.patches import Rectangle
+from matplotlib.axes import Axes  # type: ignore
+from matplotlib.patches import Rectangle  # type: ignore
 
 
 class InstructionType(type):
     """Instruction metaclass.
-    
+
     Metaclass for typing and subclass name collection.
     """
 
@@ -17,6 +19,7 @@ class InstructionType(type):
     subclass_names: set[str] = set()
 
     def __new__(cls, name, bases, dct):
+        """Collect the names of all `Instruction` classes defined."""
         if name in cls.subclass_names:
             raise ValueError(f"Instruction class '{name}' already exists")
         if name != "_Dummy":
@@ -54,17 +57,19 @@ class Instruction(metaclass=InstructionType):
     earliest_start: float = 0.0
     latest_start: float = float("inf")
     earliest_finish: float = 0.0
-    latest_finish: float = float("inf") 
+    latest_finish: float = float("inf")
 
     # Values set by `InstructionDAG.schedule`
     actual_start: float = 0.0
     actual_finish: float = 0.0
 
     def __repr__(self) -> str:
+        """Return a concise representation of the Instruction."""
         return f"{type(self).__name__}(S{self.stage_id}B{self.micro_batch_id})"
 
     @property
     def actual_duration(self) -> float:
+        """Return the execution duration of the Instruction."""
         return self.actual_finish - self.actual_start
 
     def then(self, other: Instruction) -> None:
@@ -92,7 +97,7 @@ class Instruction(metaclass=InstructionType):
         ax.add_patch(rectangle)
         # Annotate the micro batch number inside the rectangle
         final_annotation_args = dict(
-            text=str(self.micro_batch_id + 1),  # Draw with base index 1.
+            text=str(self.micro_batch_id),
             xy=(rectangle.get_x() + rectangle.get_width() / 2, rectangle.get_y() + 0.5),  # type: ignore
         )
         final_annotation_args.update(annotation_args[type(self)])
@@ -101,14 +106,11 @@ class Instruction(metaclass=InstructionType):
 
 class Forward(Instruction):
     """Forward computation for a pipeline stage."""
-    pass
 
 
 class Backward(Instruction):
     """Backward computation for a pipeline stage."""
-    pass
 
 
 class _Dummy(Instruction):
     """Dummy operation for entry and exit nodes in the DAG."""
-    pass

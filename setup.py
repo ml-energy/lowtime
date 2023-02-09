@@ -37,4 +37,7 @@ setup(
         "matplotlib",
     ],
     python_requires=">=3.9",
+    extras_require={
+        "dev": ["pylint==2.14.5", "black==22.10.0", "pydocstyle==6.1.1", "mypy==0.991"],
+    }
 )

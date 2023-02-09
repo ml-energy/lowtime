@@ -1,14 +1,15 @@
+"""Defines the DAG of instructions and algorithms to define their execution times."""
+
 from __future__ import annotations
 
 import inspect
 import itertools
-from typing import Type, Callable, Generator, Literal
+from typing import Iterable, Sequence, Type, Callable, Generator, Literal
 from queue import SimpleQueue
 from collections import deque
 import typing
 
 from rene.instruction import Instruction, InstructionType, Forward, Backward, _Dummy
-from rene.schedule import PipelineSchedule
 
 
 def forward_dep(inst1: Forward, inst2: Forward) -> bool:
@@ -16,34 +17,44 @@ def forward_dep(inst1: Forward, inst2: Forward) -> bool:
 
     Forward(stage i, microbatch j) -> Forward(stage i+1, microbatch j)
     """
-    return inst1.micro_batch_id == inst2.micro_batch_id and inst1.stage_id + 1 == inst2.stage_id
+    return (
+        inst1.micro_batch_id == inst2.micro_batch_id
+        and inst1.stage_id + 1 == inst2.stage_id
+    )
+
 
 def backward_dep(inst1: Backward, inst2: Backward) -> bool:
     """Dependency rule between Backward instructions.
 
     Backward(stage i+1, microbatch j) -> Backward(stage i, microbatch j)
     """
-    return inst1.micro_batch_id == inst2.micro_batch_id and inst1.stage_id == inst2.stage_id + 1
+    return (
+        inst1.micro_batch_id == inst2.micro_batch_id
+        and inst1.stage_id == inst2.stage_id + 1
+    )
+
 
 class InstructionDAG:
     """DAG of instructions and analysis methods."""
 
+    # pylint: disable=dangerous-default-value,too-many-branches
     def __init__(
         self,
-        schedule_type: Type[PipelineSchedule],
+        schedule_type: Callable[[int, int, int], Iterable[Instruction]],
         num_stages: int,
         num_micro_batches: int,
         durations: dict[Type[Instruction], list[float]],
-        dependency_rules: list[Callable[..., bool]] = [forward_dep, backward_dep],
+        dependency_rules: Sequence[Callable[..., bool]] = [forward_dep, backward_dep],
     ) -> None:
         """Instantiate instructions, connect the DAG, and run critical path analysis.
 
         Arguments:
-            schedule_type: A class that describes the pipeline schedule
-            num_stages: The number of pipeline stages
-            num_micro_batches: The number of micro batches in the pipeline
-            durations: A dict that maps instruction classes to a list of durations for each stage
-            dependency_rules: A list of functions that define the dependency between instructions
+            schedule_type: A callable that returns an iterable of pipeline instructions.
+                Can also be a subclass of `rene.schedule.PipeSchedule` like `Synchronous1F1B`.
+            num_stages: The number of pipeline stages.
+            num_micro_batches: The number of micro batches in the pipeline.
+            durations: A dict that maps instruction classes to a list of durations for each stage.
+            dependency_rules: A list of functions that define the dependency between instructions.
 
         ## Dependency rules
 
@@ -73,7 +84,9 @@ class InstructionDAG:
         # Sanity check.
         for latencies in self.durations.values():
             if len(latencies) != num_stages:
-                raise ValueError("`len(durations[instruction_type])` should be the same as `num_stages`")
+                raise ValueError(
+                    "`len(durations[instruction_type])` should be the same as `num_stages`"
+                )
 
         # Check the signature of depndency rules.
         for rule in self.dependency_rules:
@@ -83,7 +96,9 @@ class InstructionDAG:
             if "return" in type_hints:
                 type_hints.pop("return")
             if len(type_hints) != 2:
-                raise ValueError("Dependency rules must have exactly two type-annotated arguments.")
+                raise ValueError(
+                    "Dependency rules must have exactly two type-annotated arguments."
+                )
             for type_hint in type_hints.values():
                 if not isinstance(type_hint, InstructionType):
                     raise ValueError(
@@ -94,9 +109,11 @@ class InstructionDAG:
         # Generate instructions from `PipelineSchedule` and pipeline configurations.
         self._insts: list[Instruction] = []
         for stage_ind in range(self.num_stages):
-            stage = self.schedule_type(self.num_stages, self.num_micro_batches, stage_ind)
+            stage = self.schedule_type(
+                self.num_stages, self.num_micro_batches, stage_ind
+            )
             prev_inst = None
-            for inst in stage.steps():
+            for inst in stage:
                 inst.duration = self.durations[type(inst)][inst.stage_id]
                 self._insts.append(inst)
                 if prev_inst is not None:
@@ -133,13 +150,17 @@ class InstructionDAG:
 
         # Backward computation: Assign latest start and finish times
         # Exit node has duration 0, so latest finish and latest start should be the same.
-        self.exit_node.latest_finish = self.exit_node.latest_start = self.exit_node.earliest_start
+        self.exit_node.latest_finish = (
+            self.exit_node.latest_start
+        ) = self.exit_node.earliest_start
         q.put(self.exit_node)
 
         while not q.empty():
             node = q.get()
             for child in node.parents:
-                child.latest_start = min(child.latest_start, node.latest_start - child.duration)
+                child.latest_start = min(
+                    child.latest_start, node.latest_start - child.duration
+                )
                 child.latest_finish = child.latest_start + child.duration
                 q.put(child)
 
@@ -153,7 +174,10 @@ class InstructionDAG:
             type_hints = typing.get_type_hints(rule)
             if "return" in type_hints:
                 type_hints.pop("return")
-            if all(isinstance(inst, type) for inst, type in zip([inst1, inst2], type_hints.values())):
+            if all(
+                isinstance(inst, type)
+                for inst, type in zip([inst1, inst2], type_hints.values())
+            ):
                 result = rule(inst1, inst2)
                 if not isinstance(result, bool):
                     raise RuntimeError("Dependency rule returned a non-boolean value.")
@@ -162,7 +186,7 @@ class InstructionDAG:
         return False
 
     def get_critical_path(self) -> list[Instruction]:
-        """Returns the critical path of the DAG.
+        """Return the critical path of the DAG.
 
         When there are multiple possible critical paths, choose the smoothest,
         i.e. one with minimum number of `stage_id` changes along the path.
@@ -192,13 +216,15 @@ class InstructionDAG:
 
     @property
     def total_execution_time(self) -> float:
-        """The finish time of the last instruction."""
-        assert self.exit_node.earliest_finish == self.exit_node.latest_finish, "Dummy exit node is not on the critical path."
+        """Return the finish time of the last instruction."""
+        assert (
+            self.exit_node.earliest_finish == self.exit_node.latest_finish
+        ), "Dummy exit node is not on the critical path."
         return self.exit_node.earliest_finish
 
     @property
     def insts(self) -> Generator[Instruction, None, None]:
-        """A generator over non-dummy instructions."""
+        """Yield non-dummy instructions."""
         yield from filter(lambda inst: not isinstance(inst, _Dummy), self._insts)
 
     def schedule(self, algo: Literal["eager", "lazy"] = "eager") -> None:
@@ -218,4 +244,6 @@ class InstructionDAG:
                 inst.actual_start = inst.latest_start
                 inst.actual_finish = inst.latest_finish
         else:
-            raise NotImplementedError(f"Scheduling algorithm '{algo}' is not implemented")
+            raise NotImplementedError(
+                f"Scheduling algorithm '{algo}' is not implemented"
+            )

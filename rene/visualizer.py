@@ -1,9 +1,11 @@
+"""`PipelineVisualizer` draws a scheduled `InstructionDAG` with matplotlib."""
+
 from __future__ import annotations
 
 from typing import Any
 
-from matplotlib.axes import Axes
-from matplotlib.ticker import FormatStrFormatter
+from matplotlib.axes import Axes  # type: ignore
+from matplotlib.ticker import FormatStrFormatter  # type: ignore
 
 from rene.instruction import InstructionType, Forward, Backward
 from rene.dag import InstructionDAG
@@ -21,13 +23,16 @@ DEFAULT_ANNOTATION_ARGS = {
 
 DEFAULT_LINE_ARGS = dict(color="#ff9900", linewidth=4.0)
 
-class PipelineVisualizer:
 
+class PipelineVisualizer:
+    """Draws a scheduled `InstructionDAG` with matplotlib."""
+
+    # pylint: disable=dangerous-default-value
     def __init__(
         self,
         dag: InstructionDAG,
-        rectangle_args: dict[InstructionType, dict[str, Any]] = DEFAULT_RECTANGLE_ARGS,
-        annotation_args: dict[InstructionType, dict[str, Any]] = DEFAULT_ANNOTATION_ARGS,
+        rectangle_args: dict[InstructionType, dict[str, Any]] = DEFAULT_RECTANGLE_ARGS,  # type: ignore
+        annotation_args: dict[InstructionType, dict[str, Any]] = DEFAULT_ANNOTATION_ARGS,  # type: ignore
         line_args: dict[str, Any] = DEFAULT_LINE_ARGS,
     ) -> None:
         """Save the DAG and matplotilb arguments.
@@ -59,8 +64,10 @@ class PipelineVisualizer:
 
             total_time = self.dag.total_execution_time
             ax.set_xlabel("time")
-            ax.xaxis.set_major_formatter(FormatStrFormatter('%.2f'))
-            ax.set_xticks([float(t * 5) for t in range(int(total_time) // 5)] + [total_time])
+            ax.xaxis.set_major_formatter(FormatStrFormatter("%.2f"))
+            ax.set_xticks(
+                [float(t * 5) for t in range(int(total_time) // 5)] + [total_time]
+            )
 
             for side in ["top", "left", "right"]:
                 ax.spines[side].set_visible(False)
@@ -76,7 +83,10 @@ class PipelineVisualizer:
         critical_path = self.dag.get_critical_path()
         for inst1, inst2 in zip(critical_path, critical_path[1:]):
             ax.plot(
-                [(inst1.actual_start + inst1.actual_finish) / 2, (inst2.actual_start + inst2.actual_finish) / 2],
+                [
+                    (inst1.actual_start + inst1.actual_finish) / 2,
+                    (inst2.actual_start + inst2.actual_finish) / 2,
+                ],
                 [inst1.stage_id + 0.75, inst2.stage_id + 0.75],
                 **self.line_args,
             )
