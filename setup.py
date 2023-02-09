@@ -20,7 +20,7 @@ setup(
     description="A pipeline visualizer for pipeline parallel DNN training",
     long_description="# Rene: A pipeline visualizer for pipeline parallel DNN training\n",
     long_description_content_type="text/markdown",
-    url="https://github.com/jaywonchung/rene",
+    url="https://github.com/SymbioticLab/rene",
     author="Jae-Won Chung",
     author_email="jwnchung@umich.edu",
     license="Apache-2.0",
