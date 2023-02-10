@@ -43,7 +43,7 @@ class InstructionDAG:
         schedule_type: Callable[[int, int, int], Iterable[Instruction]],
         num_stages: int,
         num_micro_batches: int,
-        durations: dict[Type[Instruction], list[float]],
+        durations: dict[Type[Instruction], list[float]] | None,
         dependency_rules: Sequence[Callable[..., bool]] = [forward_dep, backward_dep],
     ) -> None:
         """Instantiate instructions, connect the DAG, and run critical path analysis.
@@ -54,6 +54,8 @@ class InstructionDAG:
             num_stages: The number of pipeline stages.
             num_micro_batches: The number of micro batches in the pipeline.
             durations: A dict that maps instruction classes to a list of durations for each stage.
+                `None` is aceptable if `schedule_type` will produce `Instruction`s that already
+                know their durations.
             dependency_rules: A list of functions that define the dependency between instructions.
 
         ## Dependency rules
@@ -82,11 +84,12 @@ class InstructionDAG:
         self.scheduled = False
 
         # Sanity check.
-        for latencies in self.durations.values():
-            if len(latencies) != num_stages:
-                raise ValueError(
-                    "`len(durations[instruction_type])` should be the same as `num_stages`"
-                )
+        if self.durations is not None:
+            for latencies in self.durations.values():
+                if len(latencies) != num_stages:
+                    raise ValueError(
+                        "`len(durations[instruction_type])` should be the same as `num_stages`"
+                    )
 
         # Check the signature of depndency rules.
         for rule in self.dependency_rules:
@@ -114,7 +117,9 @@ class InstructionDAG:
             )
             prev_inst = None
             for inst in stage:
-                inst.duration = self.durations[type(inst)][inst.stage_id]
+                # When `durations` is `None`, it means that `inst` already has `duration` set.
+                if self.durations is not None:
+                    inst.duration = self.durations[type(inst)][inst.stage_id]
                 self._insts.append(inst)
                 if prev_inst is not None:
                     prev_inst.then(inst)
