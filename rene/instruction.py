@@ -35,12 +35,14 @@ class Instruction(metaclass=InstructionType):
         stage_id: Zero-indexed pipeline stage
         micro_batch_id: Zero-indexed micro batch number
         duration: Duration of this instruction
+        unit_cost: Projected unit energy cost when changing a single unit of duration
         parents: Instructions that this instruction depends on
         children: Instructions that depend on this instruction
         earliest_start: The earliest time this instruction can start
         latest_start: The latest time this instruction can start
         earliest_finish: The earliest time this instruction can finish
         latest_finish: The latest time this instruction can finish
+        slack: The max delay for this instruction without delaying latest_finish
         actual_start: The actual start time determined by the scheduling algorithm
         actual_finish: The actual finish time determined by the scheduling algorithm
     """
@@ -48,6 +50,7 @@ class Instruction(metaclass=InstructionType):
     stage_id: int
     micro_batch_id: int
     duration: float = 0.0
+    unit_cost: float = 0.0
 
     # DAG metadata
     parents: list[Instruction] = field(default_factory=list)
@@ -58,6 +61,7 @@ class Instruction(metaclass=InstructionType):
     latest_start: float = float("inf")
     earliest_finish: float = 0.0
     latest_finish: float = float("inf")
+    slack: float = 0.0
 
     # Values set by `InstructionDAG.schedule`
     actual_start: float = 0.0

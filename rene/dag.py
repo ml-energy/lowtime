@@ -43,7 +43,7 @@ class InstructionDAG:
         schedule_type: Callable[[int, int, int], Iterable[Instruction]],
         num_stages: int,
         num_micro_batches: int,
-        durations: dict[Type[Instruction], list[float]] | None,
+        time_costs: dict[Instruction, list[tuple]],
         dependency_rules: Sequence[Callable[..., bool]] = [forward_dep, backward_dep],
     ) -> None:
         """Instantiate instructions, connect the DAG, and run critical path analysis.
@@ -53,9 +53,7 @@ class InstructionDAG:
                 Can also be a subclass of `rene.schedule.PipeSchedule` like `Synchronous1F1B`.
             num_stages: The number of pipeline stages.
             num_micro_batches: The number of micro batches in the pipeline.
-            durations: A dict that maps instruction classes to a list of durations for each stage.
-                `None` is aceptable if `schedule_type` will produce `Instruction`s that already
-                know their durations.
+            time_costs: A dict that maps instruction to a list of (duration, cost, frequency) tuples.
             dependency_rules: A list of functions that define the dependency between instructions.
 
         ## Dependency rules
@@ -78,18 +76,18 @@ class InstructionDAG:
         self.schedule_type = schedule_type
         self.num_stages = num_stages
         self.num_micro_batches = num_micro_batches
-        self.durations = durations
+        self.time_costs = time_costs
         self.dependency_rules = dependency_rules
 
         self.scheduled = False
 
         # Sanity check.
-        if self.durations is not None:
-            for latencies in self.durations.values():
-                if len(latencies) != num_stages:
-                    raise ValueError(
-                        "`len(durations[instruction_type])` should be the same as `num_stages`"
-                    )
+        # if self.durations is not None:
+        #     for latencies in self.durations.values():
+        #         if len(latencies) != num_stages:
+        #             raise ValueError(
+        #                 "`len(durations[instruction_type])` should be the same as `num_stages`"
+        #             )
 
         # Check the signature of depndency rules.
         for rule in self.dependency_rules:
@@ -118,8 +116,21 @@ class InstructionDAG:
             prev_inst = None
             for inst in stage:
                 # When `durations` is `None`, it means that `inst` already has `duration` set.
-                if self.durations is not None:
-                    inst.duration = self.durations[type(inst)][inst.stage_id]
+                # if self.durations is not None:
+                #     inst.duration = self.durations[type(inst)][inst.stage_id]
+
+                # Sort the (duration, cost, frequency) tuple by reverse duration
+                self.time_costs[inst] = sorted(time_costs[inst], reverse=True)
+                # Sanity check
+                if (len(self.time_costs[inst]) == 0):
+                    raise ValueError(
+                        f"No time-cost meta-data for instruction '{inst.__repr__()}'. "
+                    )
+                # Pick shortest duration by default, as default schedule policy is "eager"
+                inst.duration = self.time_costs[inst][-1][0]
+                # Do linear interpolation here
+                inst.unit_cost = self.linear_interpolate(inst)
+
                 self._insts.append(inst)
                 if prev_inst is not None:
                     prev_inst.then(inst)
@@ -140,34 +151,8 @@ class InstructionDAG:
             if not node.children:
                 node.then(self.exit_node)
 
-        # Annotate earliest/latest start/finish times in nodes.
-        # Forward computation: Assign earliest start and finish times
-        self.entry_node.earliest_start = 0.0
-        q: SimpleQueue[Instruction] = SimpleQueue()
-        q.put(self.entry_node)
-
-        while not q.empty():
-            node = q.get()
-            for child in node.children:
-                child.earliest_start = max(child.earliest_start, node.earliest_finish)
-                child.earliest_finish = child.earliest_start + child.duration
-                q.put(child)
-
-        # Backward computation: Assign latest start and finish times
-        # Exit node has duration 0, so latest finish and latest start should be the same.
-        self.exit_node.latest_finish = (
-            self.exit_node.latest_start
-        ) = self.exit_node.earliest_start
-        q.put(self.exit_node)
-
-        while not q.empty():
-            node = q.get()
-            for child in node.parents:
-                child.latest_start = min(
-                    child.latest_start, node.latest_start - child.duration
-                )
-                child.latest_finish = child.latest_start + child.duration
-                q.put(child)
+        # Annotate earliest/latest start/finish/slack times in nodes.
+        self.annotate_nodes()
 
     def _is_dependent(self, inst1: Instruction, inst2: Instruction) -> bool:
         """Check if there is a dependency from `inst1` to `inst2`.
@@ -218,6 +203,49 @@ class InstructionDAG:
 
         # Slice out entry and exit nodes
         return list(filter(lambda node: not isinstance(node, _Dummy), critical_path))
+    
+    def linear_interpolate(self, inst: Instruction) -> float:
+        """Do linear interpolation on the given instruction and its time-costs meta-data, return the unit cost (slope)
+
+        Assumes self.time_costs[inst] has already been sorted.
+        """
+        # Get the slope from two endpoints
+        right_end = self.time_costs[inst][0]
+        left_end = self.time_costs[inst][-1]
+        unit_cost = (right_end[1] - left_end[1]) / (right_end[0] - left_end[0])
+        return unit_cost
+
+    def annotate_nodes(self) -> None:
+        """Annotate earliest/latest start/finish/slack times in nodes.
+        """
+        # Forward computation: Assign earliest start and finish times
+        self.entry_node.earliest_start = 0.0
+        q: SimpleQueue[Instruction] = SimpleQueue()
+        q.put(self.entry_node)
+
+        while not q.empty():
+            node = q.get()
+            for child in node.children:
+                child.earliest_start = max(child.earliest_start, node.earliest_finish)
+                child.earliest_finish = child.earliest_start + child.duration
+                q.put(child)
+
+        # Backward computation: Assign latest start and finish times
+        # Exit node has duration 0, so latest finish and latest start should be the same.
+        self.exit_node.latest_finish = (
+            self.exit_node.latest_start
+        ) = self.exit_node.earliest_start
+        q.put(self.exit_node)
+
+        while not q.empty():
+            node = q.get()
+            for child in node.parents:
+                child.latest_start = min(
+                    child.latest_start, node.latest_start - child.duration
+                )
+                child.latest_finish = child.latest_start + child.duration
+                child.slack = child.latest_finish - child.earliest_start - child.duration
+                q.put(child)
 
     @property
     def total_execution_time(self) -> float:
@@ -232,12 +260,13 @@ class InstructionDAG:
         """Yield non-dummy instructions."""
         yield from filter(lambda inst: not isinstance(inst, _Dummy), self._insts)
 
-    def schedule(self, algo: Literal["eager", "lazy"] = "eager") -> None:
+    def schedule(self, algo: Literal["eager", "lazy", "pd"] = "eager") -> None:
         """Determine the actual start/finish times of all instructions.
 
         Available algorithms:
             eager: Whenever I can execute, I immediately execute.
             lazy: I postpone execution as much as possible.
+            pd: Linearly optimal schedule for minimum energy cost
         """
         self.scheduled = True
         if algo == "eager":
@@ -248,7 +277,20 @@ class InstructionDAG:
             for inst in self.insts:
                 inst.actual_start = inst.latest_start
                 inst.actual_finish = inst.latest_finish
+        elif algo == "pd":
+            self.run_pd_algo()
         else:
             raise NotImplementedError(
                 f"Scheduling algorithm '{algo}' is not implemented"
             )
+
+
+    def run_pd_algo(self) -> None:
+        # update duration to be the longest
+        for inst in self._insts:
+            inst.duration = self.time_costs[inst][0][0]
+        # update E/L start/finish/slack
+        self.annotate_nodes()
+        # get a new critical path
+        critical_path = self.get_critical_path()
+
