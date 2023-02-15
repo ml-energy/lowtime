@@ -127,7 +127,7 @@ class InstructionDAG:
                     raise ValueError(
                         f"No time-cost meta-data for instruction '{inst.__repr__()}'. "
                     )
-                # Pick shortest duration by default, as default schedule policy is "eager"
+                # Pick longest duration by default, as default schedule policy is "eager"
                 inst.duration = self.time_costs[type(inst)][stage_ind][0][0]
                 # Set min/max duration for each instruction
                 inst.max_duration = self.time_costs[type(inst)][stage_ind][0][0]

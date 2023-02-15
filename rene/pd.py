@@ -20,6 +20,7 @@ class PD_Solver:
         Arguments:
             entry_node: Start node of the InstructionDAG
         """
+        # TODO: change node access to instruction instead of ids
         self.node_id: int = 0
         self.inst_map: dict[str, Instruction] = dict()
         self.inst_id_map: dict[str, int] = dict()
@@ -75,8 +76,12 @@ class PD_Solver:
             raise ValueError(
                         f"The first operation in the AON graph has {len(dag.predecessors(0))} predecessors!"
                     )
+        targets = list(dag.nodes)
         while not q.empty():
             cur_id: int = q.get()
+            # Skip processed nodes in AON and new nodes in AOA
+            if cur_id not in targets:
+                continue
             cur_inst: Instruction = self.inst_map[dag.nodes[cur_id]["repr"]]
             # Store current node's predecessors and successors
             pred_ids: list[int] = list(dag.predecessors(cur_id))
@@ -97,6 +102,8 @@ class PD_Solver:
             for succ_id in succ_ids:
                 dag.add_edge(right_id, succ_id, weight=0.0, repr="Dummy")
                 q.put(succ_id)
+            targets.remove(cur_id)
+
         return dag
 
         
@@ -119,3 +126,55 @@ class PD_Solver:
         plt.tight_layout()
         plt.savefig("aoa_graph.png", format="PNG")
         plt.clf()
+
+def aon_to_aoa_pure() -> nx.DiGraph:
+    # TODO: crash dummy nodes for optimization
+    # do a BFS to split all nodes and reconnect
+    weight_dict = {1: 20, 2: 30, 3: 10, 4: 25}
+    dag: nx.DiGraph = nx.DiGraph()
+    dag.add_nodes_from([1,2,3,4])
+    dag.add_edges_from([(1,2), (1,3), (2,4), (3,4)])
+    node_id = 5
+    pos = nx.spring_layout(dag)
+    nx.draw(dag, pos, with_labels=True, font_weight='bold')
+    plt.tight_layout()
+    plt.savefig("aon_proof_of_concept.png", format="PNG")
+    plt.clf()
+    q: SimpleQueue[int] = SimpleQueue()
+    q.put(1)
+    targets = [1, 2, 3, 4]
+    while not q.empty():
+        cur_id: int = q.get()
+        if cur_id not in targets:
+            continue
+        print("current: ", cur_id)
+        # Store current node's predecessors and successors
+        pred_ids: list[int] = list(dag.predecessors(cur_id))
+        succ_ids: list[int] = list(dag.successors(cur_id))
+        # Remove current node
+        dag.remove_node(cur_id)
+        # Split node
+        left_id = node_id
+        right_id = left_id + 1
+        dag.add_node(left_id)
+        dag.add_node(right_id)
+        # Create activity-on-edge
+        dag.add_edge(left_id, right_id, weight=weight_dict[cur_id])
+        node_id += 2
+        # Reconnect with predecessors and successors
+        for pred_id in pred_ids:
+            dag.add_edge(pred_id, left_id, weight=0.0)
+        for succ_id in succ_ids:
+            dag.add_edge(right_id, succ_id, weight=0.0)
+            q.put(succ_id)
+        targets.remove(cur_id)
+    pos = nx.spring_layout(dag)
+    nx.draw(dag, pos, with_labels=True, font_weight='bold')
+    edge_labels = nx.get_edge_attributes(dag, "weight")
+    nx.draw_networkx_edge_labels(dag, pos, edge_labels=edge_labels)
+    plt.tight_layout()
+    plt.savefig("aoa_proof_of_concept.png", format="PNG")
+    plt.clf()
+
+if __name__ == "__main__":
+    aon_to_aoa_pure()
