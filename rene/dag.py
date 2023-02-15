@@ -299,5 +299,7 @@ class InstructionDAG:
         critical_path = self.get_critical_path()
         print("critical path: ", critical_path)
         pd_solver: PD_Solver = PD_Solver(self.entry_node)
-        pd_solver.draw_aon_graph()
-
+        # Placeholder: do eager schedule for now
+        for inst in self.insts:
+            inst.actual_start = inst.earliest_start
+            inst.actual_finish = inst.earliest_finish
