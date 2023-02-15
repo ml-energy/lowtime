@@ -6,19 +6,25 @@ from rene import InstructionDAG, Synchronous1F1B, Forward, Backward, PipelineVis
 # Instantiate the Instruction DAG.
 dag = InstructionDAG(
     schedule_type=Synchronous1F1B,
-    num_stages=5,
+    num_stages=4,
     num_micro_batches=5,
-    durations={Forward: [1.0, 1.0, 1.4, 1.0, 1.2], Backward: [1.5, 1.5, 2.5, 1.5, 1.6]},
+    # F-0 y=-x+50 F-1 y=-2x+60 B-0 y=-3x+80 B-1 y=-4x+100
+    time_costs={Forward: {0: [(10, 40, 1000), (30, 20, 500), (20, 30, 700)],
+    1: [(10, 40, 1000), (20, 20, 400), (15, 30, 700)], 2: [(10, 40, 1000), (30, 20, 500), (20, 30, 700)],
+    3: [(10, 40, 1000), (20, 20, 400), (15, 30, 700)]}, 
+    Backward: {0: [(10, 50, 1000), (20, 20, 500), (15, 35, 700)],
+    1: [(10, 60, 1000), (20, 20, 400), (15, 40, 700)], 2: [(10, 50, 1000), (20, 20, 500), (15, 35, 700)],
+    3: [(10, 60, 1000), (20, 20, 400), (15, 40, 700)]}},
 )
 # Schedule instructions with the "eager" scheduling algorithm.
 # Refer to the docstring for available scheduling algorithms.
-dag.schedule("eager")
+dag.schedule("pd")
 
 # Pass the DAG to the pipeline visualizer.
 # Refer to the constructor for matplotlib customization.
 vis = PipelineVisualizer(dag)
 
-# Instantiate a matplotlib subplot and draw the pipeline and critical path.
+# # Instantitate a matplotlib subplot and draw the pipeline and critical path.
 fig, ax = plt.subplots(figsize=(12, 4), tight_layout=True)
 vis.draw(ax, draw_time_axis=True)
 vis.draw_critical_path(ax)

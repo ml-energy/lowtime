@@ -51,6 +51,8 @@ class Instruction(metaclass=InstructionType):
     micro_batch_id: int
     duration: float = 0.0
     unit_cost: float = 0.0
+    max_duration: float = 0.0
+    min_duration: float = 0.0
 
     # DAG metadata
     parents: list[Instruction] = field(default_factory=list)

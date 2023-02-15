@@ -35,6 +35,7 @@ setup(
     packages=find_packages("."),
     install_requires=[
         "matplotlib",
+        "networkx",
     ],
     python_requires=">=3.9",
     extras_require={

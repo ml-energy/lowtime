@@ -10,6 +10,7 @@ from collections import deque
 import typing
 
 from rene.instruction import Instruction, InstructionType, Forward, Backward, _Dummy
+from rene.pd import PD_Solver
 
 
 def forward_dep(inst1: Forward, inst2: Forward) -> bool:
@@ -43,7 +44,7 @@ class InstructionDAG:
         schedule_type: Callable[[int, int, int], Iterable[Instruction]],
         num_stages: int,
         num_micro_batches: int,
-        time_costs: dict[Instruction, list[tuple]],
+        time_costs: dict[Type[Instruction], dict[int, list[tuple]]],
         dependency_rules: Sequence[Callable[..., bool]] = [forward_dep, backward_dep],
     ) -> None:
         """Instantiate instructions, connect the DAG, and run critical path analysis.
@@ -53,7 +54,7 @@ class InstructionDAG:
                 Can also be a subclass of `rene.schedule.PipeSchedule` like `Synchronous1F1B`.
             num_stages: The number of pipeline stages.
             num_micro_batches: The number of micro batches in the pipeline.
-            time_costs: A dict that maps instruction to a list of (duration, cost, frequency) tuples.
+            time_costs: A dict that maps instruction type to a dict of stage_id : list of (duration, cost, frequency) tuples.
             dependency_rules: A list of functions that define the dependency between instructions.
 
         ## Dependency rules
@@ -82,12 +83,12 @@ class InstructionDAG:
         self.scheduled = False
 
         # Sanity check.
-        # if self.durations is not None:
-        #     for latencies in self.durations.values():
-        #         if len(latencies) != num_stages:
-        #             raise ValueError(
-        #                 "`len(durations[instruction_type])` should be the same as `num_stages`"
-        #             )
+        if self.time_costs is not None:
+            for meta_dic in self.time_costs.values():
+                if len(meta_dic) != num_stages:
+                    raise ValueError(
+                        "`len(time_costs[instruction_type])` should be the same as `num_stages`"
+                    )
 
         # Check the signature of depndency rules.
         for rule in self.dependency_rules:
@@ -120,14 +121,17 @@ class InstructionDAG:
                 #     inst.duration = self.durations[type(inst)][inst.stage_id]
 
                 # Sort the (duration, cost, frequency) tuple by reverse duration
-                self.time_costs[inst] = sorted(time_costs[inst], reverse=True)
+                self.time_costs[type(inst)][stage_ind] = sorted(time_costs[type(inst)][stage_ind], reverse=True)
                 # Sanity check
-                if (len(self.time_costs[inst]) == 0):
+                if (len(self.time_costs[type(inst)][stage_ind]) == 0):
                     raise ValueError(
                         f"No time-cost meta-data for instruction '{inst.__repr__()}'. "
                     )
                 # Pick shortest duration by default, as default schedule policy is "eager"
-                inst.duration = self.time_costs[inst][-1][0]
+                inst.duration = self.time_costs[type(inst)][stage_ind][0][0]
+                # Set min/max duration for each instruction
+                inst.max_duration = self.time_costs[type(inst)][stage_ind][0][0]
+                inst.min_duration = self.time_costs[type(inst)][stage_ind][-1][0]
                 # Do linear interpolation here
                 inst.unit_cost = self.linear_interpolate(inst)
 
@@ -210,8 +214,8 @@ class InstructionDAG:
         Assumes self.time_costs[inst] has already been sorted.
         """
         # Get the slope from two endpoints
-        right_end = self.time_costs[inst][0]
-        left_end = self.time_costs[inst][-1]
+        right_end = self.time_costs[type(inst)][inst.stage_id][0]
+        left_end = self.time_costs[type(inst)][inst.stage_id][-1]
         unit_cost = (right_end[1] - left_end[1]) / (right_end[0] - left_end[0])
         return unit_cost
 
@@ -288,9 +292,12 @@ class InstructionDAG:
     def run_pd_algo(self) -> None:
         # update duration to be the longest
         for inst in self._insts:
-            inst.duration = self.time_costs[inst][0][0]
+            inst.duration = self.time_costs[type(inst)][inst.stage_id][0][0]
         # update E/L start/finish/slack
         self.annotate_nodes()
         # get a new critical path
         critical_path = self.get_critical_path()
+        print("critical path: ", critical_path)
+        pd_solver: PD_Solver = PD_Solver(self.entry_node)
+        pd_solver.draw_aon_graph()
 
