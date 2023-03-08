@@ -26,16 +26,10 @@ class PD_Solver:
         self.node_id: int = 0
         self.inst_map: dict[str, Instruction] = dict()
         self.inst_id_map: dict[str, int] = dict()
+        self.iteration: int = 0
         self.entry_node = entry_node
         self.exit_node = exit_node
-        self.critical_graph_aon: nx.DiGraph = self.generate_aon_graph()
-        self.draw_aon_graph()
-        # print("aon", list(self.critical_graph_aon.edges()))
-        self.critical_graph_aoa: nx.DiGraph = self.aon_to_aoa()
-        self.draw_aoa_graph()
-        self.capacity_graph: nx.DiGraph = self.generate_capacity_graph()
-        self.draw_capacity_graph()
-        self.find_min_cut()
+        self.run_pd_algorithm()
 
         # print("aoa", list(self.critical_graph_aoa.edges()))
 
@@ -176,24 +170,25 @@ class PD_Solver:
 
         return (visited, parents)
 
-    def find_min_cut(self) -> None:
+    def find_min_cut(self) -> tuple(set[int], set[int]):
+        residual_graph: nx.DiGraph = nx.DiGraph(self.capacity_graph)
         entry_id = self.inst_id_map["Entry"]
         exit_id = self.inst_id_map["Exit"]
         while True:
             # Step 1: get a path from entry to exit
-            visited, parents = self.search_path_bfs(self.capacity_graph, entry_id, exit_id)
+            visited, parents = self.search_path_bfs(residual_graph, entry_id, exit_id)
             if visited[exit_id] == False:
                 break
             # Step 2: find min capacity along the path
             right_ptr = exit_id
             left_ptr = parents[exit_id]
             path = [right_ptr, left_ptr]
-            min_capacity = self.capacity_graph[left_ptr][right_ptr]["weight"]
+            min_capacity = residual_graph[left_ptr][right_ptr]["weight"]
             while left_ptr != entry_id:
                 right_ptr = left_ptr
                 left_ptr = parents[left_ptr]
                 path.append(left_ptr)
-                min_capacity = min(self.capacity_graph[left_ptr][right_ptr]["weight"], min_capacity)
+                min_capacity = min(residual_graph[left_ptr][right_ptr]["weight"], min_capacity)
             print(f"path  {path}")
             
             # Step 3: update residual graph
@@ -201,19 +196,19 @@ class PD_Solver:
             left_ptr = parents[exit_id]
             while True:
                 
-                self.capacity_graph[left_ptr][right_ptr]["weight"] -= min_capacity
+                residual_graph[left_ptr][right_ptr]["weight"] -= min_capacity
                 # Create residual edge if needed
-                if self.capacity_graph.has_edge(right_ptr, left_ptr) == False:
-                    self.capacity_graph.add_edge(right_ptr, left_ptr, weight=min_capacity, inst=self.capacity_graph[left_ptr][right_ptr]["inst"])
+                if residual_graph.has_edge(right_ptr, left_ptr) == False:
+                    residual_graph.add_edge(right_ptr, left_ptr, weight=min_capacity, inst=residual_graph[left_ptr][right_ptr]["inst"])
                 else:
-                    self.capacity_graph[right_ptr][left_ptr]["weight"] += min_capacity
+                    residual_graph[right_ptr][left_ptr]["weight"] += min_capacity
                 if left_ptr == entry_id:
                     break
                 right_ptr = left_ptr
                 left_ptr = parents[left_ptr]
             
         # Step 4: find the cut:
-        visited, _ = self.search_path_bfs(self.capacity_graph, entry_id, exit_id)
+        visited, _ = self.search_path_bfs(residual_graph, entry_id, exit_id)
         s_set: set[int] = set()
         t_set: set[int] = set()
         for i in range(len(visited)):
@@ -221,8 +216,96 @@ class PD_Solver:
                 s_set.add(i)
             else:
                 t_set.add(i)
-        print("s_set: ",s_set)
-        print("t_set ", t_set)
+        print(f"Iteration {self.iteration}: s_set: ",s_set)
+        print(f"Iteration {self.iteration}: t_set ", t_set)
+        return (s_set, t_set)
+    
+    def run_pd_algorithm(self) -> None:
+        while True:
+            self.clear_annotations()
+            self.inst_id_map.clear()
+            self.inst_map.clear()
+            self.node_id = 0
+            self.annotate_nodes()
+            self.critical_graph_aon: nx.DiGraph = self.generate_aon_graph()
+            self.draw_aon_graph()
+            # print("aon", list(self.critical_graph_aon.edges()))
+            self.critical_graph_aoa: nx.DiGraph = self.aon_to_aoa()
+            self.draw_aoa_graph()
+            self.capacity_graph: nx.DiGraph = self.generate_capacity_graph()
+            self.draw_capacity_graph()
+            s_set, t_set = self.find_min_cut()
+            self.reduce_duration(s_set, t_set)
+            self.iteration += 1
+
+    def annotate_nodes(self) -> None:
+        """Annotate earliest/latest start/finish/slack times in nodes.
+        """
+        # Forward computation: Assign earliest start and finish times
+        self.entry_node.earliest_start = 0.0
+        self.entry_node.earliest_finish = self.entry_node.earliest_start + self.entry_node.duration
+        q: SimpleQueue[Instruction] = SimpleQueue()
+        q.put(self.entry_node)
+
+        while not q.empty():
+            node = q.get()
+            for child in node.children:
+                child.earliest_start = max(child.earliest_start, node.earliest_finish)
+                child.earliest_finish = child.earliest_start + child.duration
+                q.put(child)
+
+        # Backward computation: Assign latest start and finish times
+        # Exit node has duration 0, so latest finish and latest start should be the same.
+        self.exit_node.latest_finish = (
+            self.exit_node.latest_start
+        ) = self.exit_node.earliest_start
+        q.put(self.exit_node)
+
+        while not q.empty():
+            node = q.get()
+            for child in node.parents:
+                child.latest_start = min(
+                    child.latest_start, node.latest_start - child.duration
+                )
+                child.latest_finish = child.latest_start + child.duration
+                child.slack = child.latest_finish - child.earliest_start - child.duration
+                q.put(child)
+    
+    def clear_annotations(self) -> None:
+        q: SimpleQueue[Instruction] = SimpleQueue()
+        q.put(self.entry_node)
+
+        while not q.empty():
+            cur_node = q.get()
+            cur_node.earliest_start = 0.0
+            cur_node.latest_start = float("inf")
+            cur_node.earliest_finish = 0.0
+            cur_node.latest_finish = float("inf")
+            cur_node.slack = 0.0
+            for child in cur_node.children:
+                q.put(child)
+    
+    def reduce_duration(self, s: set[int], t: set[int]) -> None:
+        reduce_edges: list[tuple(int, int)] = list()
+        increase_edges: list[tuple(int, int)] = list()
+        for node_id in s:
+            for child_id in list(self.capacity_graph.successors(node_id)):
+                if child_id in t:
+                    reduce_edges.append((node_id, child_id))
+        
+        for node_id in t:
+            for child_id in list(self.capacity_graph.successors(node_id)):
+                if child_id in s:
+                    increase_edges.append((node_id, child_id))
+        
+        print(f"Iteration {self.iteration}: reduce edges {reduce_edges}")
+        print(f"Iteration {self.iteration}: increase edges {increase_edges}")
+
+        for u, v in reduce_edges:
+            self.capacity_graph[u][v]["inst"].duration -= 1
+
+        for u, v in increase_edges:
+            self.capacity_graph[u][v]["inst"].duration += 1
 
     def draw_aon_graph(self) -> None:
         pos = nx.spring_layout(self.critical_graph_aon)
@@ -230,7 +313,7 @@ class PD_Solver:
         labels = nx.get_node_attributes(self.critical_graph_aon, "repr")
         nx.draw_networkx_labels(self.critical_graph_aon, pos, labels=labels)
         plt.tight_layout()
-        plt.savefig("aon_graph.png", format="PNG")
+        plt.savefig(f"aon_graph_{self.iteration}.png", format="PNG")
         plt.clf()
 
     def draw_aoa_graph(self) -> None:
@@ -241,7 +324,7 @@ class PD_Solver:
         edge_labels = nx.get_edge_attributes(self.critical_graph_aoa, "weight")
         nx.draw_networkx_edge_labels(self.critical_graph_aoa, pos, edge_labels=edge_labels)
         plt.tight_layout()
-        plt.savefig("aoa_graph.png", format="PNG")
+        plt.savefig(f"aoa_graph_{self.iteration}.png", format="PNG")
         plt.clf()
 
     def draw_capacity_graph(self) -> None:
@@ -252,7 +335,7 @@ class PD_Solver:
         edge_labels = nx.get_edge_attributes(self.capacity_graph, "weight")
         nx.draw_networkx_edge_labels(self.capacity_graph, pos, edge_labels=edge_labels)
         plt.tight_layout()
-        plt.savefig("capacity_graph.png", format="PNG")
+        plt.savefig(f"capacity_graph_{self.iteration}.png", format="PNG")
         plt.clf()
 
 def aon_to_aoa_pure() -> nx.DiGraph:
