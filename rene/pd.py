@@ -221,6 +221,7 @@ class PD_Solver:
         return (s_set, t_set)
     
     def run_pd_algorithm(self) -> None:
+        # TODO: need to start the following iterations using the assigned flows
         while True:
             self.clear_annotations()
             self.inst_id_map.clear()
@@ -235,7 +236,10 @@ class PD_Solver:
             self.capacity_graph: nx.DiGraph = self.generate_capacity_graph()
             self.draw_capacity_graph()
             s_set, t_set = self.find_min_cut()
-            self.reduce_duration(s_set, t_set)
+            total_cost = self.reduce_duration(s_set, t_set)
+            print(f"Iteration {self.iteration}: total cost {total_cost}")
+            if total_cost == float('inf'):
+                break
             self.iteration += 1
 
     def annotate_nodes(self) -> None:
@@ -285,7 +289,7 @@ class PD_Solver:
             for child in cur_node.children:
                 q.put(child)
     
-    def reduce_duration(self, s: set[int], t: set[int]) -> None:
+    def reduce_duration(self, s: set[int], t: set[int]) -> float:
         reduce_edges: list[tuple(int, int)] = list()
         increase_edges: list[tuple(int, int)] = list()
         for node_id in s:
@@ -301,11 +305,24 @@ class PD_Solver:
         print(f"Iteration {self.iteration}: reduce edges {reduce_edges}")
         print(f"Iteration {self.iteration}: increase edges {increase_edges}")
 
+        total_cost = 0
+
         for u, v in reduce_edges:
-            self.capacity_graph[u][v]["inst"].duration -= 1
+            inst: Instruction = self.capacity_graph[u][v]["inst"]
+            if inst.min_duration == inst.duration:
+                return float('inf')
+            else:
+                inst.duration -= 1
+                total_cost += inst.unit_cost
+
 
         for u, v in increase_edges:
-            self.capacity_graph[u][v]["inst"].duration += 1
+            inst: Instruction = self.capacity_graph[u][v]["inst"]
+            if inst.duration < inst.max_duration:
+                inst.duration += 1
+                total_cost += inst.unit_cost
+        
+        return total_cost
 
     def draw_aon_graph(self) -> None:
         pos = nx.spring_layout(self.critical_graph_aon)
