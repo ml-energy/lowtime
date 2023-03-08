@@ -147,8 +147,8 @@ class InstructionDAG:
                 inst1.then(inst2)
 
         # Introduce dummy entry and exit nodes for analysis convenience.
-        self.entry_node = _Dummy(-1, -1, duration=0.0)
-        self.exit_node = _Dummy(-1, -1, duration=0.0)
+        self.entry_node = _Dummy(-1, -1, duration=0.0, repr="Entry")
+        self.exit_node = _Dummy(-1, -1, duration=0.0, repr="Exit")
         for node in self._insts:
             if not node.parents:
                 self.entry_node.then(node)
@@ -216,7 +216,7 @@ class InstructionDAG:
         # Get the slope from two endpoints
         right_end = self.time_costs[type(inst)][inst.stage_id][0]
         left_end = self.time_costs[type(inst)][inst.stage_id][-1]
-        unit_cost = (right_end[1] - left_end[1]) / (right_end[0] - left_end[0])
+        unit_cost = abs((right_end[1] - left_end[1]) / (right_end[0] - left_end[0]))
         return unit_cost
 
     def annotate_nodes(self) -> None:
@@ -298,7 +298,7 @@ class InstructionDAG:
         # get a new critical path
         critical_path = self.get_critical_path()
         print("critical path: ", critical_path)
-        pd_solver: PD_Solver = PD_Solver(self.entry_node)
+        pd_solver: PD_Solver = PD_Solver(self.entry_node, self.exit_node)
         # Placeholder: do eager schedule for now
         for inst in self.insts:
             inst.actual_start = inst.earliest_start

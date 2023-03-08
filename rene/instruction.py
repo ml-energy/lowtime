@@ -53,6 +53,7 @@ class Instruction(metaclass=InstructionType):
     unit_cost: float = 0.0
     max_duration: float = 0.0
     min_duration: float = 0.0
+    repr: str = ""
 
     # DAG metadata
     parents: list[Instruction] = field(default_factory=list)
@@ -71,7 +72,10 @@ class Instruction(metaclass=InstructionType):
 
     def __repr__(self) -> str:
         """Return a concise representation of the Instruction."""
-        return f"{type(self).__name__}(S{self.stage_id}B{self.micro_batch_id})"
+        if self.repr == "":
+            return f"{type(self).__name__}(S{self.stage_id}B{self.micro_batch_id})"
+        else:
+            return self.repr
 
     @property
     def actual_duration(self) -> float:
