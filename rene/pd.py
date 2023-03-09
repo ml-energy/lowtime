@@ -4,9 +4,28 @@ from __future__ import annotations
 
 import matplotlib.pyplot as plt
 import networkx as nx
+from matplotlib.axes import Axes  # type: ignore
+from matplotlib.figure import Figure # type: ignore
+from matplotlib.ticker import FormatStrFormatter  # type: ignore
 from queue import SimpleQueue
+from collections import deque
+from typing import Generator
 
-from rene.instruction import Instruction, InstructionType, _Dummy
+from rene.instruction import Instruction, InstructionType, _Dummy, Forward, Backward
+
+UNIT_SCALE = 0.01
+
+DEFAULT_RECTANGLE_ARGS = {
+    Forward: dict(facecolor="#2a4b89", edgecolor="#000000", linewidth=1.0),
+    Backward: dict(facecolor="#9fc887", edgecolor="#000000", linewidth=1.0),
+}
+
+DEFAULT_ANNOTATION_ARGS = {
+    Forward: dict(color="#ffffff", fontsize=20.0, ha="center", va="center"),
+    Backward: dict(color="#000000", fontsize=20.0, ha="center", va="center"),
+}
+
+DEFAULT_LINE_ARGS = dict(color="#ff9900", linewidth=4.0)
 
 class PD_Solver:
     """The PD solver for linear time-cost trade-off given an InstructionDAG
@@ -14,7 +33,8 @@ class PD_Solver:
     def __init__(
         self,
         entry_node: Instruction,
-        exit_node: Instruction
+        exit_node: Instruction,
+        insts: list[Instruction],
         ) -> None:
         """Create critical path graph, annotate it with lower-bound and upper-bound capacity
 
@@ -29,6 +49,10 @@ class PD_Solver:
         self.iteration: int = 0
         self.entry_node = entry_node
         self.exit_node = exit_node
+        self.annotation_args = DEFAULT_ANNOTATION_ARGS
+        self.rectangle_args = DEFAULT_RECTANGLE_ARGS
+        self.line_args = DEFAULT_LINE_ARGS
+        self.insts = insts
         self.run_pd_algorithm()
 
         # print("aoa", list(self.critical_graph_aoa.edges()))
@@ -228,6 +252,11 @@ class PD_Solver:
             self.inst_map.clear()
             self.node_id = 0
             self.annotate_nodes()
+            # Draw the current pipeline
+            for inst in self.insts:
+                inst.actual_start = inst.earliest_start
+                inst.actual_finish = inst.earliest_finish
+            self.draw_pipeline_graph(draw_time_axis=True)
             self.critical_graph_aon: nx.DiGraph = self.generate_aon_graph()
             self.draw_aon_graph()
             # print("aon", list(self.critical_graph_aon.edges()))
@@ -236,9 +265,11 @@ class PD_Solver:
             self.capacity_graph: nx.DiGraph = self.generate_capacity_graph()
             self.draw_capacity_graph()
             s_set, t_set = self.find_min_cut()
-            total_cost = self.reduce_duration(s_set, t_set)
+            cost_change = self.reduce_duration(s_set, t_set)
+            total_cost = self.calculate_total_cost()
+            print(f"Iteration {self.iteration}: cost change {cost_change}")
             print(f"Iteration {self.iteration}: total cost {total_cost}")
-            if total_cost == float('inf'):
+            if cost_change == float('inf'):
                 break
             self.iteration += 1
 
@@ -305,23 +336,39 @@ class PD_Solver:
         print(f"Iteration {self.iteration}: reduce edges {reduce_edges}")
         print(f"Iteration {self.iteration}: increase edges {increase_edges}")
 
-        total_cost = 0
+        cost_change = 0
 
         for u, v in reduce_edges:
             inst: Instruction = self.capacity_graph[u][v]["inst"]
-            if inst.min_duration == inst.duration:
+            if inst.duration - UNIT_SCALE < inst.min_duration:
                 return float('inf')
             else:
-                inst.duration -= 1
-                total_cost += inst.unit_cost
+                inst.duration -= UNIT_SCALE
+                cost_change += inst.unit_cost * UNIT_SCALE
 
 
         for u, v in increase_edges:
             inst: Instruction = self.capacity_graph[u][v]["inst"]
             if inst.duration < inst.max_duration:
-                inst.duration += 1
-                total_cost += inst.unit_cost
+                inst.duration += UNIT_SCALE
+                cost_change += inst.unit_cost * UNIT_SCALE
         
+        return cost_change
+
+    def calculate_total_cost(self) -> float:
+        q: SimpleQueue[Instruction] = SimpleQueue()
+        q.put(self.entry_node)
+        visited: list[str] = list()
+        total_cost: float = 0.0
+
+        while not q.empty():
+            cur_node = q.get()
+            if not isinstance(cur_node, _Dummy) and cur_node.__repr__() not in visited:
+                total_cost += cur_node.duration * cur_node.k + cur_node.b
+                visited.append(cur_node.__repr__())
+            for child in cur_node.children:
+                q.put(child)
+
         return total_cost
 
     def draw_aon_graph(self) -> None:
@@ -332,6 +379,7 @@ class PD_Solver:
         plt.tight_layout()
         plt.savefig(f"aon_graph_{self.iteration}.png", format="PNG")
         plt.clf()
+        plt.close()
 
     def draw_aoa_graph(self) -> None:
         pos = nx.spring_layout(self.critical_graph_aoa)
@@ -343,6 +391,7 @@ class PD_Solver:
         plt.tight_layout()
         plt.savefig(f"aoa_graph_{self.iteration}.png", format="PNG")
         plt.clf()
+        plt.close()
 
     def draw_capacity_graph(self) -> None:
         pos = nx.circular_layout(self.capacity_graph)
@@ -354,6 +403,81 @@ class PD_Solver:
         plt.tight_layout()
         plt.savefig(f"capacity_graph_{self.iteration}.png", format="PNG")
         plt.clf()
+        plt.close()
+
+    def draw_pipeline_graph(self, draw_time_axis: bool = False) -> None:
+        """Draw the pipeline on the given Axes object."""
+        fig, ax = plt.subplots(figsize=(12, 4), tight_layout=True)
+        for inst in self.insts:
+            # Draw rectangle for Instructions
+            inst.draw(ax, self.rectangle_args, self.annotation_args)
+
+        if draw_time_axis:
+            ax.yaxis.set_visible(False)
+            ax.grid(visible=False)
+
+            total_time = self.exit_node.earliest_finish
+            ax.set_xlabel("time")
+            ax.xaxis.set_major_formatter(FormatStrFormatter("%.2f"))
+            ax.set_xticks(
+                [float(t * 5) for t in range(int(total_time) // 5)] + [total_time]
+            )
+
+            for side in ["top", "left", "right"]:
+                ax.spines[side].set_visible(False)
+            ax.spines["bottom"].set_bounds(0.0, total_time)
+        else:
+            ax.set_axis_off()
+
+        ax.autoscale()
+        ax.invert_yaxis()
+        self.draw_critical_path(ax)
+        fig.savefig(f"pipeline_{self.iteration}.png")
+        plt.clf()
+        plt.close()
+
+    def draw_critical_path(self, ax: Axes) -> None:
+        """Draw the critical path of the DAG on the given Axes object."""
+        critical_path = self.get_critical_path()
+        for inst1, inst2 in zip(critical_path, critical_path[1:]):
+            ax.plot(
+                [
+                    (inst1.actual_start + inst1.actual_finish) / 2,
+                    (inst2.actual_start + inst2.actual_finish) / 2,
+                ],
+                [inst1.stage_id + 0.75, inst2.stage_id + 0.75],
+                **self.line_args,
+            )
+
+
+    def get_critical_path(self) -> list[Instruction]:
+        """Return the critical path of the DAG.
+
+        When there are multiple possible critical paths, choose the smoothest,
+        i.e. one with minimum number of `stage_id` changes along the path.
+        """
+        # Length is the amount of total `stage_id` changes along the critical path.
+        smallest_length, critical_path = float("inf"), []
+        stack: deque[tuple[float, list[Instruction]]] = deque()
+        stack.append((0.0, [self.entry_node]))
+
+        while stack:
+            length, path = stack.pop()
+            node = path[-1]
+            if node is self.exit_node and length < smallest_length:
+                smallest_length, critical_path = length, path
+            for child in node.children:
+                # Only go through nodes on the critical path.
+                # Cannot use the `==` operator due to floating point errors.
+                if abs(child.earliest_start - child.latest_start) < 1e-10:
+                    if isinstance(node, _Dummy) or isinstance(child, _Dummy):
+                        stage_diff = 0.0
+                    else:
+                        stage_diff = abs(node.stage_id - child.stage_id)
+                    stack.append((length + stage_diff, path + [child]))
+
+        # Slice out entry and exit nodes
+        return list(filter(lambda node: not isinstance(node, _Dummy), critical_path))
 
 def aon_to_aoa_pure() -> nx.DiGraph:
     # TODO: crash dummy nodes for optimization

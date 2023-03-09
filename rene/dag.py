@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import inspect
 import itertools
+import numpy as np
 from typing import Iterable, Sequence, Type, Callable, Generator, Literal
 from queue import SimpleQueue
 from collections import deque
@@ -133,7 +134,8 @@ class InstructionDAG:
                 inst.max_duration = self.time_costs[type(inst)][stage_ind][0][0]
                 inst.min_duration = self.time_costs[type(inst)][stage_ind][-1][0]
                 # Do linear interpolation here
-                inst.unit_cost = self.linear_interpolate(inst)
+                inst.k, inst.b = self.linear_interpolate(inst)
+                inst.unit_cost = abs(inst.k)
 
                 self._insts.append(inst)
                 if prev_inst is not None:
@@ -198,7 +200,7 @@ class InstructionDAG:
             for child in node.children:
                 # Only go through nodes on the critical path.
                 # Cannot use the `==` operator due to floating point errors.
-                if abs(child.earliest_start - child.latest_start) < 1e-10:
+                if abs(child.earliest_start - child.latest_start) < 1e-5:
                     if isinstance(node, _Dummy) or isinstance(child, _Dummy):
                         stage_diff = 0.0
                     else:
@@ -208,16 +210,25 @@ class InstructionDAG:
         # Slice out entry and exit nodes
         return list(filter(lambda node: not isinstance(node, _Dummy), critical_path))
     
-    def linear_interpolate(self, inst: Instruction) -> float:
+    def linear_interpolate(self, inst: Instruction) -> (float, float):
         """Do linear interpolation on the given instruction and its time-costs meta-data, return the unit cost (slope)
 
         Assumes self.time_costs[inst] has already been sorted.
         """
         # Get the slope from two endpoints
-        right_end = self.time_costs[type(inst)][inst.stage_id][0]
-        left_end = self.time_costs[type(inst)][inst.stage_id][-1]
-        unit_cost = abs((right_end[1] - left_end[1]) / (right_end[0] - left_end[0]))
-        return unit_cost
+        # right_end = self.time_costs[type(inst)][inst.stage_id][0]
+        # left_end = self.time_costs[type(inst)][inst.stage_id][-1]
+        # unit_cost = abs((right_end[1] - left_end[1]) / (right_end[0] - left_end[0]))
+        time_cost_list = self.time_costs[type(inst)][inst.stage_id]
+        time_list = []
+        cost_list = []
+        for t, e, f in time_cost_list:
+            time_list.append(t)
+            cost_list.append(e)
+        k, b = np.polyfit(time_list, cost_list, 1)
+        print(f"Linear fit {type(inst)} {inst.stage_id} as y={k}x+{b}")
+
+        return (k, b)
 
     def annotate_nodes(self) -> None:
         """Annotate earliest/latest start/finish/slack times in nodes.
@@ -298,7 +309,7 @@ class InstructionDAG:
         # get a new critical path
         critical_path = self.get_critical_path()
         print("critical path: ", critical_path)
-        pd_solver: PD_Solver = PD_Solver(self.entry_node, self.exit_node)
+        pd_solver: PD_Solver = PD_Solver(self.entry_node, self.exit_node, self._insts)
         # Placeholder: do eager schedule for now
         for inst in self.insts:
             inst.actual_start = inst.earliest_start

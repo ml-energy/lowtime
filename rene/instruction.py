@@ -70,6 +70,10 @@ class Instruction(metaclass=InstructionType):
     actual_start: float = 0.0
     actual_finish: float = 0.0
 
+    # For linear fit
+    k: float = 0.0
+    b: float = 0.0
+
     def __repr__(self) -> str:
         """Return a concise representation of the Instruction."""
         if self.repr == "":
