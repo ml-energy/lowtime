@@ -123,6 +123,7 @@ class InstructionDAG:
 
                 # Sort the (duration, cost, frequency) tuple by reverse duration
                 self.time_costs[type(inst)][stage_ind] = sorted(time_costs[type(inst)][stage_ind], reverse=True)
+                inst.time_costs = self.time_costs[type(inst)][stage_ind]
                 # Sanity check
                 if (len(self.time_costs[type(inst)][stage_ind]) == 0):
                     raise ValueError(

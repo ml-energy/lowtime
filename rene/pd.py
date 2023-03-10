@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import matplotlib.pyplot as plt
 import networkx as nx
 from matplotlib.axes import Axes  # type: ignore
@@ -26,6 +27,8 @@ DEFAULT_ANNOTATION_ARGS = {
 }
 
 DEFAULT_LINE_ARGS = dict(color="#ff9900", linewidth=4.0)
+
+OUTPUT_DIR = "/users/yilegu/rene/results/bert_pp4_dp8"
 
 class PD_Solver:
     """The PD solver for linear time-cost trade-off given an InstructionDAG
@@ -156,13 +159,13 @@ class PD_Solver:
             cur_id: int = q.get()
             for succ_id in list(cap_graph.successors(cur_id)):
                 q.put(succ_id)
-                if isinstance(cap_graph[cur_id][succ_id]["inst"], _Dummy) or cap_graph[cur_id][succ_id]["inst"].max_duration == cap_graph[cur_id][succ_id]["inst"].duration and cap_graph[cur_id][succ_id]["inst"].min_duration == cap_graph[cur_id][succ_id]["inst"].duration:
+                if isinstance(cap_graph[cur_id][succ_id]["inst"], _Dummy) or abs(cap_graph[cur_id][succ_id]["inst"].max_duration - cap_graph[cur_id][succ_id]["inst"].duration) < 1e-5 and abs(cap_graph[cur_id][succ_id]["inst"].min_duration - cap_graph[cur_id][succ_id]["inst"].duration) < 1e-5:
                     cap_graph[cur_id][succ_id]["lb"]: float = 0.0
                     cap_graph[cur_id][succ_id]["ub"]: float = float('inf')
-                elif cap_graph[cur_id][succ_id]["inst"].duration == cap_graph[cur_id][succ_id]["inst"].min_duration:
+                elif cap_graph[cur_id][succ_id]["inst"].duration - UNIT_SCALE < cap_graph[cur_id][succ_id]["inst"].min_duration:
                     cap_graph[cur_id][succ_id]["lb"]: float = cap_graph[cur_id][succ_id]['inst'].unit_cost
                     cap_graph[cur_id][succ_id]["ub"]: float = float('inf')
-                elif cap_graph[cur_id][succ_id]["inst"].duration == cap_graph[cur_id][succ_id]["inst"].max_duration:
+                elif cap_graph[cur_id][succ_id]["inst"].duration + UNIT_SCALE > cap_graph[cur_id][succ_id]["inst"].max_duration:
                     cap_graph[cur_id][succ_id]["lb"]: float = 0.0
                     cap_graph[cur_id][succ_id]["ub"]: float = cap_graph[cur_id][succ_id]['inst'].unit_cost
                 else:
@@ -272,6 +275,8 @@ class PD_Solver:
             if cost_change == float('inf'):
                 break
             self.iteration += 1
+        # need to output final frequency assignment
+        self.assign_frequency()
 
     def annotate_nodes(self) -> None:
         """Annotate earliest/latest start/finish/slack times in nodes.
@@ -370,6 +375,72 @@ class PD_Solver:
                 q.put(child)
 
         return total_cost
+    
+    def assign_frequency(self):
+        # do binary search on inst.time_costs, list of (duration, cost, frequency) tuples, sorted by reverse duration
+        q: SimpleQueue[Instruction] = SimpleQueue()
+        q.put(self.entry_node)
+        # stage_id -> list of Instructions with that stage_id
+        stage_view: dict[int, list[Instruction]] = dict()
+        visited: list[str] = list()
+        while not q.empty():
+            cur_node = q.get()
+            if cur_node.__repr__() in visited:
+                continue
+            visited.append(cur_node.__repr__())
+            for child in cur_node.children:
+                q.put(child)
+            if isinstance(cur_node, _Dummy):
+                continue
+            # max/min duration should be common case
+            if abs(cur_node.time_costs[0][0] - cur_node.duration) < 1e-5:
+                cur_node.frequency = cur_node.time_costs[0][2]
+            elif abs(cur_node.time_costs[-1][0] - cur_node.duration) < 1e-5:
+                cur_node.frequency = cur_node.time_costs[-1][2]
+            else:
+                left = 0
+                right = len(cur_node.time_costs) - 1
+                while left < right:
+                    mid = (left + right) // 2
+                    if abs(cur_node.time_costs[mid][0] - cur_node.duration) < 1e-5 or mid == 0 or mid == len(cur_node.time_costs) - 1:
+                        cur_node.frequency = cur_node.time_costs[mid][2]
+                        break
+                    elif cur_node.time_costs[mid][0] < cur_node.duration:
+                        if cur_node.time_costs[mid-1][0] > cur_node.duration:
+                            mid_duration = (cur_node.time_costs[mid][0] + cur_node.time_costs[mid-1][0]) / 2
+                            if mid_duration < cur_node.duration:
+                                cur_node.frequency = cur_node.time_costs[mid-1][2]
+                            else:
+                                cur_node.frequency = cur_node.time_costs[mid][2]
+                            break
+                        right = mid
+                    elif cur_node.time_costs[mid][0] > cur_node.duration:
+                        if cur_node.time_costs[mid+1][0] < cur_node.duration:
+                            mid_duration = (cur_node.time_costs[mid][0] + cur_node.time_costs[mid+1][0]) / 2
+                            if mid_duration < cur_node.duration:
+                                cur_node.frequency = cur_node.time_costs[mid][2]
+                            else:
+                                cur_node.frequency = cur_node.time_costs[mid+1][2]
+                            break
+                        left = mid + 1
+                                   
+            if cur_node.stage_id not in stage_view:
+                stage_view[cur_node.stage_id] = [cur_node]
+            else:
+                stage_view[cur_node.stage_id].append(cur_node)
+
+        for stage_id, insts in stage_view.items():
+            print(f"Stage {stage_id} frequency assignment ")
+            freqs = []
+            reprs = []
+            for inst in insts:
+                assert(inst.frequency != -1)
+                freqs.append(inst.frequency)
+                reprs.append(inst.__repr__())
+            print(f"Freqs: {freqs}")
+            print(f"Reprs: {reprs}")
+
+
 
     def draw_aon_graph(self) -> None:
         pos = nx.spring_layout(self.critical_graph_aon)
@@ -377,7 +448,7 @@ class PD_Solver:
         labels = nx.get_node_attributes(self.critical_graph_aon, "repr")
         nx.draw_networkx_labels(self.critical_graph_aon, pos, labels=labels)
         plt.tight_layout()
-        plt.savefig(f"aon_graph_{self.iteration}.png", format="PNG")
+        plt.savefig(os.path.join(OUTPUT_DIR, f"aon_graph_{self.iteration}.png"), format="PNG")
         plt.clf()
         plt.close()
 
@@ -389,7 +460,7 @@ class PD_Solver:
         edge_labels = nx.get_edge_attributes(self.critical_graph_aoa, "weight")
         nx.draw_networkx_edge_labels(self.critical_graph_aoa, pos, edge_labels=edge_labels)
         plt.tight_layout()
-        plt.savefig(f"aoa_graph_{self.iteration}.png", format="PNG")
+        plt.savefig(os.path.join(OUTPUT_DIR, f"aoa_graph_{self.iteration}.png"), format="PNG")
         plt.clf()
         plt.close()
 
@@ -401,7 +472,7 @@ class PD_Solver:
         edge_labels = nx.get_edge_attributes(self.capacity_graph, "weight")
         nx.draw_networkx_edge_labels(self.capacity_graph, pos, edge_labels=edge_labels)
         plt.tight_layout()
-        plt.savefig(f"capacity_graph_{self.iteration}.png", format="PNG")
+        plt.savefig(os.path.join(OUTPUT_DIR, f"capacity_graph_{self.iteration}.png"), format="PNG")
         plt.clf()
         plt.close()
 
@@ -432,7 +503,7 @@ class PD_Solver:
         ax.autoscale()
         ax.invert_yaxis()
         self.draw_critical_path(ax)
-        fig.savefig(f"pipeline_{self.iteration}.png")
+        fig.savefig(os.path.join(OUTPUT_DIR, f"pipeline_{self.iteration}.png"), format="PNG")
         plt.clf()
         plt.close()
 

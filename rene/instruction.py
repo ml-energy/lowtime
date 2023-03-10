@@ -74,6 +74,10 @@ class Instruction(metaclass=InstructionType):
     k: float = 0.0
     b: float = 0.0
 
+    # For frequency assignment
+    time_costs: list[tuple] = field(default_factory=list) 
+    frequency: int = -1
+
     def __repr__(self) -> str:
         """Return a concise representation of the Instruction."""
         if self.repr == "":
