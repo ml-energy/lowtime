@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import inspect
 import itertools
+import networkx as nx
 import numpy as np
 from typing import Iterable, Sequence, Type, Callable, Generator, Literal
 from queue import SimpleQueue
@@ -37,7 +38,7 @@ def backward_dep(inst1: Backward, inst2: Backward) -> bool:
 
 
 class InstructionDAG:
-    """DAG of instructions and analysis methods."""
+    """DAG of instructions and analysis methods, represented in Activity-on-Node form (AON). """
 
     # pylint: disable=dangerous-default-value,too-many-branches
     def __init__(
@@ -48,7 +49,7 @@ class InstructionDAG:
         time_costs: dict[Type[Instruction], dict[int, list[tuple]]],
         dependency_rules: Sequence[Callable[..., bool]] = [forward_dep, backward_dep],
     ) -> None:
-        """Instantiate instructions, connect the DAG, and run critical path analysis.
+        """Instantiate instructions and construct the DAG.
 
         Arguments:
             schedule_type: A callable that returns an iterable of pipeline instructions.
@@ -80,8 +81,13 @@ class InstructionDAG:
         self.num_micro_batches = num_micro_batches
         self.time_costs = time_costs
         self.dependency_rules = dependency_rules
-
         self.scheduled = False
+
+        # For graph generation
+        self.node_id: int = 0
+        self.inst_map: dict[str, Instruction] = dict()
+        self.inst_id_map: dict[str, int] = dict()
+        self.dag: nx.DiGraph = nx.DiGraph()
 
         # Sanity check.
         if self.time_costs is not None:
@@ -139,7 +145,16 @@ class InstructionDAG:
                 inst.unit_cost = abs(inst.k)
 
                 self._insts.append(inst)
+
+                # add a new node
+                if inst.__repr__() not in self.inst_map:
+                    self.dag.add_node(self.node_id, inst=inst)
+                    self.inst_map[inst.__repr__()] = inst
+                    self.inst_id_map[inst.__repr__()] = self.node_id
+                    self.node_id += 1
+
                 if prev_inst is not None:
+                    self.dag.add_edge(self.inst_id_map[prev_inst.__repr__()], self.inst_id_map[inst.__repr__()])
                     prev_inst.then(inst)
                 prev_inst = inst
             prev_inst = None
@@ -151,15 +166,26 @@ class InstructionDAG:
 
         # Introduce dummy entry and exit nodes for analysis convenience.
         self.entry_node = _Dummy(-1, -1, duration=0.0, repr="Entry")
+        self.dag.add_node(self.node_id, inst=self.entry_node)
+        self.inst_map[self.entry_node.__repr__()] = self.entry_node
+        self.inst_id_map[self.entry_node.__repr__()] = self.node_id
+        self.node_id += 1
         self.exit_node = _Dummy(-1, -1, duration=0.0, repr="Exit")
+        self.dag.add_node(self.node_id, inst=self.exit_node)
+        self.inst_map[self.exit_node.__repr__()] = self.exit_node
+        self.inst_id_map[self.exit_node.__repr__()] = self.node_id
+        self.node_id += 1
         for node in self._insts:
             if not node.parents:
                 self.entry_node.then(node)
+                self.dag.add_edge(self.inst_id_map[self.entry_node.__repr__()], self.inst_id_map[node.__repr__()])
             if not node.children:
                 node.then(self.exit_node)
+                self.dag.add_edge(self.inst_id_map[node.__repr__()], self.inst_id_map[self.exit_node.__repr__()])
 
-        # Annotate earliest/latest start/finish/slack times in nodes.
-        self.annotate_nodes()
+        # Don't do annotation at here
+        # # Annotate earliest/latest start/finish/slack times in nodes.
+        # self.annotate_nodes()
 
     def _is_dependent(self, inst1: Instruction, inst2: Instruction) -> bool:
         """Check if there is a dependency from `inst1` to `inst2`.
