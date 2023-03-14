@@ -237,6 +237,30 @@ class InstructionDAG:
         # Slice out entry and exit nodes
         return list(filter(lambda node: not isinstance(node, _Dummy), critical_path))
     
+    def get_critical_dag(self) -> nx.DiGraph:
+        """Return the critical DAG, which is a subgraph of self.dag.
+        """
+        # TODO: add an if changed flag?
+        self.annotate_nodes()
+        critical_dag: nx.DiGraph = nx.DiGraph(self.dag)
+        # Start to construct critical path graph, in AON format
+        # This is different than get_critical_path() in InstructionDAG as it allows multiple critcal paths
+        q: SimpleQueue[int] = SimpleQueue()
+        q.put(self.inst_id_map[self.entry_node.__repr__()])
+
+        critical_ids: list[int] = []
+        while not q.empty():
+            node_id = q.get()
+            node: Instruction = self.dag.nodes[node_id]["inst"]
+            if abs(node.latest_finish - node.earliest_start - node.duration) < 1e-10 and node_id not in critical_ids:
+                critical_ids.append(node_id)
+            for child_id in self.dag.successors(node_id):
+                q.put(child_id)
+        # Remove all non-critical nodes
+        for node_id in critical_ids:
+            critical_dag.remove_node(node_id)
+        return critical_dag
+    
     def linear_interpolate(self, inst: Instruction) -> (float, float):
         """Do linear interpolation on the given instruction and its time-costs meta-data, return the unit cost (slope)
 
@@ -262,32 +286,36 @@ class InstructionDAG:
         """
         # Forward computation: Assign earliest start and finish times
         self.entry_node.earliest_start = 0.0
-        q: SimpleQueue[Instruction] = SimpleQueue()
-        q.put(self.entry_node)
+        q: SimpleQueue[int] = SimpleQueue()
+        q.put(self.inst_id_map[self.entry_node.__repr__()])
 
         while not q.empty():
-            node = q.get()
-            for child in node.children:
+            node_id = q.get()
+            node: Instruction = self.dag.nodes[node_id]["inst"]
+            for child_id in self.dag.successors(node_id):
+                child: Instruction = self.dag.nodes[child_id]["inst"]
                 child.earliest_start = max(child.earliest_start, node.earliest_finish)
                 child.earliest_finish = child.earliest_start + child.duration
-                q.put(child)
+                q.put(child_id)
 
         # Backward computation: Assign latest start and finish times
         # Exit node has duration 0, so latest finish and latest start should be the same.
         self.exit_node.latest_finish = (
             self.exit_node.latest_start
         ) = self.exit_node.earliest_start
-        q.put(self.exit_node)
+        q.put(self.inst_id_map[self.exit_node.__repr__()])
 
         while not q.empty():
-            node = q.get()
-            for child in node.parents:
-                child.latest_start = min(
-                    child.latest_start, node.latest_start - child.duration
+            node_id = q.get()
+            node: Instruction = self.dag.nodes[node_id]["inst"]
+            for parent_id in self.dag.predecessors(node_id):
+                parent: Instruction = self.dag.nodes[parent_id]["inst"]
+                parent.latest_start = min(
+                    parent.latest_start, node.latest_start - parent.duration
                 )
-                child.latest_finish = child.latest_start + child.duration
-                child.slack = child.latest_finish - child.earliest_start - child.duration
-                q.put(child)
+                parent.latest_finish = parent.latest_start + parent.duration
+                parent.slack = parent.latest_finish - parent.earliest_start - parent.duration
+                q.put(parent_id)
 
     @property
     def total_execution_time(self) -> float:
