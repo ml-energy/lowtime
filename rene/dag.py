@@ -163,6 +163,7 @@ class InstructionDAG:
         for inst1, inst2 in itertools.product(self._insts, self._insts):
             if self._is_dependent(inst1, inst2):
                 inst1.then(inst2)
+                self.dag.add_edge(self.inst_id_map[repr(inst1)], self.inst_id_map[repr(inst2)])
 
         # Introduce dummy entry and exit nodes for analysis convenience.
         self.entry_node = _Dummy(-1, -1, duration=0.0, repr="Entry")

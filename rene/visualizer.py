@@ -4,7 +4,9 @@ from __future__ import annotations
 
 from typing import Any
 
+import matplotlib.pyplot as plt  # type: ignore
 from matplotlib.axes import Axes  # type: ignore
+from matplotlib.patches import Rectangle  # type: ignore
 from matplotlib.ticker import FormatStrFormatter  # type: ignore
 
 from rene.instruction import InstructionType, Forward, Backward
@@ -52,22 +54,43 @@ class PipelineVisualizer:
         self.annotation_args = annotation_args
         self.line_args = line_args
 
-    def draw(self, ax: Axes, draw_time_axis: bool = False) -> None:
-        """Draw the pipeline on the given Axes object."""
+    def draw(self, ax: Axes, draw_time_axis: bool = False, power_color: str | None = "Oranges") -> None:
+        """Draw the pipeline on the given Axes object.
+
+        Args:
+            ax: The Axes object to draw on.
+            draw_time_axis: Whether to draw the time axis on the bottom of the plot.
+            power_color: If None, instruction color is determined by the instruction type.
+                Otherwise, this should be a matplotlib colormap name, and the color of each
+                instruction is determined by its power consumption (= cost/duration).
+        """
+        # Fill in the background as a Rectangle
+        if power_color is not None:
+            bg_color = plt.get_cmap(power_color)(75.5/400.0)
+            background = Rectangle(
+                xy=(0, 0),
+                width=self.dag.total_execution_time,
+                height=self.dag.num_stages,
+                facecolor=bg_color,
+                edgecolor=bg_color,
+            )
+            ax.add_patch(background)
+
+        # Draw instruction Rectangles
         for inst in self.dag.insts:
-            # Draw rectangle for Instructions
-            inst.draw(ax, self.rectangle_args, self.annotation_args)
+            inst.draw(ax, self.rectangle_args, self.annotation_args, power_color)
 
         if draw_time_axis:
             ax.yaxis.set_visible(False)
             ax.grid(visible=False)
 
             total_time = self.dag.total_execution_time
-            ax.set_xlabel("time")
+            ax.set_xlabel("Time (s)")
             ax.xaxis.set_major_formatter(FormatStrFormatter("%.2f"))
-            ax.set_xticks(
-                [float(t * 5) for t in range(int(total_time) // 5)] + [total_time]
-            )
+            xticks = [float(t * 5) for t in range(int(total_time) // 5)] + [total_time]
+            if 0.0 not in xticks:
+                xticks = [0.0] + xticks
+            ax.set_xticks(xticks)
 
             for side in ["top", "left", "right"]:
                 ax.spines[side].set_visible(False)

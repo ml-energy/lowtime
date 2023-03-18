@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
+import matplotlib.pyplot as plt  # type: ignore
 from matplotlib.axes import Axes  # type: ignore
 from matplotlib.patches import Rectangle  # type: ignore
 
@@ -77,6 +78,7 @@ class Instruction(metaclass=InstructionType):
     # For frequency assignment
     time_costs: list[tuple] = field(default_factory=list) 
     frequency: int = -1
+    cost: float = -1.0
 
     def __repr__(self) -> str:
         """Return a concise representation of the Instruction."""
@@ -100,6 +102,7 @@ class Instruction(metaclass=InstructionType):
         ax: Axes,
         rectangle_args: dict[InstructionType, dict[str, Any]],
         annotation_args: dict[InstructionType, dict[str, Any]],
+        power_color: str | None = "Oranges",
     ) -> None:
         """Draw the instruction on the Axes object.
 
@@ -111,6 +114,8 @@ class Instruction(metaclass=InstructionType):
             height=1.0,
         )
         final_rectangle_args.update(rectangle_args[type(self)])
+        if power_color is not None:
+            final_rectangle_args["facecolor"] = plt.get_cmap(power_color)(self.cost / self.duration / 400.0)
         rectangle = Rectangle(**final_rectangle_args)
         ax.add_patch(rectangle)
         # Annotate the micro batch number inside the rectangle
