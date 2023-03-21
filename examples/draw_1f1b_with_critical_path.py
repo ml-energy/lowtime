@@ -1,10 +1,10 @@
 import matplotlib.pyplot as plt
 
-from rene import InstructionDAG, Synchronous1F1B, Forward, Backward, PipelineVisualizer
+from rene import ReneDAG, Synchronous1F1B, Forward, Backward, PipelineVisualizer
 
 
 # Instantiate the Instruction DAG.
-dag = InstructionDAG(
+dag = ReneDAG(
     schedule_type=Synchronous1F1B,
     num_stages=5,
     num_micro_batches=5,

@@ -9,7 +9,7 @@ import matplotlib.pyplot as plt
 plt.rc("svg", hashsalt=None)
 
 from rene import (
-    InstructionDAG,
+    ReneDAG,
     Synchronous1F1B,
     Instruction,
     Forward,
@@ -77,7 +77,7 @@ def subtract_p2p(inst_df, p2p_df):
 sub_p2p_inst_df = subtract_p2p(inst_df, p2p_block_df)
 
 # Instantiate the Instruction DAG.
-dag = InstructionDAG(
+dag = ReneDAG(
     schedule_type=Synchronous1F1B,
     num_stages=4,
     num_micro_batches=8,

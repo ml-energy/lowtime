@@ -1,4 +1,4 @@
-"""`PipelineVisualizer` draws a scheduled `InstructionDAG` with matplotlib."""
+"""`PipelineVisualizer` draws a scheduled `ReneDAG` with matplotlib."""
 
 from __future__ import annotations
 
@@ -10,7 +10,7 @@ from matplotlib.patches import Rectangle  # type: ignore
 from matplotlib.ticker import FormatStrFormatter  # type: ignore
 
 from rene.instruction import InstructionType, Forward, Backward
-from rene.dag import InstructionDAG
+from rene.dag import ReneDAG
 
 
 DEFAULT_RECTANGLE_ARGS = {
@@ -27,12 +27,12 @@ DEFAULT_LINE_ARGS = dict(color="#ff9900", linewidth=4.0)
 
 
 class PipelineVisualizer:
-    """Draws a scheduled `InstructionDAG` with matplotlib."""
+    """Draws a scheduled `ReneDAG` with matplotlib."""
 
     # pylint: disable=dangerous-default-value
     def __init__(
         self,
-        dag: InstructionDAG,
+        dag: ReneDAG,
         rectangle_args: dict[InstructionType, dict[str, Any]] = DEFAULT_RECTANGLE_ARGS,  # type: ignore
         annotation_args: dict[InstructionType, dict[str, Any]] = DEFAULT_ANNOTATION_ARGS,  # type: ignore
         line_args: dict[str, Any] = DEFAULT_LINE_ARGS,
@@ -40,7 +40,7 @@ class PipelineVisualizer:
         """Save the DAG and matplotilb arguments.
 
         Arguments:
-            dag: The InstructionDAG. The instructions must be scheduled by calling `schedule`
+            dag: The ReneDAG. The instructions must be scheduled by calling `schedule`
             rectangle_args: Arguments passed to `matplotlib.patches.Rectangle` for instructions
             annotation_Args: Arguments passed to `matplotlib.axes.Axes.annotate` for the text
                 inside instruction boxes

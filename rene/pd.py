@@ -12,6 +12,7 @@ from queue import SimpleQueue
 from collections import deque
 from typing import Generator
 
+from rene.dag import ReneDAG, CriticalDAG
 from rene.instruction import Instruction, InstructionType, _Dummy, Forward, Backward
 
 UNIT_SCALE = 0.01
@@ -28,42 +29,39 @@ DEFAULT_ANNOTATION_ARGS = {
 
 DEFAULT_LINE_ARGS = dict(color="#ff9900", linewidth=4.0)
 
-OUTPUT_DIR = "/users/yilegu/rene/results/bert_pp4_dp8"
 
 class PD_Solver:
-    """The PD solver for linear time-cost trade-off given an InstructionDAG
+    """The PD solver for linear time-cost trade-off given an ReneDAG
     """
     def __init__(
         self,
-        entry_node: Instruction,
-        exit_node: Instruction,
-        insts: list[Instruction],
+        critical_dag: CriticalDAG,
+        output_dir: str,
         ) -> None:
-        """Create critical path graph, annotate it with lower-bound and upper-bound capacity
+        """Given a critical graph, iteratively run the PD algorithm and update the instruction durations
 
         Arguments:
-            entry_node: Start node of the InstructionDAG
-            end_node: End node of the InstructionDAG
+            critical_dag: a critical DAG in the form of ReneDAG
+            output_dir: output directory for figures
         """
         # TODO: change node access to instruction instead of ids
         self.node_id: int = 0
         self.inst_map: dict[str, Instruction] = dict()
         self.inst_id_map: dict[str, int] = dict()
         self.iteration: int = 0
-        self.entry_node = entry_node
-        self.exit_node = exit_node
+        self.output_dir: str = output_dir
+        self.critical_dag_aon: CriticalDAG = critical_dag
         self.annotation_args = DEFAULT_ANNOTATION_ARGS
         self.rectangle_args = DEFAULT_RECTANGLE_ARGS
         self.line_args = DEFAULT_LINE_ARGS
-        self.insts = insts
-        self.run_pd_algorithm()
+        # self.run_pd_algorithm()
 
-        # print("aoa", list(self.critical_graph_aoa.edges()))
+        # print("aoa", list(self.critical_dag_aoa.edges()))
 
     def generate_aon_graph(self) -> nx.DiGraph:
         dag: nx.DiGraph = nx.DiGraph()
         # Start to construct critical path graph, in AON format
-        # This is different than get_critical_path() in InstructionDAG as it allows multiple critcal paths
+        # This is different than get_critical_path() in ReneDAG as it allows multiple critcal paths
         q: SimpleQueue[Instruction] = SimpleQueue()
         q.put(self.entry_node)
 
@@ -96,7 +94,7 @@ class PD_Solver:
     def aon_to_aoa(self) -> nx.DiGraph:
         # TODO: crash dummy nodes for optimization
         # do a BFS to split all nodes and reconnect
-        dag: nx.DiGraph = nx.DiGraph(self.critical_graph_aon)
+        dag: nx.DiGraph = nx.DiGraph(self.critical_dag_aon.dag)
         q: SimpleQueue[int] = SimpleQueue()
         q.put(0)
         # Sanity check
@@ -116,7 +114,7 @@ class PD_Solver:
             succ_ids: list[int] = list(dag.successors(cur_id))
             for succ_id in succ_ids:
                 q.put(succ_id)
-            if cur_inst is self.entry_node or cur_inst is self.exit_node:
+            if cur_inst is self.critical_dag_aon.entry_node or cur_inst is self.critical_dag_aon.exit_node:
                 continue
             # Remove current node
             dag.remove_node(cur_id)
@@ -139,8 +137,8 @@ class PD_Solver:
         return dag
 
     def generate_capacity_graph(self) -> nx.DiGraph:
-        # Require self.critical_graph_aoa to be present
-        cap_graph: nx.DiGraph = nx.DiGraph(self.critical_graph_aoa)
+        # Require self.critical_dag_aoa to be present
+        cap_graph: nx.DiGraph = nx.DiGraph(self.critical_dag_aoa)
         # Relabel all nodes
         node_ids: list[int] = list(cap_graph.nodes)
         mapping: dict = dict()
@@ -250,23 +248,22 @@ class PD_Solver:
     def run_pd_algorithm(self) -> None:
         # TODO: need to start the following iterations using the assigned flows
         while True:
-            self.clear_annotations()
-            self.inst_id_map.clear()
-            self.inst_map.clear()
+            self.critical_dag_aon.clear_annotations()
             self.node_id = 0
-            self.annotate_nodes()
-            # Draw the current pipeline
-            for inst in self.insts:
+            self.inst_map.clear()
+            self.inst_id_map.clear()
+            self.critical_dag_aon.annotate_nodes()
+            # Do eager assignment and draw the current pipeline
+            for inst in self.critical_dag_aon.insts:
                 inst.actual_start = inst.earliest_start
                 inst.actual_finish = inst.earliest_finish
-            self.draw_pipeline_graph(draw_time_axis=True)
-            self.critical_graph_aon: nx.DiGraph = self.generate_aon_graph()
-            self.draw_aon_graph()
+            self.draw_pipeline_graph(os.path.join(self.output_dir, f"pipeline_{self.iteration}.png"), draw_time_axis=True)
+            self.critical_dag_aon.draw_aon_graph(os.path.join(self.output_dir, f"aon_graph_{self.iteration}.png"))
             # print("aon", list(self.critical_graph_aon.edges()))
-            self.critical_graph_aoa: nx.DiGraph = self.aon_to_aoa()
-            self.draw_aoa_graph()
+            self.critical_dag_aoa: nx.DiGraph = self.aon_to_aoa()
+            self.draw_aoa_graph(os.path.join(self.output_dir, f"aoa_graph_{self.iteration}.png"))
             self.capacity_graph: nx.DiGraph = self.generate_capacity_graph()
-            self.draw_capacity_graph()
+            self.draw_capacity_graph(os.path.join(self.output_dir, f"capacity_graph_{self.iteration}.png"))
             s_set, t_set = self.find_min_cut()
             cost_change = self.reduce_duration(s_set, t_set)
             total_cost = self.calculate_total_cost()
@@ -361,35 +358,37 @@ class PD_Solver:
         return cost_change
 
     def calculate_total_cost(self) -> float:
-        q: SimpleQueue[Instruction] = SimpleQueue()
-        q.put(self.entry_node)
+        q: SimpleQueue[int] = SimpleQueue()
+        q.put(0)
         visited: list[str] = list()
         total_cost: float = 0.0
 
         while not q.empty():
-            cur_node = q.get()
+            cur_id: int = q.get()
+            cur_node: Instruction = self.critical_dag_aon.complete_dag.nodes[cur_id]["inst"]
             if not isinstance(cur_node, _Dummy) and cur_node.__repr__() not in visited:
                 total_cost += cur_node.duration * cur_node.k + cur_node.b
                 visited.append(cur_node.__repr__())
-            for child in cur_node.children:
-                q.put(child)
+            for child_id in self.critical_dag_aon.complete_dag.successors(cur_id):
+                q.put(child_id)
 
         return total_cost
     
     def assign_frequency(self):
         # do binary search on inst.time_costs, list of (duration, cost, frequency) tuples, sorted by reverse duration
-        q: SimpleQueue[Instruction] = SimpleQueue()
-        q.put(self.entry_node)
+        q: SimpleQueue[int] = SimpleQueue()
+        q.put(0)
         # stage_id -> list of Instructions with that stage_id
         stage_view: dict[int, list[Instruction]] = dict()
         visited: list[str] = list()
         while not q.empty():
-            cur_node = q.get()
+            cur_id: int = q.get()
+            cur_node: Instruction = self.critical_dag_aon.complete_dag.nodes[cur_id]["inst"]
             if cur_node.__repr__() in visited:
                 continue
             visited.append(cur_node.__repr__())
-            for child in cur_node.children:
-                q.put(child)
+            for child_id in self.critical_dag_aon.complete_dag.successors(cur_id):
+                q.put(child_id)
             if isinstance(cur_node, _Dummy):
                 continue
             # max/min duration should be common case
@@ -440,46 +439,35 @@ class PD_Solver:
             print(f"Freqs: {freqs}")
             print(f"Reprs: {reprs}")
 
-
-
-    def draw_aon_graph(self) -> None:
-        pos = nx.spring_layout(self.critical_graph_aon)
-        nx.draw(self.critical_graph_aon, pos, with_labels=True, font_weight='bold')
-        labels = nx.get_node_attributes(self.critical_graph_aon, "repr")
-        nx.draw_networkx_labels(self.critical_graph_aon, pos, labels=labels)
+    def draw_aoa_graph(self, path: str) -> None:
+        pos = nx.spring_layout(self.critical_dag_aoa)
+        nx.draw(self.critical_dag_aoa, pos, with_labels=True, font_weight='bold')
+        node_labels = nx.get_node_attributes(self.critical_dag_aoa, "repr")
+        nx.draw_networkx_labels(self.critical_dag_aoa, pos, labels=node_labels)
+        edge_labels = nx.get_edge_attributes(self.critical_dag_aoa, "weight")
+        nx.draw_networkx_edge_labels(self.critical_dag_aoa, pos, edge_labels=edge_labels)
         plt.tight_layout()
-        plt.savefig(os.path.join(OUTPUT_DIR, f"aon_graph_{self.iteration}.png"), format="PNG")
+        plt.savefig(path, format="PNG")
         plt.clf()
         plt.close()
 
-    def draw_aoa_graph(self) -> None:
-        pos = nx.spring_layout(self.critical_graph_aoa)
-        nx.draw(self.critical_graph_aoa, pos, with_labels=True, font_weight='bold')
-        node_labels = nx.get_node_attributes(self.critical_graph_aoa, "repr")
-        nx.draw_networkx_labels(self.critical_graph_aoa, pos, labels=node_labels)
-        edge_labels = nx.get_edge_attributes(self.critical_graph_aoa, "weight")
-        nx.draw_networkx_edge_labels(self.critical_graph_aoa, pos, edge_labels=edge_labels)
-        plt.tight_layout()
-        plt.savefig(os.path.join(OUTPUT_DIR, f"aoa_graph_{self.iteration}.png"), format="PNG")
-        plt.clf()
-        plt.close()
-
-    def draw_capacity_graph(self) -> None:
+    def draw_capacity_graph(self, path: str) -> None:
         pos = nx.circular_layout(self.capacity_graph)
         nx.draw(self.capacity_graph, pos, with_labels=True, font_weight='bold')
-        # node_labels = nx.get_node_attributes(self.critical_graph_aoa, "repr")
-        # nx.draw_networkx_labels(self.critical_graph_aoa, pos, labels=node_labels)
+        # node_labels = nx.get_node_attributes(self.critical_dag_aoa, "repr")
+        # nx.draw_networkx_labels(self.critical_dag_aoa, pos, labels=node_labels)
         edge_labels = nx.get_edge_attributes(self.capacity_graph, "weight")
         nx.draw_networkx_edge_labels(self.capacity_graph, pos, edge_labels=edge_labels)
         plt.tight_layout()
-        plt.savefig(os.path.join(OUTPUT_DIR, f"capacity_graph_{self.iteration}.png"), format="PNG")
+        plt.savefig(path, format="PNG")
         plt.clf()
         plt.close()
 
-    def draw_pipeline_graph(self, draw_time_axis: bool = False) -> None:
+    def draw_pipeline_graph(self, path: str, draw_time_axis: bool = False) -> None:
         """Draw the pipeline on the given Axes object."""
         fig, ax = plt.subplots(figsize=(12, 4), tight_layout=True)
-        for inst in self.insts:
+        ax.set_xlim(0, 23)
+        for inst in self.critical_dag_aon.insts:
             # Draw rectangle for Instructions
             inst.draw(ax, self.rectangle_args, self.annotation_args)
 
@@ -487,7 +475,7 @@ class PD_Solver:
             ax.yaxis.set_visible(False)
             ax.grid(visible=False)
 
-            total_time = self.exit_node.earliest_finish
+            total_time = self.critical_dag_aon.exit_node.earliest_finish
             ax.set_xlabel("time")
             ax.xaxis.set_major_formatter(FormatStrFormatter("%.2f"))
             ax.set_xticks(
@@ -503,7 +491,7 @@ class PD_Solver:
         ax.autoscale()
         ax.invert_yaxis()
         self.draw_critical_path(ax)
-        fig.savefig(os.path.join(OUTPUT_DIR, f"pipeline_{self.iteration}.png"), format="PNG")
+        fig.savefig(path, format="PNG")
         plt.clf()
         plt.close()
 
@@ -530,12 +518,12 @@ class PD_Solver:
         # Length is the amount of total `stage_id` changes along the critical path.
         smallest_length, critical_path = float("inf"), []
         stack: deque[tuple[float, list[Instruction]]] = deque()
-        stack.append((0.0, [self.entry_node]))
+        stack.append((0.0, [self.critical_dag_aon.entry_node]))
 
         while stack:
             length, path = stack.pop()
             node = path[-1]
-            if node is self.exit_node and length < smallest_length:
+            if node is self.critical_dag_aon.exit_node and length < smallest_length:
                 smallest_length, critical_path = length, path
             for child in node.children:
                 # Only go through nodes on the critical path.

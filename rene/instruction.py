@@ -60,14 +60,14 @@ class Instruction(metaclass=InstructionType):
     parents: list[Instruction] = field(default_factory=list)
     children: list[Instruction] = field(default_factory=list)
 
-    # Values set by critical path analysis (in `InstructionDAG.__init__`)
+    # Values set by critical path analysis (in `ReneDAG.__init__`)
     earliest_start: float = 0.0
     latest_start: float = float("inf")
     earliest_finish: float = 0.0
     latest_finish: float = float("inf")
     slack: float = 0.0
 
-    # Values set by `InstructionDAG.schedule`
+    # Values set by `ReneDAG.schedule`
     actual_start: float = 0.0
     actual_finish: float = 0.0
 
