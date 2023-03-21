@@ -45,15 +45,15 @@ class PD_Solver:
             output_dir: output directory for figures
         """
         # TODO: change node access to instruction instead of ids
-        self.node_id: int = 0
-        self.inst_map: dict[str, Instruction] = dict()
-        self.inst_id_map: dict[str, int] = dict()
         self.iteration: int = 0
         self.output_dir: str = output_dir
         self.critical_dag_aon: CriticalDAG = critical_dag
+        self.node_id: int = self.critical_dag_aon.node_id
         self.annotation_args = DEFAULT_ANNOTATION_ARGS
         self.rectangle_args = DEFAULT_RECTANGLE_ARGS
         self.line_args = DEFAULT_LINE_ARGS
+        self.entry_id: int = 0
+        self.exit_id: int = 1
         # self.run_pd_algorithm()
 
         # print("aoa", list(self.critical_dag_aoa.edges()))
@@ -108,7 +108,7 @@ class PD_Solver:
             # Skip processed nodes in AON and new nodes in AOA
             if cur_id not in targets:
                 continue
-            cur_inst: Instruction = self.inst_map[dag.nodes[cur_id]["repr"]]
+            cur_inst: Instruction = dag.nodes[cur_id]["inst"]
             # Store current node's predecessors and successors
             pred_ids: list[int] = list(dag.predecessors(cur_id))
             succ_ids: list[int] = list(dag.successors(cur_id))
@@ -121,8 +121,8 @@ class PD_Solver:
             # Split node
             left_id = self.node_id
             right_id = left_id + 1
-            dag.add_node(left_id, inst=cur_inst)
-            dag.add_node(right_id, inst=cur_inst)
+            dag.add_node(left_id, inst=cur_inst, repr=cur_inst.__repr__())
+            dag.add_node(right_id, inst=cur_inst, repr=cur_inst.__repr__())
             # Create activity-on-edge
             dag.add_edge(left_id, right_id, weight=cur_inst.duration, inst=cur_inst)
             # print(f"add edge {left_id}, {right_id}, weight {cur_inst.duration}")
@@ -148,8 +148,8 @@ class PD_Solver:
             index += 1
         cap_graph = nx.relabel_nodes(cap_graph, mapping)
         # print(list(cap_graph.nodes))
-        self.inst_id_map["Entry"] = mapping[self.inst_id_map["Entry"]]
-        self.inst_id_map["Exit"] = mapping[self.inst_id_map["Exit"]]
+        self.entry_id = mapping[self.entry_id]
+        self.exit_id = mapping[self.exit_id]
 
         q: SimpleQueue[int] = SimpleQueue()
         q.put(0)
@@ -197,19 +197,18 @@ class PD_Solver:
 
     def find_min_cut(self) -> tuple(set[int], set[int]):
         residual_graph: nx.DiGraph = nx.DiGraph(self.capacity_graph)
-        entry_id = self.inst_id_map["Entry"]
-        exit_id = self.inst_id_map["Exit"]
+
         while True:
             # Step 1: get a path from entry to exit
-            visited, parents = self.search_path_bfs(residual_graph, entry_id, exit_id)
-            if visited[exit_id] == False:
+            visited, parents = self.search_path_bfs(residual_graph, self.entry_id, self.exit_id)
+            if visited[self.exit_id] == False:
                 break
             # Step 2: find min capacity along the path
-            right_ptr = exit_id
-            left_ptr = parents[exit_id]
+            right_ptr = self.exit_id
+            left_ptr = parents[self.exit_id]
             path = [right_ptr, left_ptr]
             min_capacity = residual_graph[left_ptr][right_ptr]["weight"]
-            while left_ptr != entry_id:
+            while left_ptr != self.entry_id:
                 right_ptr = left_ptr
                 left_ptr = parents[left_ptr]
                 path.append(left_ptr)
@@ -217,8 +216,8 @@ class PD_Solver:
             print(f"path  {path}")
             
             # Step 3: update residual graph
-            right_ptr = exit_id
-            left_ptr = parents[exit_id]
+            right_ptr = self.exit_id
+            left_ptr = parents[self.exit_id]
             while True:
                 
                 residual_graph[left_ptr][right_ptr]["weight"] -= min_capacity
@@ -227,13 +226,13 @@ class PD_Solver:
                     residual_graph.add_edge(right_ptr, left_ptr, weight=min_capacity, inst=residual_graph[left_ptr][right_ptr]["inst"])
                 else:
                     residual_graph[right_ptr][left_ptr]["weight"] += min_capacity
-                if left_ptr == entry_id:
+                if left_ptr == self.entry_id:
                     break
                 right_ptr = left_ptr
                 left_ptr = parents[left_ptr]
             
         # Step 4: find the cut:
-        visited, _ = self.search_path_bfs(residual_graph, entry_id, exit_id)
+        visited, _ = self.search_path_bfs(residual_graph, self.entry_id, self.exit_id)
         s_set: set[int] = set()
         t_set: set[int] = set()
         for i in range(len(visited)):
@@ -249,21 +248,19 @@ class PD_Solver:
         # TODO: need to start the following iterations using the assigned flows
         while True:
             self.critical_dag_aon.clear_annotations()
-            self.node_id = 0
-            self.inst_map.clear()
-            self.inst_id_map.clear()
+            self.node_id = self.critical_dag_aon.node_id
             self.critical_dag_aon.annotate_nodes()
             # Do eager assignment and draw the current pipeline
             for inst in self.critical_dag_aon.insts:
                 inst.actual_start = inst.earliest_start
                 inst.actual_finish = inst.earliest_finish
             self.draw_pipeline_graph(os.path.join(self.output_dir, f"pipeline_{self.iteration}.png"), draw_time_axis=True)
-            self.critical_dag_aon.draw_aon_graph(os.path.join(self.output_dir, f"aon_graph_{self.iteration}.png"))
+            # self.critical_dag_aon.draw_aon_graph(os.path.join(self.output_dir, f"aon_graph_{self.iteration}.png"))
             # print("aon", list(self.critical_graph_aon.edges()))
             self.critical_dag_aoa: nx.DiGraph = self.aon_to_aoa()
-            self.draw_aoa_graph(os.path.join(self.output_dir, f"aoa_graph_{self.iteration}.png"))
+            # self.draw_aoa_graph(os.path.join(self.output_dir, f"aoa_graph_{self.iteration}.png"))
             self.capacity_graph: nx.DiGraph = self.generate_capacity_graph()
-            self.draw_capacity_graph(os.path.join(self.output_dir, f"capacity_graph_{self.iteration}.png"))
+            # self.draw_capacity_graph(os.path.join(self.output_dir, f"capacity_graph_{self.iteration}.png"))
             s_set, t_set = self.find_min_cut()
             cost_change = self.reduce_duration(s_set, t_set)
             total_cost = self.calculate_total_cost()
@@ -274,53 +271,6 @@ class PD_Solver:
             self.iteration += 1
         # need to output final frequency assignment
         self.assign_frequency()
-
-    def annotate_nodes(self) -> None:
-        """Annotate earliest/latest start/finish/slack times in nodes.
-        """
-        # Forward computation: Assign earliest start and finish times
-        self.entry_node.earliest_start = 0.0
-        self.entry_node.earliest_finish = self.entry_node.earliest_start + self.entry_node.duration
-        q: SimpleQueue[Instruction] = SimpleQueue()
-        q.put(self.entry_node)
-
-        while not q.empty():
-            node = q.get()
-            for child in node.children:
-                child.earliest_start = max(child.earliest_start, node.earliest_finish)
-                child.earliest_finish = child.earliest_start + child.duration
-                q.put(child)
-
-        # Backward computation: Assign latest start and finish times
-        # Exit node has duration 0, so latest finish and latest start should be the same.
-        self.exit_node.latest_finish = (
-            self.exit_node.latest_start
-        ) = self.exit_node.earliest_start
-        q.put(self.exit_node)
-
-        while not q.empty():
-            node = q.get()
-            for child in node.parents:
-                child.latest_start = min(
-                    child.latest_start, node.latest_start - child.duration
-                )
-                child.latest_finish = child.latest_start + child.duration
-                child.slack = child.latest_finish - child.earliest_start - child.duration
-                q.put(child)
-    
-    def clear_annotations(self) -> None:
-        q: SimpleQueue[Instruction] = SimpleQueue()
-        q.put(self.entry_node)
-
-        while not q.empty():
-            cur_node = q.get()
-            cur_node.earliest_start = 0.0
-            cur_node.latest_start = float("inf")
-            cur_node.earliest_finish = 0.0
-            cur_node.latest_finish = float("inf")
-            cur_node.slack = 0.0
-            for child in cur_node.children:
-                q.put(child)
     
     def reduce_duration(self, s: set[int], t: set[int]) -> float:
         reduce_edges: list[tuple(int, int)] = list()

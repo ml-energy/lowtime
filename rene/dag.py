@@ -307,22 +307,6 @@ class ReneDAG:
                 f"Scheduling algorithm '{algo}' is not implemented"
             )
 
-
-    # def run_pd_algo(self) -> None:
-    #     # update duration to be the longest
-    #     for inst in self._insts:
-    #         inst.duration = self.time_costs[type(inst)][inst.stage_id][0][0]
-    #     # update E/L start/finish/slack
-    #     self.annotate_nodes()
-    #     # get a new critical path
-    #     critical_path = self.get_critical_path()
-    #     print("critical path: ", critical_path)
-    #     pd_solver: PD_Solver = PD_Solver(self.entry_node, self.exit_node, self._insts)
-    #     # Placeholder: do eager schedule for now
-    #     for inst in self.insts:
-    #         inst.actual_start = inst.earliest_start
-    #         inst.actual_finish = inst.earliest_finish
-
     def draw_aon_graph(self, path: str) -> None:
         pos = nx.spring_layout(self.dag)
         nx.draw(self.dag, pos, with_labels=True, font_weight='bold')
@@ -411,15 +395,21 @@ class CriticalDAG(ReneDAG):
         q.put(self.inst_id_map[self.entry_node.__repr__()])
 
         critical_ids: list[int] = []
+        visited: list[int] = []
         while not q.empty():
             node_id = q.get()
+            if node_id in visited:
+                continue
+            visited.append(node_id)
             node: Instruction = self.complete_dag.nodes[node_id]["inst"]
             if abs(node.latest_finish - node.earliest_start - node.duration) < 1e-10 and node_id not in critical_ids:
                 critical_ids.append(node_id)
             for child_id in self.complete_dag.successors(node_id):
                 q.put(child_id)
         # Remove all non-critical nodes
-        for node_id in critical_ids:
-            critical_dag.remove_node(node_id)
+        for i in range(0, self.node_id):
+            if i not in critical_ids:
+                critical_dag.remove_node(i)
+
         self._dag = critical_dag
     
