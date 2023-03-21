@@ -81,6 +81,7 @@ class ReneDAG:
         `(inst1, inst2)` pairs where `isinstance(inst1, Forward)` and `isinstance(inst2, Forward)`,
         for example.
         """
+        print("Initializing ReneDAG...")
         self.schedule_type = schedule_type
         self.num_stages = num_stages
         self.num_micro_batches = num_micro_batches
@@ -134,6 +135,7 @@ class ReneDAG:
         self.node_id += 1
 
         # Generate instructions from `PipelineSchedule` and pipeline configurations.
+        print("Generate instructions and creating the DAG...")
         self._insts: list[Instruction] = []
         for stage_ind in range(self.num_stages):
             stage = self.schedule_type(
@@ -327,6 +329,7 @@ class CriticalDAG(ReneDAG):
         dependency_rules: Sequence[Callable[..., bool]] = [forward_dep, backward_dep],
     ) -> None:
         super(CriticalDAG, self).__init__(schedule_type, num_stages, num_micro_batches, time_costs, dependency_rules)
+        print("Initializing CriticalDAG...")
         # store the original DAG as complete dag 
         self.complete_dag = self.dag
         # store the critical DAG as the new dag 
@@ -335,13 +338,18 @@ class CriticalDAG(ReneDAG):
     def annotate_nodes(self) -> None:
         """Annotate earliest/latest start/finish/slack times in nodes.
         """
+        print("Annotating nodes with start/finish/slack times...")
         # Forward computation: Assign earliest start and finish times
         self.entry_node.earliest_start = 0.0
         q: SimpleQueue[int] = SimpleQueue()
         q.put(self.inst_id_map[self.entry_node.__repr__()])
 
+        visited: list[int] = []
         while not q.empty():
             node_id = q.get()
+            if node_id in visited:
+                continue
+            visited.append(node_id)
             node: Instruction = self.complete_dag.nodes[node_id]["inst"]
             for child_id in self.complete_dag.successors(node_id):
                 child: Instruction = self.complete_dag.nodes[child_id]["inst"]
@@ -356,8 +364,12 @@ class CriticalDAG(ReneDAG):
         ) = self.exit_node.earliest_start
         q.put(self.inst_id_map[self.exit_node.__repr__()])
 
+        visited.clear()
         while not q.empty():
             node_id = q.get()
+            if node_id in visited:
+                continue
+            visited.append(node_id)
             node: Instruction = self.complete_dag.nodes[node_id]["inst"]
             for parent_id in self.complete_dag.predecessors(node_id):
                 parent: Instruction = self.complete_dag.nodes[parent_id]["inst"]
@@ -372,8 +384,12 @@ class CriticalDAG(ReneDAG):
         q: SimpleQueue[int] = SimpleQueue()
         q.put(self.inst_id_map[self.entry_node.__repr__()])
 
+        visited: list[int] = []
         while not q.empty():
             cur_id: int = q.get()
+            if cur_id in visited:
+                continue
+            visited.append(cur_id)
             cur_node: Instruction = self.complete_dag.nodes[cur_id]["inst"]
             cur_node.earliest_start = 0.0
             cur_node.latest_start = float("inf")
@@ -396,6 +412,7 @@ class CriticalDAG(ReneDAG):
 
         critical_ids: list[int] = []
         visited: list[int] = []
+        print("Updating critical dag...")
         while not q.empty():
             node_id = q.get()
             if node_id in visited:

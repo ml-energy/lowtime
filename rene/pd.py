@@ -153,8 +153,12 @@ class PD_Solver:
 
         q: SimpleQueue[int] = SimpleQueue()
         q.put(0)
+        visited: list[int] = []
         while not q.empty():
             cur_id: int = q.get()
+            if cur_id in visited:
+                continue
+            visited.append(cur_id)
             for succ_id in list(cap_graph.successors(cur_id)):
                 q.put(succ_id)
                 if isinstance(cap_graph[cur_id][succ_id]["inst"], _Dummy) or abs(cap_graph[cur_id][succ_id]["inst"].max_duration - cap_graph[cur_id][succ_id]["inst"].duration) < 1e-5 and abs(cap_graph[cur_id][succ_id]["inst"].min_duration - cap_graph[cur_id][succ_id]["inst"].duration) < 1e-5:
