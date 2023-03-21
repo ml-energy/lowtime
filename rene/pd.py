@@ -217,7 +217,7 @@ class PD_Solver:
                 left_ptr = parents[left_ptr]
                 path.append(left_ptr)
                 min_capacity = min(residual_graph[left_ptr][right_ptr]["weight"], min_capacity)
-            print(f"path  {path}")
+            # print(f"path  {path}")
             
             # Step 3: update residual graph
             right_ptr = self.exit_id
@@ -244,8 +244,8 @@ class PD_Solver:
                 s_set.add(i)
             else:
                 t_set.add(i)
-        print(f"Iteration {self.iteration}: s_set: ",s_set)
-        print(f"Iteration {self.iteration}: t_set ", t_set)
+        # print(f"Iteration {self.iteration}: s_set: ",s_set)
+        # print(f"Iteration {self.iteration}: t_set ", t_set)
         return (s_set, t_set)
     
     def run_pd_algorithm(self) -> None:
@@ -319,6 +319,9 @@ class PD_Solver:
 
         while not q.empty():
             cur_id: int = q.get()
+            if cur_id in visited:
+                continue
+            visited.append(cur_id)
             cur_node: Instruction = self.critical_dag_aon.complete_dag.nodes[cur_id]["inst"]
             if not isinstance(cur_node, _Dummy) and cur_node.__repr__() not in visited:
                 total_cost += cur_node.duration * cur_node.k + cur_node.b
@@ -419,8 +422,8 @@ class PD_Solver:
 
     def draw_pipeline_graph(self, path: str, draw_time_axis: bool = False) -> None:
         """Draw the pipeline on the given Axes object."""
-        fig, ax = plt.subplots(figsize=(12, 4), tight_layout=True)
-        ax.set_xlim(0, 23)
+        fig, ax = plt.subplots(figsize=(96, 4), tight_layout=True)
+        ax.set_xlim(0, 58)
         for inst in self.critical_dag_aon.insts:
             # Draw rectangle for Instructions
             inst.draw(ax, self.rectangle_args, self.annotation_args)

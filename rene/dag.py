@@ -341,43 +341,54 @@ class CriticalDAG(ReneDAG):
         print("Annotating nodes with start/finish/slack times...")
         # Forward computation: Assign earliest start and finish times
         self.entry_node.earliest_start = 0.0
+        self.entry_node.earliest_finish = 0.0
         q: SimpleQueue[int] = SimpleQueue()
         q.put(self.inst_id_map[self.entry_node.__repr__()])
 
-        visited: list[int] = []
+        visited: dict[int, bool] = dict()
+        for node_id in self.complete_dag.nodes:
+            visited[node_id] = False
         while not q.empty():
             node_id = q.get()
-            if node_id in visited:
+            if visited[node_id]:
                 continue
-            visited.append(node_id)
+            visited[node_id] = True
             node: Instruction = self.complete_dag.nodes[node_id]["inst"]
             for child_id in self.complete_dag.successors(node_id):
                 child: Instruction = self.complete_dag.nodes[child_id]["inst"]
-                child.earliest_start = max(child.earliest_start, node.earliest_finish)
+                if child.earliest_start < node.earliest_finish:
+                    visited[child_id] = False
+                    child.earliest_start = node.earliest_finish
                 child.earliest_finish = child.earliest_start + child.duration
+                    
+                # child.earliest_start = max(child.earliest_start, node.earliest_finish)
                 q.put(child_id)
 
         # Backward computation: Assign latest start and finish times
         # Exit node has duration 0, so latest finish and latest start should be the same.
-        self.exit_node.latest_finish = (
-            self.exit_node.latest_start
-        ) = self.exit_node.earliest_start
+        self.exit_node.latest_finish = self.exit_node.earliest_start
+        self.exit_node.latest_start = self.exit_node.earliest_start
         q.put(self.inst_id_map[self.exit_node.__repr__()])
 
-        visited.clear()
+        for node_id in self.complete_dag.nodes:
+            visited[node_id] = False
         while not q.empty():
             node_id = q.get()
-            if node_id in visited:
+            if visited[node_id]:
                 continue
-            visited.append(node_id)
+            visited[node_id] = True
             node: Instruction = self.complete_dag.nodes[node_id]["inst"]
             for parent_id in self.complete_dag.predecessors(node_id):
                 parent: Instruction = self.complete_dag.nodes[parent_id]["inst"]
-                parent.latest_start = min(
-                    parent.latest_start, node.latest_start - parent.duration
-                )
+                # parent.latest_start = min(
+                #     parent.latest_start, node.latest_start - parent.duration
+                # )
+                if parent.latest_start > node.latest_start - parent.duration:
+                    visited[parent_id] = False
+                    parent.latest_start = node.latest_start - parent.duration
                 parent.latest_finish = parent.latest_start + parent.duration
                 parent.slack = parent.latest_finish - parent.earliest_start - parent.duration
+                    
                 q.put(parent_id)
 
     def clear_annotations(self) -> None:
