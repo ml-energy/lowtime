@@ -16,7 +16,7 @@ from typing import Generator
 from rene.dag import ReneDAG, CriticalDAG
 from rene.instruction import Instruction, InstructionType, _Dummy, Forward, Backward
 
-UNIT_SCALE = 0.0001
+
 
 DEFAULT_RECTANGLE_ARGS = {
     Forward: dict(facecolor="#2a4b89", edgecolor="#000000", linewidth=1.0),
@@ -38,12 +38,16 @@ class PD_Solver:
         self,
         critical_dag: CriticalDAG,
         output_dir: str,
+        interval: int = 100,
+        unit_scale: float = 0.01,
         ) -> None:
         """Given a critical graph, iteratively run the PD algorithm and update the instruction durations
 
         Arguments:
             critical_dag: a critical DAG in the form of ReneDAG
             output_dir: output directory for figures
+            interval: number of iterations to output pipeline graph and frequency assignment
+            unit_scale: the single unit of duration deduction per PD iteration
         """
         # TODO: change node access to instruction instead of ids
         self.iteration: int = 0
@@ -55,6 +59,9 @@ class PD_Solver:
         self.line_args = DEFAULT_LINE_ARGS
         self.entry_id: int = 0
         self.exit_id: int = 1
+        self.interval = interval
+        self.unit_scale = unit_scale
+
         # for Pareto frontier
         self.costs: list[float] = []
         self.times: list[float] = []
@@ -172,10 +179,10 @@ class PD_Solver:
                 elif abs(cur_inst.max_duration - cur_inst.duration) < 1e-5 and abs(cur_inst.min_duration - cur_inst.duration) < 1e-5:
                     cap_graph[cur_id][succ_id]["lb"]: float = 0.0
                     cap_graph[cur_id][succ_id]["ub"]: float = float('inf')
-                elif cur_inst.duration - UNIT_SCALE < cur_inst.min_duration:
+                elif cur_inst.duration - self.unit_scale < cur_inst.min_duration:
                     cap_graph[cur_id][succ_id]["lb"]: float = cur_inst.unit_cost
                     cap_graph[cur_id][succ_id]["ub"]: float = float('inf')
-                elif cur_inst.duration + UNIT_SCALE > cur_inst.max_duration:
+                elif cur_inst.duration + self.unit_scale > cur_inst.max_duration:
                     cap_graph[cur_id][succ_id]["lb"]: float = 0.0
                     cap_graph[cur_id][succ_id]["ub"]: float = cur_inst.unit_cost
                 else:
@@ -259,15 +266,11 @@ class PD_Solver:
     def run_pd_algorithm(self) -> None:
         # TODO: need to start the following iterations using the assigned flows
         while True:
-            self.critical_dag_aon.clear_annotations()
-            self.node_id = self.critical_dag_aon.node_id
-            self.critical_dag_aon.annotate_nodes()
             # Do eager assignment and draw the current pipeline
             for inst in self.critical_dag_aon.insts:
                 inst.actual_start = inst.earliest_start
                 inst.actual_finish = inst.earliest_finish
-            if self.iteration % 1000 == 0:
-                self.draw_pipeline_graph(os.path.join(self.output_dir, f"pipeline_{self.iteration}.png"), draw_time_axis=True)
+
             # self.critical_dag_aon.draw_aon_graph(os.path.join(self.output_dir, f"aon_graph_{self.iteration}.png"))
             # logging.info("aon", list(self.critical_graph_aon.edges()))
             self.critical_dag_aoa: nx.DiGraph = self.aon_to_aoa()
@@ -276,15 +279,26 @@ class PD_Solver:
             # self.draw_capacity_graph(os.path.join(self.output_dir, f"capacity_graph_{self.iteration}.png"))
             s_set, t_set = self.find_min_cut()
             cost_change = self.reduce_duration(s_set, t_set)
-            total_cost = self.calculate_total_cost()
-            total_time = self.calculate_total_time()
-            logging.info(f"Iteration {self.iteration}: cost change {cost_change}")
-            logging.info(f"Iteration {self.iteration}: total cost {total_cost}")
-            logging.info(f"Iteration {self.iteration}: total time {total_time - UNIT_SCALE}")
             if cost_change == float('inf'):
                 break
+
+            if self.iteration % self.interval == 0:
+                # self.draw_pipeline_graph(os.path.join(self.output_dir, f"pipeline_{self.iteration}.png"), draw_time_axis=True)
+                self.assign_frequency()
+
+                total_cost = self.calculate_total_cost()
+                total_time = self.calculate_total_time()
+                
+                logging.info(f"Iteration {self.iteration}: cost change {cost_change}")
+                logging.info(f"Iteration {self.iteration}: total cost {total_cost}")
+                logging.info(f"Iteration {self.iteration}: total time {total_time - self.unit_scale}")
+
+            self.critical_dag_aon.clear_annotations()
+            self.node_id = self.critical_dag_aon.node_id
+            self.critical_dag_aon.annotate_nodes()
+
             self.costs.append(total_cost)
-            self.times.append(total_time - UNIT_SCALE)
+            self.times.append(total_time - self.unit_scale)
             self.iteration += 1
         # need to output final frequency assignment
         self.assign_frequency()
@@ -313,18 +327,18 @@ class PD_Solver:
 
         for u, v in reduce_edges:
             inst: Instruction = self.capacity_graph[u][v]["inst"]
-            if inst.duration - UNIT_SCALE < inst.min_duration:
+            if inst.duration - self.unit_scale < inst.min_duration:
                 return float('inf')
             else:
-                inst.duration -= UNIT_SCALE
-                cost_change += inst.unit_cost * UNIT_SCALE
+                inst.duration -= self.unit_scale
+                cost_change += inst.unit_cost * self.unit_scale
 
 
         for u, v in increase_edges:
             inst: Instruction = self.capacity_graph[u][v]["inst"]
             if inst.duration < inst.max_duration:
-                inst.duration += UNIT_SCALE
-                cost_change += inst.unit_cost * UNIT_SCALE
+                inst.duration += self.unit_scale
+                cost_change += inst.unit_cost * self.unit_scale
         
         return cost_change
 
@@ -355,7 +369,7 @@ class PD_Solver:
             total_time += inst.actual_duration
         return total_time
     
-    def assign_frequency(self):
+    def assign_frequency(self) -> list[list[int]]:
         # do binary search on inst.time_costs, list of (duration, cost, frequency) tuples, sorted by reverse duration
         q: SimpleQueue[int] = SimpleQueue()
         q.put(0)
@@ -409,16 +423,45 @@ class PD_Solver:
             else:
                 stage_view[cur_node.stage_id].append(cur_node)
 
+        # if in the next iteration the duration will be smaller than min duration, assign the highest frequency possible
+        changed = False
         for stage_id, insts in stage_view.items():
+            insts: list[Instruction] = stage_view[stage_id]
+            for inst in insts:
+                if inst.duration - self.unit_scale < inst.min_duration:
+                    logging.info(f"{inst.__repr__()} will exceed min duration in the next iteration, assign highest frequency {inst.time_costs[-1][2]} instead of {inst.frequency}")
+                    inst.frequency = inst.time_costs[-1][2]
+                    inst.duration = inst.time_costs[-1][0]
+                    changed = True
+        
+        # We need to update the total duration and cost if any stage changes
+        if changed:
+            self.critical_dag_aon.clear_annotations()
+            self.critical_dag_aon.annotate_nodes()
+            for inst in self.critical_dag_aon.insts:
+                inst.actual_start = inst.earliest_start
+                inst.actual_finish = inst.earliest_finish    
+
+        total_freqs: list[list[int]] = []
+        logging.info(f"Iteration {self.iteration} outputing frequency assignment...")
+        for stage_id in sorted(stage_view.keys()):
             logging.info(f"Stage {stage_id} frequency assignment ")
-            freqs = []
-            reprs = []
+            insts: list[Instruction] = stage_view[stage_id]
+            freqs: list[int] = []
+            reprs: list[int] = []
             for inst in insts:
                 assert(inst.frequency != -1)
                 freqs.append(inst.frequency)
                 reprs.append(inst.__repr__())
             logging.info(f"Freqs: {freqs}")
             logging.info(f"Reprs: {reprs}")
+            total_freqs.append(freqs)
+
+        with open(os.path.join(self.output_dir, f"freqs_{self.iteration:04d}.py"), "w+") as f:
+            f.write(repr(total_freqs)+'\n')
+            
+
+        return total_freqs
 
     def draw_aoa_graph(self, path: str) -> None:
         pos = nx.spring_layout(self.critical_dag_aoa)

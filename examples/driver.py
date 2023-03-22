@@ -37,11 +37,12 @@ def main():
     with open(sys.argv[1]) as f:
         conf = yaml.load(f, Loader=yaml.FullLoader)
         
-
-    inst_profile = conf["inst_profile"]
-    p2p_profile = conf["p2p_profile"]
-    output_dir = conf["output_dir"]
-    num_mbs = conf["num_mbs"]
+    general_conf = conf["general"]
+    inst_profile = general_conf["inst_profile"]
+    p2p_profile = general_conf["p2p_profile"]
+    output_dir = general_conf["output_dir"]
+    num_mbs = general_conf["num_mbs"]
+    
 
 
     # Instruction offline profiling results.
@@ -74,16 +75,22 @@ def main():
             logging.StreamHandler()
         ])
     
-    # Instantiate the Instruction DAG.
-    dag = CriticalDAG(
-        schedule_type=Synchronous1F1B,
-        num_stages=4,
-        num_micro_batches=num_mbs,
-        time_costs=time_costs,  # NOTE: This is from inst_df, not sub_p2p_inst_df, because we want to use the original energy to determine colors.
-    )
-
-    pd_solver = PD_Solver(dag, output_dir.__str__())
-    pd_solver.run_pd_algorithm()
+    # Algorithm part
+    algo_conf = conf["algorithm"]
+    if algo_conf["type"] == "pd":
+        interval = algo_conf["interval"]
+        unit_scale = algo_conf["unit_scale"]
+        # Instantiate the Instruction DAG.
+        dag = CriticalDAG(
+            schedule_type=Synchronous1F1B,
+            num_stages=4,
+            num_micro_batches=num_mbs,
+            time_costs=time_costs,  # NOTE: This is from inst_df, not sub_p2p_inst_df, because we want to use the original energy to determine colors.
+        )
+        pd_solver = PD_Solver(dag, output_dir.__str__(), interval, unit_scale)
+        pd_solver.run_pd_algorithm()
+    else:
+        raise NotImplementedError
 
 
 if __name__ == "__main__":
