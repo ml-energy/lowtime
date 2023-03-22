@@ -1,6 +1,8 @@
 import argparse
+import datetime
 import shutil
 import sys
+import time
 import yaml
 from typing import Type
 from matplotlib.patches import Patch
@@ -44,6 +46,8 @@ def main():
     inst_df = pd.read_csv(inst_profile)
     time_costs = df_to_time_cost_pareto(inst_df)
 
+    print(time_costs)
+
     # P2P communication blocking power consumption.
     # p2p_block_df = pd.read_csv("../perseus-analysis/data/p2p-benchmark/intranode-bare-nvlink-sleep-1665-0-1.csv")
     p2p_block_df = pd.read_csv(p2p_profile)
@@ -55,14 +59,15 @@ def main():
     dag = CriticalDAG(
         schedule_type=Synchronous1F1B,
         num_stages=4,
-        num_micro_batches=8,
+        num_micro_batches=128,
         time_costs=time_costs,  # NOTE: This is from inst_df, not sub_p2p_inst_df, because we want to use the original energy to determine colors.
     )
 
-    if Path(output_dir).exists():
-        shutil.rmtree(output_dir)
-    Path(output_dir).mkdir(parents=True, exist_ok=False)
-    pd_solver = PD_Solver(dag, output_dir)
+    time_stamp = datetime.datetime.fromtimestamp(
+        time.time()).strftime('%m%d_%H%M%S')
+    output_dir = Path.joinpath(Path(output_dir), time_stamp)
+    output_dir.mkdir(parents=True, exist_ok=False)
+    pd_solver = PD_Solver(dag, output_dir.__str__())
     pd_solver.run_pd_algorithm()
 
 

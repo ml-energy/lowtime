@@ -1,8 +1,8 @@
 # path for instruction profile results
-inst_profile: /users/yilegu/perseus-analysis/data/merak_offline_profiler/merak+bert-large-uncased+uniform_transformer+dp1+tp1+pp4+mbs16.csv
+inst_profile: /users/yilegu/perseus-analysis/data/merak_offline_profiler/merak+gpt3-large+uniform_transformer+dp1+tp1+pp4+mbs4.csv
 
 # path for p2p profile results
 p2p_profile: /users/yilegu/perseus-analysis/data/p2p-benchmark/intranode-bare-nvlink-sleep-1665-0-1.csv
 
 # path for output directory
-output_dir: /users/yilegu/rene/results/test_driver
+output_dir: /users/yilegu/rene/results/gpt3_pp4_dp128
