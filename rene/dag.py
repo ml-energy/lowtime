@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import inspect
 import itertools
+import logging
 import os
 import matplotlib.pyplot as plt
 import networkx as nx
@@ -81,7 +82,7 @@ class ReneDAG:
         `(inst1, inst2)` pairs where `isinstance(inst1, Forward)` and `isinstance(inst2, Forward)`,
         for example.
         """
-        print("Initializing ReneDAG...")
+        logging.info("Initializing ReneDAG...")
         self.schedule_type = schedule_type
         self.num_stages = num_stages
         self.num_micro_batches = num_micro_batches
@@ -135,7 +136,7 @@ class ReneDAG:
         self.node_id += 1
 
         # Generate instructions from `PipelineSchedule` and pipeline configurations.
-        print("Generate instructions and creating the DAG...")
+        logging.info("Generate instructions and creating the DAG...")
         self._insts: list[Instruction] = []
         for stage_ind in range(self.num_stages):
             stage = self.schedule_type(
@@ -263,7 +264,7 @@ class ReneDAG:
             time_list.append(t)
             cost_list.append(e)
         k, b = np.polyfit(time_list, cost_list, 1)
-        print(f"Linear fit {type(inst)} {inst.stage_id} as y={k}x+{b}")
+        logging.info(f"Linear fit {type(inst)} {inst.stage_id} as y={k}x+{b}")
 
         return (k, b)
 
@@ -329,7 +330,7 @@ class CriticalDAG(ReneDAG):
         dependency_rules: Sequence[Callable[..., bool]] = [forward_dep, backward_dep],
     ) -> None:
         super(CriticalDAG, self).__init__(schedule_type, num_stages, num_micro_batches, time_costs, dependency_rules)
-        print("Initializing CriticalDAG...")
+        logging.info("Initializing CriticalDAG...")
         # store the original DAG as complete dag 
         self.complete_dag = self.dag
         # store the critical DAG as the new dag 
@@ -338,7 +339,7 @@ class CriticalDAG(ReneDAG):
     def annotate_nodes(self) -> None:
         """Annotate earliest/latest start/finish/slack times in nodes.
         """
-        print("Annotating nodes with start/finish/slack times...")
+        logging.info("Annotating nodes with start/finish/slack times...")
         # Forward computation: Assign earliest start and finish times
         self.entry_node.earliest_start = 0.0
         self.entry_node.earliest_finish = 0.0
@@ -423,7 +424,7 @@ class CriticalDAG(ReneDAG):
 
         critical_ids: list[int] = []
         visited: list[int] = []
-        print("Updating critical dag...")
+        logging.info("Updating critical dag...")
         while not q.empty():
             node_id = q.get()
             if node_id in visited:

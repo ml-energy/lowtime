@@ -1,5 +1,6 @@
 import argparse
 import datetime
+import logging
 import shutil
 import sys
 import time
@@ -35,10 +36,12 @@ def main():
     
     with open(sys.argv[1]) as f:
         conf = yaml.load(f, Loader=yaml.FullLoader)
+        
 
     inst_profile = conf["inst_profile"]
     p2p_profile = conf["p2p_profile"]
     output_dir = conf["output_dir"]
+    num_mbs = conf["num_mbs"]
 
 
     # Instruction offline profiling results.
@@ -55,18 +58,30 @@ def main():
     p2p_block_df["power"] = p2p_block_df.energy_mj / p2p_block_df.time_ms / 100
     sub_p2p_inst_df = subtract_p2p(inst_df, p2p_block_df)
 
-    # Instantiate the Instruction DAG.
-    dag = CriticalDAG(
-        schedule_type=Synchronous1F1B,
-        num_stages=4,
-        num_micro_batches=128,
-        time_costs=time_costs,  # NOTE: This is from inst_df, not sub_p2p_inst_df, because we want to use the original energy to determine colors.
-    )
-
     time_stamp = datetime.datetime.fromtimestamp(
         time.time()).strftime('%m%d_%H%M%S')
     output_dir = Path.joinpath(Path(output_dir), time_stamp)
     output_dir.mkdir(parents=True, exist_ok=False)
+
+    log_path = Path.joinpath(output_dir, 'job.log')
+
+    logging.basicConfig(
+        format='%(asctime)s %(levelname)-8s [%(filename)s:%(lineno)d] %(message)s',
+        datefmt='(%m-%d) %H:%M:%S',
+        level=logging.INFO,
+        handlers=[
+            logging.FileHandler(log_path, mode='a'),
+            logging.StreamHandler()
+        ])
+    
+    # Instantiate the Instruction DAG.
+    dag = CriticalDAG(
+        schedule_type=Synchronous1F1B,
+        num_stages=4,
+        num_micro_batches=num_mbs,
+        time_costs=time_costs,  # NOTE: This is from inst_df, not sub_p2p_inst_df, because we want to use the original energy to determine colors.
+    )
+
     pd_solver = PD_Solver(dag, output_dir.__str__())
     pd_solver.run_pd_algorithm()
 

@@ -6,3 +6,8 @@ p2p_profile: /users/yilegu/perseus-analysis/data/p2p-benchmark/intranode-bare-nv
 
 # path for output directory
 output_dir: /users/yilegu/rene/results/gpt3_pp4_dp128
+
+# num of microbatchs
+num_mbs: 128
+
+
