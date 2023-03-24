@@ -196,9 +196,13 @@ class PD_Solver:
         return cap_graph
 
 
-    def search_path_bfs(self, graph: nx.DiGraph, s: int, t: int) -> tuple(bool, list[int]):
-        parents: list[int] = [-1] * graph.number_of_nodes()
-        visited: list[bool] = [False] * graph.number_of_nodes()
+    def search_path_bfs(self, graph: nx.DiGraph, s: int, t: int) -> tuple[dict[int, bool], dict[int, int]]:
+        """Search path from s to t using BFS search, return a tuple of visited and parents"""
+        parents: dict[int, int] = dict()
+        visited: dict[int, bool] = dict()
+        for node_id in graph.nodes:
+            parents[node_id] = -1
+            visited[node_id] = False
         # logging.info(list(graph.nodes))
         q: SimpleQueue[int] = SimpleQueue()
         q.put(s)
@@ -214,20 +218,30 @@ class PD_Solver:
 
         return (visited, parents)
 
-    def find_min_cut(self) -> tuple(set[int], set[int]):
-        residual_graph: nx.DiGraph = nx.DiGraph(self.capacity_graph)
+    def find_max_flow(self, graph: nx.DiGraph, source_id: int, sink_id: int) -> nx.DiGraph:
+        """Find max flow using BFS search, each edge in the graph has a capacity [0, weight]
+        
+        Arguments:
+            graph {nx.DiGraph} -- a DAG with annoated capacity on edges
+            source_id {int} -- start node id
+            sink_id {int} -- sink node id
+
+        Returns:
+            residual_graph {nx.DiGraph} -- a residual graph annotated with flow on edges
+        """
+        residual_graph: nx.DiGraph = nx.DiGraph(graph)
 
         while True:
             # Step 1: get a path from entry to exit
-            visited, parents = self.search_path_bfs(residual_graph, self.entry_id, self.exit_id)
-            if visited[self.exit_id] == False:
+            visited, parents = self.search_path_bfs(residual_graph, source_id, sink_id)
+            if visited[sink_id] == False:
                 break
             # Step 2: find min capacity along the path
-            right_ptr = self.exit_id
-            left_ptr = parents[self.exit_id]
+            right_ptr = sink_id
+            left_ptr = parents[sink_id]
             path = [right_ptr, left_ptr]
             min_capacity = residual_graph[left_ptr][right_ptr]["weight"]
-            while left_ptr != self.entry_id:
+            while left_ptr != source_id:
                 right_ptr = left_ptr
                 left_ptr = parents[left_ptr]
                 path.append(left_ptr)
@@ -235,8 +249,8 @@ class PD_Solver:
             # logging.info(f"path  {path}")
             
             # Step 3: update residual graph
-            right_ptr = self.exit_id
-            left_ptr = parents[self.exit_id]
+            right_ptr = sink_id
+            left_ptr = parents[sink_id]
             while True:
                 
                 residual_graph[left_ptr][right_ptr]["weight"] -= min_capacity
@@ -245,13 +259,29 @@ class PD_Solver:
                     residual_graph.add_edge(right_ptr, left_ptr, weight=min_capacity, inst=residual_graph[left_ptr][right_ptr]["inst"])
                 else:
                     residual_graph[right_ptr][left_ptr]["weight"] += min_capacity
-                if left_ptr == self.entry_id:
+                if left_ptr == source_id:
                     break
                 right_ptr = left_ptr
                 left_ptr = parents[left_ptr]
-            
-        # Step 4: find the cut:
-        visited, _ = self.search_path_bfs(residual_graph, self.entry_id, self.exit_id)
+    
+
+        # logging.info(f"Iteration {self.iteration}: s_set: ",s_set)
+        # logging.info(f"Iteration {self.iteration}: t_set ", t_set)
+        return residual_graph
+    
+    def find_min_cut(self, residual_graph: nx.DiGraph, source_id: int, sink_id: int) -> tuple(set[int], set[int]):
+        """Find min cut given a residual graph
+        
+        Arguments:
+            residual_graph {nx.DiGraph} -- a residual graph annotated with flow on edges
+            source_id {int} -- start node id
+            sink_id {int} -- sink node id
+
+        Returns:
+            s_set, t_set {tuple(set[int], set[int])} -- two sets of nodes in the min cut
+        """
+        # Find the cut:
+        visited, _ = self.search_path_bfs(residual_graph, source_id, sink_id)
         s_set: set[int] = set()
         t_set: set[int] = set()
         for i in range(len(visited)):
@@ -259,9 +289,86 @@ class PD_Solver:
                 s_set.add(i)
             else:
                 t_set.add(i)
-        # logging.info(f"Iteration {self.iteration}: s_set: ",s_set)
-        # logging.info(f"Iteration {self.iteration}: t_set ", t_set)
+
         return (s_set, t_set)
+    
+    def find_max_flow_bounded(self, graph: nx.DiGraph, source_id: int, sink_id: int) -> nx.DiGraph:
+        unbound_graph: nx.DiGraph = nx.DiGraph(graph)
+        s_prime = self.node_id
+        self.node_id += 1
+        unbound_graph.add_node(s_prime)
+        t_prime = self.node_id
+        self.node_id += 1
+        unbound_graph.add_node(t_prime)
+        # Step 1: For every edge in the original graph, modify the weight to be upper bound - lower bound
+        for u, v in unbound_graph.edges:
+            unbound_graph[u][v]["weight"] = unbound_graph[u][v]["ub"] - unbound_graph[u][v]["lb"]
+
+        # Step 2: Add edges from s_prime to all nodes in original graph
+        # weight = sum of all lower bounds of parents of current node
+        for node_id in unbound_graph.nodes:
+            weight = 0
+            for parent_id in unbound_graph.predecessors(node_id):
+                weight += unbound_graph[parent_id][node_id]["lb"]
+            unbound_graph.add_edge(s_prime, node_id, weight=weight, inst=None)
+        
+        # Step 3: Add edges from all nodes in original graph to t_prime
+        # weight = sum of all lower bounds of children of current node
+        for node_id in unbound_graph.nodes:
+            if node_id == s_prime:
+                continue
+            weight = 0
+            for child_id in unbound_graph.successors(node_id):
+                weight += unbound_graph[node_id][child_id]["lb"]
+            unbound_graph.add_edge(node_id, t_prime, weight=weight, inst=None)
+
+        # Step 4: Add an edge from t to s with infinite weight
+        unbound_graph.add_edge(self.exit_id, self.entry_id, weight=float("inf"), inst=None)
+
+        # Step 5: Find min cut on the unbound graph
+        extend_residual_graph: nx.DiGraph = self.find_max_flow(unbound_graph, s_prime, t_prime)
+        # source_capacity: int = 0
+        # sink_capacity: int = 0
+        # for node_id in unbound_graph.successors(s_prime):
+        #     source_capacity += unbound_graph[s_prime][node_id]["weight"]
+        # for node_id in unbound_graph.predecessors(t_prime):
+        #     sink_capacity += unbound_graph[node_id][t_prime]["weight"]
+
+        # Step 6: Check if residual graph is saturated
+        for node_id in unbound_graph.successors(s_prime):
+            if extend_residual_graph[s_prime][node_id]["weight"] != 0:
+                raise Exception(f"Residual graph is not saturated at the new source (edge {s_prime}->{node_id} has weight {extend_residual_graph[s_prime][node_id]['weight']}), no flow in the original DAG!")
+        for node_id in unbound_graph.predecessors(t_prime):
+            if extend_residual_graph[node_id][t_prime]["weight"] != 0:
+                raise Exception(f"Residual graph is not saturated at the new sink (edge {node_id}->{t_prime} has weight {extend_residual_graph[node_id][t_prime]['weight']}), no flow in the original DAG!")
+        
+        # Step 7: Retreive the flow for the original graph
+        for u, v in graph.edges:
+            # f'(u,v) = f(u,v) - lb(u,v)
+            if u in extend_residual_graph.successors(v):
+                graph[u][v]["weight"] = extend_residual_graph[v][u]["weight"] + graph[u][v]["lb"]
+            else:
+                graph[u][v]["weight"] = graph[u][v]["lb"]
+        
+        # Step 8: Modify capacity of the residual graph
+        residual_graph: nx.DiGraph = nx.DiGraph(graph)
+        edge_pending: list[tuple] = []
+        for u, v in residual_graph.edges:
+            residual_graph[u][v]["weight"] = residual_graph[u][v]["ub"] - residual_graph[u][v]["weight"]
+            if u in residual_graph.successors(v):
+                residual_graph[v][u]["weight"] = residual_graph[u][v]["weight"] - residual_graph[u][v]["lb"]
+            else:
+                # residual_graph.add_edge(v, u, weight=residual_graph[u][v]["weight"] - residual_graph[u][v]["lb"], inst=residual_graph[u][v]["inst"])
+                edge_pending.append((v, u, residual_graph[u][v]["weight"] - residual_graph[u][v]["lb"], residual_graph[u][v]["inst"]))
+                
+        for u, v, weight, inst in edge_pending:
+            residual_graph.add_edge(u, v, weight=weight, inst=inst)
+
+        # Step 9: Find min cut on the original graph
+        residual_graph = self.find_max_flow(residual_graph, self.entry_id, self.exit_id)
+
+        return residual_graph
+        
     
     def run_pd_algorithm(self) -> None:
         # TODO: need to start the following iterations using the assigned flows
@@ -277,13 +384,15 @@ class PD_Solver:
             # self.draw_aoa_graph(os.path.join(self.output_dir, f"aoa_graph_{self.iteration}.png"))
             self.capacity_graph: nx.DiGraph = self.generate_capacity_graph()
             # self.draw_capacity_graph(os.path.join(self.output_dir, f"capacity_graph_{self.iteration}.png"))
-            s_set, t_set = self.find_min_cut()
+            # s_set, t_set = self.find_min_cut(self.capacity_graph, self.entry_id, self.exit_id)
+            residual_graph: nx.DiGraph = self.find_max_flow_bounded(self.capacity_graph, self.entry_id, self.exit_id)
+            s_set, t_set = self.find_min_cut(residual_graph, self.entry_id, self.exit_id)
             cost_change = self.reduce_duration(s_set, t_set)
             if cost_change == float('inf'):
                 break
 
             if self.iteration % self.interval == 0:
-                # self.draw_pipeline_graph(os.path.join(self.output_dir, f"pipeline_{self.iteration}.png"), draw_time_axis=True)
+                self.draw_pipeline_graph(os.path.join(self.output_dir, f"pipeline_{self.iteration}.png"), draw_time_axis=True)
                 self.assign_frequency()
 
                 total_cost = self.calculate_total_cost()
