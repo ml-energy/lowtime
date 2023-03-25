@@ -53,6 +53,8 @@ class ReneDAG:
         num_micro_batches: int,
         time_costs: dict[Type[Instruction], dict[int, list[tuple]]],
         dependency_rules: Sequence[Callable[..., bool]] = [forward_dep, backward_dep],
+        output_dir: str = "",
+        fit_degree: int = 1,
     ) -> None:
         """Instantiate instructions and construct the DAG.
 
@@ -64,6 +66,7 @@ class ReneDAG:
             time_costs: A dict that maps instruction type to a dict of stage_id : list of (duration, cost, frequency) tuples.
             output_dir: output directory for figures
             dependency_rules: A list of functions that define the dependency between instructions.
+            fit_degree: The degree of polynomial to fit the time cost data. Default is 1.
 
         ## Dependency rules
 
@@ -89,6 +92,8 @@ class ReneDAG:
         self.time_costs = time_costs
         self.dependency_rules = dependency_rules
         self.scheduled = False
+        self.fit_degree = fit_degree
+        self.output_dir = output_dir
 
         # For graph generation
         self.node_id: int = 0
@@ -161,9 +166,13 @@ class ReneDAG:
                 # Set min/max duration for each instruction
                 inst.max_duration = self.time_costs[type(inst)][stage_ind][0][0]
                 inst.min_duration = self.time_costs[type(inst)][stage_ind][-1][0]
-                # Do linear interpolation here
-                inst.k, inst.b = self.linear_interpolate(inst)
-                inst.unit_cost = abs(inst.k)
+
+                # Set the output directory for each instruction
+                inst.output_dir = self.output_dir
+                # Do interpolation here
+                inst.interpolate(self.fit_degree)
+                
+                # inst.unit_cost = abs(inst.k)
 
                 self._insts.append(inst)
 
@@ -247,26 +256,6 @@ class ReneDAG:
 
         # Slice out entry and exit nodes
         return list(filter(lambda node: not isinstance(node, _Dummy), critical_path))
-    
-    def linear_interpolate(self, inst: Instruction) -> (float, float):
-        """Do linear interpolation on the given instruction and its time-costs meta-data, return the unit cost (slope)
-
-        Assumes self.time_costs[inst] has already been sorted.
-        """
-        # Get the slope from two endpoints
-        # right_end = self.time_costs[type(inst)][inst.stage_id][0]
-        # left_end = self.time_costs[type(inst)][inst.stage_id][-1]
-        # unit_cost = abs((right_end[1] - left_end[1]) / (right_end[0] - left_end[0]))
-        time_cost_list = self.time_costs[type(inst)][inst.stage_id]
-        time_list = []
-        cost_list = []
-        for t, e, f in time_cost_list:
-            time_list.append(t)
-            cost_list.append(e)
-        k, b = np.polyfit(time_list, cost_list, 1)
-        logging.info(f"Linear fit {type(inst)} {inst.stage_id} as y={k}x+{b}")
-
-        return (k, b)
 
     @property
     def total_execution_time(self) -> float:
@@ -327,9 +316,11 @@ class CriticalDAG(ReneDAG):
         num_stages: int,
         num_micro_batches: int,
         time_costs: dict[Type[Instruction], dict[int, list[tuple]]],
-        dependency_rules: Sequence[Callable[..., bool]] = [forward_dep, backward_dep],
+        dependency_rules: Sequence[Callable[..., bool]] = [forward_dep, backward_dep], 
+        output_dir: str = "",
+        fit_degree: int = 1,
     ) -> None:
-        super(CriticalDAG, self).__init__(schedule_type, num_stages, num_micro_batches, time_costs, dependency_rules)
+        super(CriticalDAG, self).__init__(schedule_type, num_stages, num_micro_batches, time_costs, dependency_rules, output_dir, fit_degree)
         logging.info("Initializing CriticalDAG...")
         # store the original DAG as complete dag 
         self.complete_dag = self.dag
