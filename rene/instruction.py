@@ -219,14 +219,43 @@ class Instruction(metaclass=InstructionType):
             elif time > self.fit_coeffs[-1, 0]:
                 # TODO: return 0 here?
                 return self.fit_coeffs[-1, 1]
+            # do a binary search for time in the correct interval of the first axis of self.fit_coeffs
 
-            for i in range(len(self.fit_coeffs) - 1):
-                x1, y1 = self.fit_coeffs[i]
-                x2, y2 = self.fit_coeffs[i + 1]
+            low = 0
+            high = self.fit_coeffs.shape[0] - 1
+
+            while low <= high:
+                mid = (low + high) // 2
+                if self.fit_coeffs[mid][0] < time:
+                    low = mid + 1
+                elif self.fit_coeffs[mid][0] > time:
+                    high = mid - 1
+                else:
+                    # exact match found
+                    return self.fit_coeffs[mid][1]
+
+            # if no exact match is found, return the closest x value
+            if high < 0:
+                return self.fit_coeffs[low][1]
+            elif low >= self.fit_coeffs.shape[0]:
+                return self.fit_coeffs[high][1]
+            else:
+                x1, y1 = self.fit_coeffs[high]
+                x2, y2 = self.fit_coeffs[low]
+                assert(low == high + 1)
 
                 if x1 <= time <= x2:
                     t = (time - x1) / (x2 - x1)
                     return y1 + t * (y2 - y1)                
+
+
+            # for i in range(len(self.fit_coeffs) - 1):
+            #     x1, y1 = self.fit_coeffs[i]
+            #     x2, y2 = self.fit_coeffs[i + 1]
+
+            #     if x1 <= time <= x2:
+            #         t = (time - x1) / (x2 - x1)
+            #         return y1 + t * (y2 - y1)                
 
             raise ValueError(f"time = {time} is out of the range of the breakpoints")
         else:
@@ -246,6 +275,35 @@ class Instruction(metaclass=InstructionType):
                 return float("inf")
             elif time > self.fit_coeffs[-1, 0]:
                 return 0
+            
+            # do a binary search for time in the correct interval of the first axis of self.fit_coeffs
+
+            # TODO: debug the buggy binary search code
+            # low = 0
+            # high = self.fit_coeffs.shape[0] - 1
+
+            # while low <= high:
+            #     mid = (low + high) // 2
+            #     if self.fit_coeffs[mid][0] < time:
+            #         low = mid + 1
+            #     elif self.fit_coeffs[mid][0] > time:
+            #         high = mid - 1
+            #     else:
+            #         # exact match found
+            #         return self.fit_coeffs[mid][1]
+
+            # # if no exact match is found, return the closest x value
+            # if high < 0:
+            #     return float("inf")
+            # elif low >= self.fit_coeffs.shape[0]:
+            #     return 0
+            # else:
+            #     x1, y1 = self.fit_coeffs[high]
+            #     x2, y2 = self.fit_coeffs[low]
+            #     assert(low == high + 1)
+
+            #     if x1 <= time <= x2:
+            #         return abs((y2 - y1) / (x2 - x1))
 
             for i in range(len(self.fit_coeffs) - 1):
                 x1, y1 = self.fit_coeffs[i]

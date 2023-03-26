@@ -336,10 +336,10 @@ class PD_Solver:
 
         # Step 6: Check if residual graph is saturated
         for node_id in unbound_graph.successors(s_prime):
-            if extend_residual_graph[s_prime][node_id]["weight"] != 0:
+            if abs(extend_residual_graph[s_prime][node_id]["weight"] - 0) > 1e-5:
                 raise Exception(f"Residual graph is not saturated at the new source (edge {s_prime}->{node_id} has weight {extend_residual_graph[s_prime][node_id]['weight']}), no flow in the original DAG!")
         for node_id in unbound_graph.predecessors(t_prime):
-            if extend_residual_graph[node_id][t_prime]["weight"] != 0:
+            if abs(extend_residual_graph[node_id][t_prime]["weight"] - 0) > 1e-5:
                 raise Exception(f"Residual graph is not saturated at the new sink (edge {node_id}->{t_prime} has weight {extend_residual_graph[node_id][t_prime]['weight']}), no flow in the original DAG!")
         
         # Step 7: Retreive the flow for the original graph
@@ -395,12 +395,12 @@ class PD_Solver:
                 self.draw_pipeline_graph(os.path.join(self.output_dir, f"pipeline_{self.iteration}.png"), draw_time_axis=True)
                 self.assign_frequency()
 
-                total_cost = self.calculate_total_cost()
-                total_time = self.calculate_total_time()
-                
-                logging.info(f"Iteration {self.iteration}: cost change {cost_change}")
-                logging.info(f"Iteration {self.iteration}: total cost {total_cost}")
-                logging.info(f"Iteration {self.iteration}: total time {total_time - self.unit_scale}")
+            total_cost = self.calculate_total_cost()
+            total_time = self.calculate_total_time()
+            
+            logging.info(f"Iteration {self.iteration}: cost change {cost_change}")
+            logging.info(f"Iteration {self.iteration}: total cost {total_cost}")
+            logging.info(f"Iteration {self.iteration}: total time {total_time - self.unit_scale}")
 
             self.critical_dag_aon.clear_annotations()
             self.node_id = self.critical_dag_aon.node_id

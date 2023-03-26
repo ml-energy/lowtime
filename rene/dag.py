@@ -101,6 +101,9 @@ class ReneDAG:
         self.inst_id_map: dict[str, int] = dict()
         self._dag: nx.DiGraph = nx.DiGraph()
 
+        # For interpolation caching
+        self.coeffs_dict: dict[Type[Instruction], dict[int, np.ndarray]] = dict()
+
         # Sanity check.
         if self.time_costs is not None:
             for meta_dic in self.time_costs.values():
@@ -170,8 +173,13 @@ class ReneDAG:
                 # Set the output directory for each instruction
                 inst.output_dir = self.output_dir
                 # Do interpolation here
-                inst.interpolate(self.fit_method)
-                
+                if (type(inst) not in self.coeffs_dict):
+                    self.coeffs_dict[type(inst)] = dict()
+                if (inst.stage_id not in self.coeffs_dict[type(inst)]):
+                    self.coeffs_dict[type(inst)][inst.stage_id] = inst.interpolate(self.fit_method)
+                else:
+                    inst.fit_coeffs = self.coeffs_dict[type(inst)][inst.stage_id]
+                    inst.fit_method = self.fit_method
                 # inst.unit_cost = abs(inst.k)
 
                 self._insts.append(inst)
