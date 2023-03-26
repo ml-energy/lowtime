@@ -54,7 +54,7 @@ class ReneDAG:
         time_costs: dict[Type[Instruction], dict[int, list[tuple]]],
         dependency_rules: Sequence[Callable[..., bool]] = [forward_dep, backward_dep],
         output_dir: str = "",
-        fit_degree: int = 1,
+        fit_method: str = "linear",
     ) -> None:
         """Instantiate instructions and construct the DAG.
 
@@ -66,7 +66,7 @@ class ReneDAG:
             time_costs: A dict that maps instruction type to a dict of stage_id : list of (duration, cost, frequency) tuples.
             output_dir: output directory for figures
             dependency_rules: A list of functions that define the dependency between instructions.
-            fit_degree: The degree of polynomial to fit the time cost data. Default is 1.
+            fit_method: The method to fit the time cost data. Can be "linear" or "piecewise-linear".
 
         ## Dependency rules
 
@@ -92,7 +92,7 @@ class ReneDAG:
         self.time_costs = time_costs
         self.dependency_rules = dependency_rules
         self.scheduled = False
-        self.fit_degree = fit_degree
+        self.fit_method = fit_method
         self.output_dir = output_dir
 
         # For graph generation
@@ -170,7 +170,7 @@ class ReneDAG:
                 # Set the output directory for each instruction
                 inst.output_dir = self.output_dir
                 # Do interpolation here
-                inst.interpolate(self.fit_degree)
+                inst.interpolate(self.fit_method)
                 
                 # inst.unit_cost = abs(inst.k)
 
@@ -318,9 +318,9 @@ class CriticalDAG(ReneDAG):
         time_costs: dict[Type[Instruction], dict[int, list[tuple]]],
         dependency_rules: Sequence[Callable[..., bool]] = [forward_dep, backward_dep], 
         output_dir: str = "",
-        fit_degree: int = 1,
+        fit_method: str = "linear",
     ) -> None:
-        super(CriticalDAG, self).__init__(schedule_type, num_stages, num_micro_batches, time_costs, dependency_rules, output_dir, fit_degree)
+        super(CriticalDAG, self).__init__(schedule_type, num_stages, num_micro_batches, time_costs, dependency_rules, output_dir, fit_method)
         logging.info("Initializing CriticalDAG...")
         # store the original DAG as complete dag 
         self.complete_dag = self.dag

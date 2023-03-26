@@ -76,7 +76,7 @@ class Instruction(metaclass=InstructionType):
     actual_finish: float = 0.0
 
     # For poly fit
-    fit_degree: int = 0
+    fit_method: str = "linear"
     fit_coeffs: list[float] = field(default_factory=list)
 
     # For frequency assignment
@@ -132,18 +132,18 @@ class Instruction(metaclass=InstructionType):
         final_annotation_args.update(annotation_args[type(self)])
         ax.annotate(**final_annotation_args)
 
-    def interpolate(self, fit_degree: int) -> (float, float):
+    def interpolate(self, fit_method: int) -> (float, float):
         """Do interpolation on the given instruction and its time-costs meta-data, return the coefficients
         Assumes self.time_costs[inst] has already been sorted.
 
         Arguments:
-            fit_degree: Degree of the polynomial to fit
+            fit_method: Degree of the polynomial to fit
         """
         # Get the slope from two endpoints
         # right_end = self.time_costs[type(inst)][inst.stage_id][0]
         # left_end = self.time_costs[type(inst)][inst.stage_id][-1]
         # unit_cost = abs((right_end[1] - left_end[1]) / (right_end[0] - left_end[0]))
-        self.fit_degree = fit_degree
+        self.fit_method = fit_method
         time_list = []
         cost_list = []
         for t, e, f in self.time_costs:
@@ -180,60 +180,9 @@ class Instruction(metaclass=InstructionType):
                 break
         # Sort the convex_points by their x-coordinate in ascending order
         convex_points = convex_points[convex_points[:, 0].argsort()]
+        self.fit_coeffs = convex_points
         # Now, convex_points contains the points that form a convex piecewise linear function
-        def piecewise_linear(x, convex_points):
-            if x < convex_points[0, 0]:
-                return convex_points[0, 1]
-            elif x > convex_points[-1, 0]:
-                return convex_points[-1, 1]
 
-            for i in range(len(convex_points) - 1):
-                x1, y1 = convex_points[i]
-                x2, y2 = convex_points[i + 1]
-
-                if x1 <= x <= x2:
-                    t = (x - x1) / (x2 - x1)
-                    return y1 + t * (y2 - y1)
-
-            raise ValueError(f"x = {x} is out of the range of the convex_points")
-
-        # Example usage:
-        x_value = 5
-        y_value = piecewise_linear(x_value, convex_points)
-        # print(f"y_value: {y_value}")
-
-        # # Degree of the polynomial
-        # degree = 2
-
-        # # Define the objective function to minimize (sum of squared errors)
-        # def objective_function(coeffs):
-        #     poly = np.poly1d(coeffs)
-        #     y_pred = poly(x_data)
-        #     return np.sum((y_data - y_pred)**2)
-
-        # # Define the constraint (P'(x) ≤ 0)
-        # def constraint(coeffs):
-        #     poly = np.poly1d(coeffs)
-        #     poly_derivative = np.polyder(poly)
-        #     slopes = poly_derivative(x_data)
-        #     return np.min(-slopes)
-
-        # # Set the constraint in a dictionary
-        # con = {"type": "ineq", "fun": constraint}
-
-        # # Initial guess for the polynomial coefficients
-        # initial_guess = np.ones(degree + 1)
-
-        # # Solve the constrained optimization problem
-        # result = minimize(objective_function, initial_guess, constraints=[con])
-
-        # # Get the coefficients of the best-fit polynomial
-        # self.fit_coeffs = result.x
-        # best_fit_poly = np.poly1d(best_fit_coeffs)
-
-        # self.fit_coeffs = np.polyfit(time_list, cost_list, self.fit_degree)
-        # plot the fit polynomial (self.fit_coeffs) as continuous curve
-        # plt.plot(time_list, cost_list, 'o')
         fig, ax = plt.subplots(figsize=(8, 8), tight_layout=True)
         ax.plot(time_list, cost_list, 'o')
         # generate a list with step size 0.1
@@ -241,7 +190,7 @@ class Instruction(metaclass=InstructionType):
         # ax.plot(x, np.polyval(self.fit_coeffs, x), 'r-')
         y = []
         for i in x:
-            y.append(piecewise_linear(i, convex_points))
+            y.append(self.get_cost(i))
         ax.plot(x, y, 'r-')
         for x, y in convex_points:
             ax.annotate(f"({x:.6f}, {y:.6f})", (x, y))
@@ -253,13 +202,36 @@ class Instruction(metaclass=InstructionType):
 
         return self.fit_coeffs
     
-    def get_cost(self, time: float) -> float:
+    def get_cost(self, time: float):
         """Get the cost of the instruction at the given time.
 
         Arguments:
             time: Time to get the cost at
         """
-        return np.polyval(self.fit_coeffs, time)
+        if len(self.fit_coeffs) == 0:
+            raise ValueError("No fit coefficients have been computed yet")
+        if self.fit_method == "linear":
+            return np.polyval(self.fit_coeffs, time)
+        elif self.fit_method == "piecewise-linear":
+            if time < self.fit_coeffs[0, 0]:
+                # TODO: return inf here?
+                return self.fit_coeffs[0, 1]
+            elif time > self.fit_coeffs[-1, 0]:
+                # TODO: return 0 here?
+                return self.fit_coeffs[-1, 1]
+
+            for i in range(len(self.fit_coeffs) - 1):
+                x1, y1 = self.fit_coeffs[i]
+                x2, y2 = self.fit_coeffs[i + 1]
+
+                if x1 <= time <= x2:
+                    t = (time - x1) / (x2 - x1)
+                    return y1 + t * (y2 - y1)                
+
+            raise ValueError(f"time = {time} is out of the range of the breakpoints")
+        else:
+            raise ValueError(f"Unknown fit method {self.fit_method}")
+    
     
     def get_derivative(self, time: float) -> float:
         """Get the derivative of the instruction at the given time.
@@ -267,7 +239,24 @@ class Instruction(metaclass=InstructionType):
         Arguments:
             time: Time to get the derivative at
         """
-        return np.polyval(np.polyder(self.fit_coeffs), time)
+        if self.fit_method == "linear":
+            return np.polyval(np.polyder(self.fit_coeffs), time)
+        elif self.fit_method == "piecewise-linear":
+            if time < self.fit_coeffs[0, 0]:
+                return float("inf")
+            elif time > self.fit_coeffs[-1, 0]:
+                return 0
+
+            for i in range(len(self.fit_coeffs) - 1):
+                x1, y1 = self.fit_coeffs[i]
+                x2, y2 = self.fit_coeffs[i + 1]
+
+                if x1 <= time <= x2:
+                    return abs((y2 - y1) / (x2 - x1))
+
+            raise ValueError(f"time = {time} is out of the range of the breakpoints")
+        else:
+            raise ValueError(f"Unknown fit method {self.fit_method}")
 
 class Forward(Instruction):
     """Forward computation for a pipeline stage."""

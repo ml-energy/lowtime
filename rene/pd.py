@@ -180,14 +180,14 @@ class PD_Solver:
                     cap_graph[cur_id][succ_id]["lb"]: float = 0.0
                     cap_graph[cur_id][succ_id]["ub"]: float = float('inf')
                 elif cur_inst.duration - self.unit_scale < cur_inst.min_duration:
-                    cap_graph[cur_id][succ_id]["lb"]: float = cur_inst.unit_cost
+                    cap_graph[cur_id][succ_id]["lb"]: float = cur_inst.get_derivative(cur_inst.duration + self.unit_scale)
                     cap_graph[cur_id][succ_id]["ub"]: float = float('inf')
                 elif cur_inst.duration + self.unit_scale > cur_inst.max_duration:
                     cap_graph[cur_id][succ_id]["lb"]: float = 0.0
-                    cap_graph[cur_id][succ_id]["ub"]: float = cur_inst.unit_cost
+                    cap_graph[cur_id][succ_id]["ub"]: float = cur_inst.get_derivative(cur_inst.duration - self.unit_scale)
                 else:
-                    cap_graph[cur_id][succ_id]["lb"]: float = cur_inst.unit_cost        
-                    cap_graph[cur_id][succ_id]["ub"]: float = cur_inst.unit_cost             
+                    cap_graph[cur_id][succ_id]["lb"]: float = cur_inst.get_derivative(cur_inst.duration + self.unit_scale)        
+                    cap_graph[cur_id][succ_id]["ub"]: float = cur_inst.get_derivative(cur_inst.duration - self.unit_scale)            
 
         # Change weight to max capacity
         for u, v in cap_graph.edges:
@@ -421,8 +421,6 @@ class PD_Solver:
             for child_id in list(self.capacity_graph.successors(node_id)):
                 if child_id in t:
                     reduce_edges.append((node_id, child_id))
-                    if node_id == 0 and child_id == 2:
-                        logging.info("halt")
         
         for node_id in t:
             for child_id in list(self.capacity_graph.successors(node_id)):
@@ -440,14 +438,15 @@ class PD_Solver:
                 return float('inf')
             else:
                 inst.duration -= self.unit_scale
-                cost_change += inst.unit_cost * self.unit_scale
+                cost_change += inst.get_derivative(inst.duration) * self.unit_scale
 
 
         for u, v in increase_edges:
             inst: Instruction = self.capacity_graph[u][v]["inst"]
             if inst.duration < inst.max_duration:
                 inst.duration += self.unit_scale
-                cost_change += inst.unit_cost * self.unit_scale
+                cost_change -= inst.get_derivative(inst.duration) * self.unit_scale
+                raise ValueError("Increasing duration")
         
         return cost_change
 
@@ -464,7 +463,7 @@ class PD_Solver:
             visited.append(cur_id)
             cur_node: Instruction = self.critical_dag_aon.complete_dag.nodes[cur_id]["inst"]
             if not isinstance(cur_node, _Dummy) and cur_node.__repr__() not in visited:
-                total_cost += cur_node.duration * cur_node.k + cur_node.b
+                total_cost += cur_node.get_cost(cur_node.duration)
                 visited.append(cur_node.__repr__())
             for child_id in self.critical_dag_aon.complete_dag.successors(cur_id):
                 q.put(child_id)

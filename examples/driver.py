@@ -80,7 +80,7 @@ def main():
     if algo_conf["type"] == "pd":
         interval = algo_conf["interval"]
         unit_scale = algo_conf["unit_scale"]
-        fit_degree = algo_conf["fit_degree"]
+        fit_method = algo_conf["fit_method"]
         # Instantiate the Instruction DAG.
         dag = CriticalDAG(
             schedule_type=Synchronous1F1B,
@@ -88,7 +88,7 @@ def main():
             num_micro_batches=num_mbs,
             time_costs=time_costs,  # NOTE: This is from inst_df, not sub_p2p_inst_df, because we want to use the original energy to determine colors.
             output_dir=output_dir.__str__(),
-            fit_degree=fit_degree,
+            fit_method=fit_method,
         )
         pd_solver = PD_Solver(dag, output_dir.__str__(), interval, unit_scale)
         pd_solver.run_pd_algorithm()
