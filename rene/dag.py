@@ -440,4 +440,18 @@ class CriticalDAG(ReneDAG):
                 critical_dag.remove_node(i)
 
         self._dag = critical_dag
+
+        # let's check if the critical dag has only a single path
+        q: SimpleQueue[int] = SimpleQueue()
+        q.put(self.inst_id_map[self.entry_node.__repr__()])
+        visited: list[int] = []
+        while not q.empty():
+            node_id = q.get()
+            if node_id in visited:
+                continue
+            visited.append(node_id)
+            if len(list(self._dag.successors(node_id))) > 1:
+                raise Exception("Critical DAG has multiple paths!")
+            for child_id in self._dag.successors(node_id):
+                q.put(child_id)
     

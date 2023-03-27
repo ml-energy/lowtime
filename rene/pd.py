@@ -404,7 +404,7 @@ class PD_Solver:
 
             self.critical_dag_aon.clear_annotations()
             self.node_id = self.critical_dag_aon.node_id
-            self.critical_dag_aon.annotate_nodes()
+            self.critical_dag_aon.update_critical_dag()
 
             self.costs.append(total_cost)
             self.times.append(total_time - self.unit_scale)
@@ -429,7 +429,8 @@ class PD_Solver:
         
         logging.info(f"Iteration {self.iteration}: reduce edges {reduce_edges}")
         logging.info(f"Iteration {self.iteration}: increase edges {increase_edges}")
-
+        if len(reduce_edges) > 1 or len(increase_edges) > 0:
+            raise ValueError(f"reduce edges {reduce_edges} and increase edges {increase_edges}")
         cost_change = 0
 
         for u, v in reduce_edges:
@@ -446,7 +447,7 @@ class PD_Solver:
             if inst.duration < inst.max_duration:
                 inst.duration += self.unit_scale
                 cost_change -= inst.get_derivative(inst.duration) * self.unit_scale
-                raise ValueError("Increasing duration")
+
         
         return cost_change
 
