@@ -57,7 +57,11 @@ def main():
     p2p_block_df = pd.read_csv(p2p_profile)
     p2p_block_df = p2p_block_df.loc[p2p_block_df.time_ms == 100]
     p2p_block_df["power"] = p2p_block_df.energy_mj / p2p_block_df.time_ms / 100
-    sub_p2p_inst_df = subtract_p2p(inst_df, p2p_block_df)
+
+    # Compute the average power consumption of blocking on P2P communication.
+    # In the absolute majority of the times we don't go below 800MHz,
+    # so we filter frequencies that are below that and take the average so that we're as accurate as possible.
+    p_p2p = p2p_block_df.query("freq >= 800").power.mean().item()
 
     time_stamp = datetime.datetime.fromtimestamp(
         time.time()).strftime('%m%d_%H%M%S')
