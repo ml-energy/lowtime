@@ -63,6 +63,11 @@ def main():
     # so we filter frequencies that are below that and take the average so that we're as accurate as possible.
     p_p2p = p2p_block_df.query("freq >= 800").power.mean().item()
 
+    # def subtract_p2p(row):
+    #         row.energy -= row.time * p_p2p
+    #         return row
+    # inst_df = inst_df.apply(subtract_p2p, axis=1)
+
     time_stamp = datetime.datetime.fromtimestamp(
         time.time()).strftime('%m%d_%H%M%S')
     output_dir = Path.joinpath(Path(output_dir), time_stamp)
@@ -85,6 +90,13 @@ def main():
         interval = algo_conf["interval"]
         unit_scale = algo_conf["unit_scale"]
         fit_method = algo_conf["fit_method"]
+        # Quantize the time costs.
+        for stage_to_time_costs in time_costs.values():
+            for stage, time_cost_list in stage_to_time_costs.items():
+                time_cost_list = [(t // unit_scale * unit_scale, e, f) for t, e, f in time_cost_list]
+                stage_to_time_costs[stage] = time_cost_list
+
+
         # Instantiate the Instruction DAG.
         dag = CriticalDAG(
             schedule_type=Synchronous1F1B,
