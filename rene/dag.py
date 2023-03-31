@@ -450,8 +450,8 @@ class CriticalDAG(ReneDAG):
             if node_id in visited:
                 continue
             visited.append(node_id)
-            if len(list(self._dag.successors(node_id))) > 1:
-                raise Exception("Critical DAG has multiple paths!")
+            # if len(list(self._dag.successors(node_id))) > 1:
+            #     raise Exception("Critical DAG has multiple paths!")
             for child_id in self._dag.successors(node_id):
                 q.put(child_id)
     

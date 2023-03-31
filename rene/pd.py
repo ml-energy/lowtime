@@ -24,7 +24,7 @@ DEFAULT_RECTANGLE_ARGS = {
 }
 
 DEFAULT_ANNOTATION_ARGS = {
-    Forward: dict(color="#ffffff", fontsize=20.0, ha="center", va="center"),
+    Forward: dict(color="#2e00ff", fontsize=20.0, ha="center", va="center"),
     Backward: dict(color="#000000", fontsize=20.0, ha="center", va="center"),
 }
 
@@ -61,6 +61,7 @@ class PD_Solver:
         self.exit_id: int = 1
         self.interval = interval
         self.unit_scale = unit_scale
+
 
         # for Pareto frontier
         self.costs: list[float] = []
@@ -187,11 +188,11 @@ class PD_Solver:
                     cap_graph[cur_id][succ_id]["ub"]: float = cur_inst.get_derivative(cur_inst.duration - self.unit_scale)
                 else:
                     cap_graph[cur_id][succ_id]["lb"]: float = cur_inst.get_derivative(cur_inst.duration + self.unit_scale)        
-                    cap_graph[cur_id][succ_id]["ub"]: float = cur_inst.get_derivative(cur_inst.duration - self.unit_scale)            
+                    cap_graph[cur_id][succ_id]["ub"]: float = cur_inst.get_derivative(cur_inst.duration - self.unit_scale)  
 
         # Change weight to max capacity
-        for u, v in cap_graph.edges:
-            cap_graph[u][v]["weight"] = cap_graph[u][v]["ub"]
+        # for u, v in cap_graph.edges:
+        #     cap_graph[u][v]["weight"] = cap_graph[u][v]["ub"]
         
         return cap_graph
 
@@ -381,17 +382,23 @@ class PD_Solver:
             # self.critical_dag_aon.draw_aon_graph(os.path.join(self.output_dir, f"aon_graph_{self.iteration}.png"))
             # logging.info("aon", list(self.critical_graph_aon.edges()))
             self.critical_dag_aoa: nx.DiGraph = self.aon_to_aoa()
-            # self.draw_aoa_graph(os.path.join(self.output_dir, f"aoa_graph_{self.iteration}.png"))
+            
             self.capacity_graph: nx.DiGraph = self.generate_capacity_graph()
-            # self.draw_capacity_graph(os.path.join(self.output_dir, f"capacity_graph_{self.iteration}.png"))
-            # s_set, t_set = self.find_min_cut(self.capacity_graph, self.entry_id, self.exit_id)
+
+            if self.iteration >= 1345:
+            # if self.iteration % self.interval == 0:
+                self.draw_aoa_graph(os.path.join(self.output_dir, f"aoa_graph_{self.iteration}.png"))
+                self.draw_capacity_graph(os.path.join(self.output_dir, f"capacity_graph_{self.iteration}.png"))
+
+            s_set, t_set = self.find_min_cut(self.capacity_graph, self.entry_id, self.exit_id)
             residual_graph: nx.DiGraph = self.find_max_flow_bounded(self.capacity_graph, self.entry_id, self.exit_id)
             s_set, t_set = self.find_min_cut(residual_graph, self.entry_id, self.exit_id)
             cost_change = self.reduce_duration(s_set, t_set)
             if cost_change == float('inf'):
                 break
 
-            if self.iteration % self.interval == 0:
+            if self.iteration >= 1345:
+            # if self.iteration % self.interval == 0:
                 self.draw_pipeline_graph(os.path.join(self.output_dir, f"pipeline_{self.iteration}.png"), draw_time_axis=True)
                 self.assign_frequency()
 
@@ -429,8 +436,8 @@ class PD_Solver:
         
         logging.info(f"Iteration {self.iteration}: reduce edges {reduce_edges}")
         logging.info(f"Iteration {self.iteration}: increase edges {increase_edges}")
-        if len(reduce_edges) > 1 or len(increase_edges) > 0:
-            raise ValueError(f"reduce edges {reduce_edges} and increase edges {increase_edges}")
+        # if len(reduce_edges) > 1 or len(increase_edges) > 0:
+        #     raise ValueError(f"reduce edges {reduce_edges} and increase edges {increase_edges}")
         cost_change = 0
 
         for u, v in reduce_edges:
@@ -573,32 +580,52 @@ class PD_Solver:
         return total_freqs
 
     def draw_aoa_graph(self, path: str) -> None:
-        pos = nx.spring_layout(self.critical_dag_aoa)
+        plt.figure(figsize=(20, 20))
+        pos = nx.circular_layout(self.critical_dag_aoa)
         nx.draw(self.critical_dag_aoa, pos, with_labels=True, font_weight='bold')
         node_labels = nx.get_node_attributes(self.critical_dag_aoa, "repr")
         nx.draw_networkx_labels(self.critical_dag_aoa, pos, labels=node_labels)
-        edge_labels = nx.get_edge_attributes(self.critical_dag_aoa, "weight")
-        nx.draw_networkx_edge_labels(self.critical_dag_aoa, pos, edge_labels=edge_labels)
+        # edge_labels = nx.get_edge_attributes(self.critical_dag_aoa, "weight")
+        # nx.draw_networkx_edge_labels(self.critical_dag_aoa, pos, edge_labels=edge_labels)
         plt.tight_layout()
         plt.savefig(path, format="PNG")
         plt.clf()
         plt.close()
 
     def draw_capacity_graph(self, path: str) -> None:
+        # get all edges that are critical
+        # filtered_critical_pairs = self.get_critical_pairs()
+        # # remove all other edges not in the critical pairs
+        # filtered_edges = []
+        # for inst1, inst2 in filtered_critical_pairs:
+        #     filtered_edges.append((self.critical_dag_aon.inst_id_map[repr(inst1)], self.critical_dag_aon.inst_id_map[repr(inst2)]))
+        # remove_edges = []
+        # for edge in self.capacity_graph.edges:
+        #     if edge not in filtered_edges:
+        #         remove_edges.append(edge)
+        # self.capacity_graph.remove_edges_from(remove_edges)
+
+        plt.figure(figsize=(30, 30))
         pos = nx.circular_layout(self.capacity_graph)
         nx.draw(self.capacity_graph, pos, with_labels=True, font_weight='bold')
         # node_labels = nx.get_node_attributes(self.critical_dag_aoa, "repr")
         # nx.draw_networkx_labels(self.critical_dag_aoa, pos, labels=node_labels)
-        edge_labels = nx.get_edge_attributes(self.capacity_graph, "weight")
+
+
+        # set the attribute of edge as a combination of lb and ub, and round lb and ub to 2 decimal places
+        for edge in self.capacity_graph.edges:
+            self.capacity_graph.edges[edge]["label"] = f"{repr(self.capacity_graph.edges[edge]['inst'])}:{round(self.capacity_graph.edges[edge]['lb'], 2)}, {round(self.capacity_graph.edges[edge]['ub'], 2)}"
+
+        edge_labels = nx.get_edge_attributes(self.capacity_graph, "label")
         nx.draw_networkx_edge_labels(self.capacity_graph, pos, edge_labels=edge_labels)
-        plt.tight_layout()
+        # plt.tight_layout()
         plt.savefig(path, format="PNG")
         plt.clf()
         plt.close()
 
     def draw_pipeline_graph(self, path: str, draw_time_axis: bool = False) -> None:
         """Draw the pipeline on the given Axes object."""
-        fig, ax = plt.subplots(figsize=(96, 4), tight_layout=True)
+        fig, ax = plt.subplots(figsize=(12, 4), tight_layout=True)
         ax.set_xlim(0, 58)
         for inst in self.critical_dag_aon.insts:
             # Draw rectangle for Instructions
@@ -639,8 +666,12 @@ class PD_Solver:
 
     def draw_critical_path(self, ax: Axes) -> None:
         """Draw the critical path of the DAG on the given Axes object."""
-        critical_path = self.get_critical_path()
-        for inst1, inst2 in zip(critical_path, critical_path[1:]):
+        # critical_path = self.get_critical_path()
+
+        # get all pairs of instructions in the critical path defined by self.critical_dag_aon by BFS
+        filtered_critical_pairs = self.get_critical_pairs()
+
+        for inst1, inst2 in filtered_critical_pairs:
             ax.plot(
                 [
                     (inst1.actual_start + inst1.actual_finish) / 2,
@@ -650,6 +681,31 @@ class PD_Solver:
                 **self.line_args,
             )
 
+    def get_critical_pairs(self) -> list[tuple[Instruction, Instruction]]:
+        # get all pairs of instructions in the critical path defined by self.critical_dag_aon by BFS
+        critical_pairs = []
+        q: SimpleQueue[int] = SimpleQueue()
+        q.put(self.entry_id)
+        visited: set[int] = set()
+        while not q.empty():
+            cur_id = q.get()
+            if cur_id in visited:
+                continue
+            visited.add(cur_id)
+
+            for succ_id in self.critical_dag_aon.dag.successors(cur_id):
+                q.put(succ_id)
+                if cur_id != self.entry_id and succ_id != self.exit_id:
+                    critical_pairs.append((self.critical_dag_aon.dag.nodes[cur_id]["inst"], self.critical_dag_aon.dag.nodes[succ_id]["inst"]))
+
+        # do some ad hoc filtering to remove some errornous critical pairs
+        filtered_critical_pairs = []
+        for inst1, inst2 in critical_pairs:
+            if inst1.stage_id == inst2.stage_id and abs(inst1.actual_finish - inst2.actual_start) > 1e-5:
+                continue
+            filtered_critical_pairs.append((inst1, inst2))
+
+        return filtered_critical_pairs
 
     def get_critical_path(self) -> list[Instruction]:
         """Return the critical path of the DAG.

@@ -318,11 +318,21 @@ class Instruction(metaclass=InstructionType):
 
 class Forward(Instruction):
     """Forward computation for a pipeline stage."""
-
+    def __repr__(self) -> str:
+        """Return a concise representation of the Instruction."""
+        if self.repr == "":
+            return f"FW(S{self.stage_id}B{self.micro_batch_id})"
+        else:
+            return self.repr
 
 class Backward(Instruction):
     """Backward computation for a pipeline stage."""
-
+    def __repr__(self) -> str:
+        """Return a concise representation of the Instruction."""
+        if self.repr == "":
+            return f"BW(S{self.stage_id}B{self.micro_batch_id})"
+        else:
+            return self.repr
 
 class _Dummy(Instruction):
     """Dummy operation for entry and exit nodes in the DAG."""
