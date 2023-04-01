@@ -160,6 +160,9 @@ class Instruction(metaclass=InstructionType):
         # Sort the points by their x-coordinate in ascending order
         data = data[data[:, 0].argsort()]
 
+        # Remove duplicate points by x-coordinate
+        data = data[np.unique(data[:, 0], return_index=True)[1]]
+
         # Flip the y-coordinates
         data[:, 1] = -data[:, 1]
 
@@ -175,7 +178,7 @@ class Instruction(metaclass=InstructionType):
         # Scan points on the convex hull from the beginning, and when the x coordinate increases, remove everything after that
         # point. This is because the convex hull is not necessarily a piecewise linear function, and we want to make it one.
         for i in range(len(convex_points) - 1):
-            if convex_points[i, 0] >= convex_points[i + 1, 0]:
+            if convex_points[i, 0] > convex_points[i + 1, 0]:
                 convex_points = np.delete(convex_points, np.s_[1:i], axis=0)
                 break
         # Sort the convex_points by their x-coordinate in ascending order
