@@ -181,14 +181,14 @@ class PD_Solver:
                     cap_graph[cur_id][succ_id]["lb"]: float = 0.0
                     cap_graph[cur_id][succ_id]["ub"]: float = float('inf')
                 elif cur_inst.duration - self.unit_scale < cur_inst.min_duration:
-                    cap_graph[cur_id][succ_id]["lb"]: float = cur_inst.get_derivative(cur_inst.duration + self.unit_scale)
+                    cap_graph[cur_id][succ_id]["lb"]: float = cur_inst.get_derivative(cur_inst.duration, cur_inst.duration + self.unit_scale)
                     cap_graph[cur_id][succ_id]["ub"]: float = float('inf')
                 elif cur_inst.duration + self.unit_scale > cur_inst.max_duration:
                     cap_graph[cur_id][succ_id]["lb"]: float = 0.0
-                    cap_graph[cur_id][succ_id]["ub"]: float = cur_inst.get_derivative(cur_inst.duration - self.unit_scale)
+                    cap_graph[cur_id][succ_id]["ub"]: float = cur_inst.get_derivative(cur_inst.duration, cur_inst.duration - self.unit_scale)
                 else:
-                    cap_graph[cur_id][succ_id]["lb"]: float = cur_inst.get_derivative(cur_inst.duration + self.unit_scale)        
-                    cap_graph[cur_id][succ_id]["ub"]: float = cur_inst.get_derivative(cur_inst.duration - self.unit_scale)  
+                    cap_graph[cur_id][succ_id]["lb"]: float = cur_inst.get_derivative(cur_inst.duration, cur_inst.duration + self.unit_scale)        
+                    cap_graph[cur_id][succ_id]["ub"]: float = cur_inst.get_derivative(cur_inst.duration, cur_inst.duration - self.unit_scale)  
 
         # Change weight to max capacity
         # for u, v in cap_graph.edges:
@@ -538,15 +538,15 @@ class PD_Solver:
             if inst.duration - self.unit_scale < inst.min_duration:
                 return float('inf')
             else:
+                cost_change += inst.get_derivative(inst.duration, inst.duration - self.unit_scale) * self.unit_scale
                 inst.duration -= self.unit_scale
-                cost_change += inst.get_derivative(inst.duration) * self.unit_scale
 
 
         for u, v in increase_edges:
             inst: Instruction = self.capacity_graph[u][v]["inst"]
             if inst.duration < inst.max_duration:
+                cost_change -= inst.get_derivative(inst.duration, inst.duration + self.unit_scale) * self.unit_scale
                 inst.duration += self.unit_scale
-                cost_change -= inst.get_derivative(inst.duration) * self.unit_scale
 
         
         return cost_change
@@ -601,30 +601,36 @@ class PD_Solver:
             elif abs(cur_node.time_costs[-1][0] - cur_node.duration) < 1e-5:
                 cur_node.frequency = cur_node.time_costs[-1][2]
             else:
+                # start binary search
                 left = 0
                 right = len(cur_node.time_costs) - 1
                 while left < right:
                     mid = (left + right) // 2
+                    # if there is an exact match, or we are at the head/end of the list, we are done
                     if abs(cur_node.time_costs[mid][0] - cur_node.duration) < 1e-5 or mid == 0 or mid == len(cur_node.time_costs) - 1:
                         cur_node.frequency = cur_node.time_costs[mid][2]
                         break
                     elif cur_node.time_costs[mid][0] < cur_node.duration:
                         if cur_node.time_costs[mid-1][0] > cur_node.duration:
-                            mid_duration = (cur_node.time_costs[mid][0] + cur_node.time_costs[mid-1][0]) / 2
-                            if mid_duration < cur_node.duration:
-                                cur_node.frequency = cur_node.time_costs[mid-1][2]
-                            else:
-                                cur_node.frequency = cur_node.time_costs[mid][2]
+                            # we are between two points, choose the one with shorter duration since we are solving deadline problem
+                            cur_node.frequency = cur_node.time_costs[mid][2]
+                            # mid_duration = (cur_node.time_costs[mid][0] + cur_node.time_costs[mid-1][0]) / 2
+                            # if mid_duration < cur_node.duration:
+                            #     cur_node.frequency = cur_node.time_costs[mid-1][2]
+                            # else:
+                            #     cur_node.frequency = cur_node.time_costs[mid][2]
                             break
                         right = mid
                     elif cur_node.time_costs[mid][0] > cur_node.duration:
                         if cur_node.time_costs[mid+1][0] < cur_node.duration:
-                            mid_duration = (cur_node.time_costs[mid][0] + cur_node.time_costs[mid+1][0]) / 2
-                            if mid_duration < cur_node.duration:
-                                cur_node.frequency = cur_node.time_costs[mid][2]
-                            else:
-                                cur_node.frequency = cur_node.time_costs[mid+1][2]
-                            break
+                            # we are between two points, choose the one with shorter duration since we are solving deadline problem
+                            cur_node.frequency = cur_node.time_costs[mid+1][2]
+                            # mid_duration = (cur_node.time_costs[mid][0] + cur_node.time_costs[mid+1][0]) / 2
+                            # if mid_duration < cur_node.duration:
+                            #     cur_node.frequency = cur_node.time_costs[mid][2]
+                            # else:
+                            #     cur_node.frequency = cur_node.time_costs[mid+1][2]
+                            # break
                         left = mid + 1
                                    
             if cur_node.stage_id not in stage_view:
@@ -632,24 +638,24 @@ class PD_Solver:
             else:
                 stage_view[cur_node.stage_id].append(cur_node)
 
-        # if in the next iteration the duration will be smaller than min duration, assign the highest frequency possible
-        changed = False
-        for stage_id, insts in stage_view.items():
-            insts: list[Instruction] = stage_view[stage_id]
-            for inst in insts:
-                if inst.duration - self.unit_scale < inst.min_duration:
-                    logging.info(f"{inst.__repr__()} will exceed min duration in the next iteration, assign highest frequency {inst.time_costs[-1][2]} instead of {inst.frequency}")
-                    inst.frequency = inst.time_costs[-1][2]
-                    inst.duration = inst.time_costs[-1][0]
-                    changed = True
+        # # if in the next iteration the duration will be smaller than min duration, assign the highest frequency possible
+        # changed = False
+        # for stage_id, insts in stage_view.items():
+        #     insts: list[Instruction] = stage_view[stage_id]
+        #     for inst in insts:
+        #         if inst.duration - self.unit_scale < inst.min_duration:
+        #             logging.info(f"{inst.__repr__()} will exceed min duration in the next iteration, assign highest frequency {inst.time_costs[-1][2]} instead of {inst.frequency}")
+        #             inst.frequency = inst.time_costs[-1][2]
+        #             inst.duration = inst.time_costs[-1][0]
+        #             changed = True
         
-        # We need to update the total duration and cost if any stage changes
-        if changed:
-            self.critical_dag_aon.clear_annotations()
-            self.critical_dag_aon.annotate_nodes()
-            for inst in self.critical_dag_aon.insts:
-                inst.actual_start = inst.earliest_start
-                inst.actual_finish = inst.earliest_finish    
+        # # We need to update the total duration and cost if any stage changes
+        # if changed:
+        #     self.critical_dag_aon.clear_annotations()
+        #     self.critical_dag_aon.annotate_nodes()
+        #     for inst in self.critical_dag_aon.insts:
+        #         inst.actual_start = inst.earliest_start
+        #         inst.actual_finish = inst.earliest_finish    
 
         total_freqs: list[list[int]] = []
         logging.info(f"Iteration {self.iteration} outputing frequency assignment...")
@@ -718,7 +724,7 @@ class PD_Solver:
 
     def draw_pipeline_graph(self, path: str, draw_time_axis: bool = False) -> None:
         """Draw the pipeline on the given Axes object."""
-        fig, ax = plt.subplots(figsize=(150, 4), tight_layout=True)
+        fig, ax = plt.subplots(figsize=(12, 4), tight_layout=True)
         ax.set_xlim(0, 58)
         for inst in self.critical_dag_aon.insts:
             # Draw rectangle for Instructions

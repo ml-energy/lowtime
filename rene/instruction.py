@@ -265,59 +265,60 @@ class Instruction(metaclass=InstructionType):
             raise ValueError(f"Unknown fit method {self.fit_method}")
     
     
-    def get_derivative(self, time: float) -> float:
-        """Get the derivative of the instruction at the given time.
+    def get_derivative(self, time_left: float, time_right: float) -> float:
+        """Get the derivative/slope between two time points time_left and time_right.
 
         Arguments:
-            time: Time to get the derivative at
+            time_left, time_right: Time points to get the derivative at
         """
-        if self.fit_method == "linear":
-            return np.polyval(np.polyder(self.fit_coeffs), time)
-        elif self.fit_method == "piecewise-linear":
-            if time < self.fit_coeffs[0, 0]:
-                return float("inf")
-            elif time > self.fit_coeffs[-1, 0]:
-                return 0
+        return abs((self.get_cost(time_left) - self.get_cost(time_right)) / (time_left - time_right))
+        # if self.fit_method == "linear":
+        #     return np.polyval(np.polyder(self.fit_coeffs), time)
+        # elif self.fit_method == "piecewise-linear":
+        #     if time < self.fit_coeffs[0, 0]:
+        #         return float("inf")
+        #     elif time > self.fit_coeffs[-1, 0]:
+        #         return 0
             
-            # do a binary search for time in the correct interval of the first axis of self.fit_coeffs
+        #     # do a binary search for time in the correct interval of the first axis of self.fit_coeffs
 
-            # TODO: debug the buggy binary search code
-            # low = 0
-            # high = self.fit_coeffs.shape[0] - 1
+        #     # TODO: debug the buggy binary search code
+        #     # low = 0
+        #     # high = self.fit_coeffs.shape[0] - 1
 
-            # while low <= high:
-            #     mid = (low + high) // 2
-            #     if self.fit_coeffs[mid][0] < time:
-            #         low = mid + 1
-            #     elif self.fit_coeffs[mid][0] > time:
-            #         high = mid - 1
-            #     else:
-            #         # exact match found
-            #         return self.fit_coeffs[mid][1]
+        #     # while low <= high:
+        #     #     mid = (low + high) // 2
+        #     #     if self.fit_coeffs[mid][0] < time:
+        #     #         low = mid + 1
+        #     #     elif self.fit_coeffs[mid][0] > time:
+        #     #         high = mid - 1
+        #     #     else:
+        #     #         # exact match found
+        #     #         return self.fit_coeffs[mid][1]
 
-            # # if no exact match is found, return the closest x value
-            # if high < 0:
-            #     return float("inf")
-            # elif low >= self.fit_coeffs.shape[0]:
-            #     return 0
-            # else:
-            #     x1, y1 = self.fit_coeffs[high]
-            #     x2, y2 = self.fit_coeffs[low]
-            #     assert(low == high + 1)
+        #     # # if no exact match is found, return the closest x value
+        #     # if high < 0:
+        #     #     return float("inf")
+        #     # elif low >= self.fit_coeffs.shape[0]:
+        #     #     return 0
+        #     # else:
+        #     #     x1, y1 = self.fit_coeffs[high]
+        #     #     x2, y2 = self.fit_coeffs[low]
+        #     #     assert(low == high + 1)
 
-            #     if x1 <= time <= x2:
-            #         return abs((y2 - y1) / (x2 - x1))
+        #     #     if x1 <= time <= x2:
+        #     #         return abs((y2 - y1) / (x2 - x1))
 
-            for i in range(len(self.fit_coeffs) - 1):
-                x1, y1 = self.fit_coeffs[i]
-                x2, y2 = self.fit_coeffs[i + 1]
+        #     for i in range(len(self.fit_coeffs) - 1):
+        #         x1, y1 = self.fit_coeffs[i]
+        #         x2, y2 = self.fit_coeffs[i + 1]
 
-                if x1 <= time <= x2:
-                    return abs((y2 - y1) / (x2 - x1))
+        #         if x1 <= time <= x2:
+        #             return abs((y2 - y1) / (x2 - x1))
 
-            raise ValueError(f"time = {time} is out of the range of the breakpoints")
-        else:
-            raise ValueError(f"Unknown fit method {self.fit_method}")
+        #     raise ValueError(f"time = {time} is out of the range of the breakpoints")
+        # else:
+        #     raise ValueError(f"Unknown fit method {self.fit_method}")
 
 class Forward(Instruction):
     """Forward computation for a pipeline stage."""
