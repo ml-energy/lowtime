@@ -218,6 +218,28 @@ class PD_Solver:
                     q.put(child_id)
 
         return (visited, parents)
+    
+    def search_path_dfs(self, graph: nx.DiGraph, s: int, t: int) -> tuple[dict[int, bool], dict[int, int]]:
+        """Search path from s to t using DFS search, return a tuple of visited and parents"""
+        parents: dict[int, int] = dict()
+        visited: dict[int, bool] = dict()
+        for node_id in graph.nodes:
+            parents[node_id] = -1
+            visited[node_id] = False
+        # logging.info(list(graph.nodes))
+        q: deque[int] = deque()
+        q.append(s)
+        while len(q) > 0:
+            cur_id = q.pop()
+            visited[cur_id] = True
+            if cur_id == t:
+                break
+            for child_id in list(graph.successors(cur_id)):
+                if visited[child_id] == False and graph[cur_id][child_id]["weight"] > 0:
+                    parents[child_id] = cur_id
+                    q.append(child_id)
+
+        return (visited, parents)
 
     def find_max_flow(self, graph: nx.DiGraph, source_id: int, sink_id: int) -> nx.DiGraph:
         """Find max flow using BFS search, each edge in the graph has a capacity [0, weight]
@@ -234,7 +256,7 @@ class PD_Solver:
 
         while True:
             # Step 1: get a path from entry to exit
-            visited, parents = self.search_path_bfs(residual_graph, source_id, sink_id)
+            visited, parents = self.search_path_dfs(residual_graph, source_id, sink_id)
             if visited[sink_id] == False:
                 break
             # Step 2: find min capacity along the path
@@ -326,8 +348,28 @@ class PD_Solver:
         # Step 4: Add an edge from t to s with infinite weight
         unbound_graph.add_edge(self.exit_id, self.entry_id, weight=float("inf"), inst=None)
 
+        # plt.figure(figsize=(30, 30))
+        # pos = nx.circular_layout(unbound_graph)
+        # nx.draw(unbound_graph, pos, with_labels=True, font_weight='bold')
+        # # node_labels = nx.get_node_attributes(self.critical_dag_aoa, "repr")
+        # # nx.draw_networkx_labels(self.critical_dag_aoa, pos, labels=node_labels)
+
+
+        # # set the attribute of edge as a combination of lb and ub, and round lb and ub to 2 decimal places
+        # for edge in unbound_graph.edges:
+        #     unbound_graph.edges[edge]["label"] = f"{round(unbound_graph.edges[edge]['weight'], 2)}"
+
+        # edge_labels = nx.get_edge_attributes(unbound_graph, "label")
+        # nx.draw_networkx_edge_labels(unbound_graph, pos, edge_labels=edge_labels)
+        # # plt.tight_layout()
+        # plt.savefig(os.path.join(self.output_dir, f"unbounded_{self.iteration}.png"), format="PNG")
+        # plt.clf()
+        # plt.close()
+
         # Step 5: Find min cut on the unbound graph
-        extend_residual_graph: nx.DiGraph = self.find_max_flow(unbound_graph, s_prime, t_prime)
+        # TODO: change weight to capacity, it is confusing right now
+        # extend_residual_graph: nx.DiGraph = self.find_max_flow(unbound_graph, s_prime, t_prime)
+        flow_value, flow_dict = nx.maximum_flow(unbound_graph, s_prime, t_prime, capacity="weight")
         # source_capacity: int = 0
         # sink_capacity: int = 0
         # for node_id in unbound_graph.successors(s_prime):
@@ -337,38 +379,84 @@ class PD_Solver:
 
         # Step 6: Check if residual graph is saturated
         for node_id in unbound_graph.successors(s_prime):
-            if abs(extend_residual_graph[s_prime][node_id]["weight"] - 0) > 1e-5:
-                raise Exception(f"Residual graph is not saturated at the new source (edge {s_prime}->{node_id} has weight {extend_residual_graph[s_prime][node_id]['weight']}), no flow in the original DAG!")
+            if abs(flow_dict[s_prime][node_id] - unbound_graph[s_prime][node_id]["weight"]) > 1e-5:
+                raise Exception(f"Residual graph is not saturated at the new source (edge {s_prime}->{node_id} has weight {flow_dict[s_prime][node_id]}), no flow in the original DAG!")
         for node_id in unbound_graph.predecessors(t_prime):
-            if abs(extend_residual_graph[node_id][t_prime]["weight"] - 0) > 1e-5:
-                raise Exception(f"Residual graph is not saturated at the new sink (edge {node_id}->{t_prime} has weight {extend_residual_graph[node_id][t_prime]['weight']}), no flow in the original DAG!")
+            if abs(flow_dict[node_id][t_prime] - unbound_graph[node_id][t_prime]["weight"]) > 1e-5:
+                raise Exception(f"Residual graph is not saturated at the new sink (edge {node_id}->{t_prime} has weight {flow_dict[node_id][t_prime]}), no flow in the original DAG!")
+            
+        # plt.figure(figsize=(30, 30))
+        # pos = nx.circular_layout(extend_residual_graph)
+        # nx.draw(extend_residual_graph, pos, with_labels=True, font_weight='bold')
+        # # node_labels = nx.get_node_attributes(self.critical_dag_aoa, "repr")
+        # # nx.draw_networkx_labels(self.critical_dag_aoa, pos, labels=node_labels)
+
+
+        # # set the attribute of edge as a combination of lb and ub, and round lb and ub to 2 decimal places
+        # for edge in extend_residual_graph.edges:
+        #     extend_residual_graph.edges[edge]["label"] = f"{round(extend_residual_graph.edges[edge]['weight'], 2)}"
+
+        # edge_labels = nx.get_edge_attributes(extend_residual_graph, "label")
+        # nx.draw_networkx_edge_labels(extend_residual_graph, pos, edge_labels=edge_labels)
+        # # plt.tight_layout()
+        # plt.savefig(os.path.join(self.output_dir, f"extended_residual_{self.iteration}.png"), format="PNG")
+        # plt.clf()
+        # plt.close()
         
         # Step 7: Retreive the flow for the original graph
         for u, v in graph.edges:
             # f'(u,v) = f(u,v) - lb(u,v)
-            if u in extend_residual_graph.successors(v):
-                graph[u][v]["weight"] = extend_residual_graph[v][u]["weight"] + graph[u][v]["lb"]
-            else:
-                graph[u][v]["weight"] = graph[u][v]["lb"]
+            # if u in extend_residual_graph.successors(v):
+            #     graph[u][v]["weight"] = extend_residual_graph[v][u]["weight"] + graph[u][v]["lb"]
+            # else:
+            #     graph[u][v]["weight"] = graph[u][v]["lb"]
+            graph[u][v]["weight"] = flow_dict[u][v] + graph[u][v]["lb"]
         
         # Step 8: Modify capacity of the residual graph
         residual_graph: nx.DiGraph = nx.DiGraph(graph)
         edge_pending: list[tuple] = []
         for u, v in residual_graph.edges:
-            residual_graph[u][v]["weight"] = residual_graph[u][v]["ub"] - residual_graph[u][v]["weight"]
+            residual_graph[u][v]["capacity"] = residual_graph[u][v]["ub"] - residual_graph[u][v]["weight"]
             if u in residual_graph.successors(v):
-                residual_graph[v][u]["weight"] = residual_graph[u][v]["weight"] - residual_graph[u][v]["lb"]
+                residual_graph[v][u]["capacity"] = residual_graph[u][v]["weight"] - residual_graph[u][v]["lb"]
             else:
                 # residual_graph.add_edge(v, u, weight=residual_graph[u][v]["weight"] - residual_graph[u][v]["lb"], inst=residual_graph[u][v]["inst"])
                 edge_pending.append((v, u, residual_graph[u][v]["weight"] - residual_graph[u][v]["lb"], residual_graph[u][v]["inst"]))
                 
-        for u, v, weight, inst in edge_pending:
-            residual_graph.add_edge(u, v, weight=weight, inst=inst)
+        for u, v, capacity, inst in edge_pending:
+            residual_graph.add_edge(u, v, capacity=capacity, inst=inst)
 
         # Step 9: Find min cut on the original graph
-        residual_graph = self.find_max_flow(residual_graph, self.entry_id, self.exit_id)
+        # residual_graph = self.find_max_flow(residual_graph, self.entry_id, self.exit_id)
+        try:
+            cut_value, partition = nx.minimum_cut(residual_graph, self.entry_id, self.exit_id)
+        except nx.NetworkXUnbounded:
+            return float("inf"), None
+        # print(cut_value, partition)
+        # plt.figure(figsize=(30, 30))
+        # pos = nx.circular_layout(residual_graph)
+        # nx.draw(residual_graph, pos, with_labels=True, font_weight='bold')
+        # # node_labels = nx.get_node_attributes(self.critical_dag_aoa, "repr")
+        # # nx.draw_networkx_labels(self.critical_dag_aoa, pos, labels=node_labels)
 
-        return residual_graph
+
+        # # set the attribute of edge as a combination of lb and ub, and round lb and ub to 2 decimal places
+        # for edge in residual_graph.edges:
+        #     residual_graph.edges[edge]["label"] = f"{round(residual_graph.edges[edge]['weight'], 2)}"
+
+        # edge_labels = nx.get_edge_attributes(residual_graph, "label")
+        # nx.draw_networkx_edge_labels(residual_graph, pos, edge_labels=edge_labels)
+        # # plt.tight_layout()
+        # plt.savefig(os.path.join(self.output_dir, f"residual_{self.iteration}.png"), format="PNG")
+        # plt.clf()
+        # plt.close()
+        
+        # Step 10: Annotate capacity graph again with new max flow
+        # for u, v in graph.edges:
+        #     graph[u][v]["weight"] = flow_dict[u][v]
+
+
+        return cut_value, partition
         
     
     def run_pd_algorithm(self) -> None:
@@ -385,29 +473,34 @@ class PD_Solver:
             
             self.capacity_graph: nx.DiGraph = self.generate_capacity_graph()
 
-            if self.iteration >= 1345:
-            # if self.iteration % self.interval == 0:
-                self.draw_aoa_graph(os.path.join(self.output_dir, f"aoa_graph_{self.iteration}.png"))
-                self.draw_capacity_graph(os.path.join(self.output_dir, f"capacity_graph_{self.iteration}.png"))
+            # if self.iteration >= 1345:
+            # # if self.iteration % self.interval == 0:
+            #     self.draw_aoa_graph(os.path.join(self.output_dir, f"aoa_graph_{self.iteration}.png"))
+            #     self.draw_capacity_graph(os.path.join(self.output_dir, f"capacity_graph_{self.iteration}_before.png"))
 
-            s_set, t_set = self.find_min_cut(self.capacity_graph, self.entry_id, self.exit_id)
-            residual_graph: nx.DiGraph = self.find_max_flow_bounded(self.capacity_graph, self.entry_id, self.exit_id)
-            s_set, t_set = self.find_min_cut(residual_graph, self.entry_id, self.exit_id)
+            # run double side bounded max flow algorithm on capacity graph, after this the capacity graph will be annoated with the flow
+            cut_value, partition = self.find_max_flow_bounded(self.capacity_graph, self.entry_id, self.exit_id)
+            if cut_value == float('inf'):
+                break
+            # s_set, t_set = self.find_min_cut(self.capacity_graph, self.entry_id, self.exit_id, flow_dict)
+            s_set, t_set = partition
             cost_change = self.reduce_duration(s_set, t_set)
             if cost_change == float('inf'):
                 break
 
-            if self.iteration >= 1345:
-            # if self.iteration % self.interval == 0:
+            # if self.iteration >= 1735:
+            if self.iteration % self.interval == 0:
+                # self.draw_aoa_graph(os.path.join(self.output_dir, f"aoa_graph_{self.iteration}.png"))
+                self.draw_capacity_graph(os.path.join(self.output_dir, f"capacity_graph_{self.iteration}.png"))
                 self.draw_pipeline_graph(os.path.join(self.output_dir, f"pipeline_{self.iteration}.png"), draw_time_axis=True)
                 self.assign_frequency()
 
-            total_cost = self.calculate_total_cost()
-            total_time = self.calculate_total_time()
+                total_cost = self.calculate_total_cost()
+                total_time = self.calculate_total_time()
             
-            logging.info(f"Iteration {self.iteration}: cost change {cost_change}")
-            logging.info(f"Iteration {self.iteration}: total cost {total_cost}")
-            logging.info(f"Iteration {self.iteration}: total time {total_time - self.unit_scale}")
+                logging.info(f"Iteration {self.iteration}: cost change {cost_change}")
+                logging.info(f"Iteration {self.iteration}: total cost {total_cost}")
+                logging.info(f"Iteration {self.iteration}: total time {total_time - self.unit_scale}")
 
             self.critical_dag_aon.clear_annotations()
             self.node_id = self.critical_dag_aon.node_id
@@ -614,7 +707,7 @@ class PD_Solver:
 
         # set the attribute of edge as a combination of lb and ub, and round lb and ub to 2 decimal places
         for edge in self.capacity_graph.edges:
-            self.capacity_graph.edges[edge]["label"] = f"{repr(self.capacity_graph.edges[edge]['inst'])}:{round(self.capacity_graph.edges[edge]['lb'], 2)}, {round(self.capacity_graph.edges[edge]['ub'], 2)}"
+            self.capacity_graph.edges[edge]["label"] = f"{repr(self.capacity_graph.edges[edge]['inst'])}:({round(self.capacity_graph.edges[edge]['lb'], 2)}, {round(self.capacity_graph.edges[edge]['ub'], 2)}), {round(self.capacity_graph.edges[edge]['weight'], 2)}"
 
         edge_labels = nx.get_edge_attributes(self.capacity_graph, "label")
         nx.draw_networkx_edge_labels(self.capacity_graph, pos, edge_labels=edge_labels)
@@ -625,7 +718,7 @@ class PD_Solver:
 
     def draw_pipeline_graph(self, path: str, draw_time_axis: bool = False) -> None:
         """Draw the pipeline on the given Axes object."""
-        fig, ax = plt.subplots(figsize=(12, 4), tight_layout=True)
+        fig, ax = plt.subplots(figsize=(150, 4), tight_layout=True)
         ax.set_xlim(0, 58)
         for inst in self.critical_dag_aon.insts:
             # Draw rectangle for Instructions
@@ -708,30 +801,35 @@ class PD_Solver:
         return filtered_critical_pairs
 
     def get_critical_path(self) -> list[Instruction]:
-        """Return the critical path of the DAG.
+        """Return a single critical path of the DAG.
 
-        When there are multiple possible critical paths, choose the smoothest,
-        i.e. one with minimum number of `stage_id` changes along the path.
         """
-        # Length is the amount of total `stage_id` changes along the critical path.
-        smallest_length, critical_path = float("inf"), []
-        stack: deque[tuple[float, list[Instruction]]] = deque()
-        stack.append((0.0, [self.critical_dag_aon.entry_node]))
+        critical_path: list[Instruction] = []
+        q: deque[int] = deque()
+        # do a DFS to get the critical path
+        q.append(self.entry_id)
+        visited: list[int] = list()
+        while len(q) > 0:
+            cur_id = q.pop()
+            visited.append(cur_id)
+            critical_path.append(self.critical_dag_aon.dag.nodes[cur_id]["inst"])
+            if cur_id == self.exit_id:
+                break
+            for succ_id in self.critical_dag_aon.dag.successors(cur_id):
+                if succ_id not in visited:
+                    q.append(succ_id)
 
-        while stack:
-            length, path = stack.pop()
-            node = path[-1]
-            if node is self.critical_dag_aon.exit_node and length < smallest_length:
-                smallest_length, critical_path = length, path
-            for child in node.children:
-                # Only go through nodes on the critical path.
-                # Cannot use the `==` operator due to floating point errors.
-                if abs(child.earliest_start - child.latest_start) < 1e-10:
-                    if isinstance(node, _Dummy) or isinstance(child, _Dummy):
-                        stage_diff = 0.0
-                    else:
-                        stage_diff = abs(node.stage_id - child.stage_id)
-                    stack.append((length + stage_diff, path + [child]))
+        # q.put(self.entry_id)
+        # visited: list[int] = list()
+        # while len(q) > 0:
+        #     cur_id = q.pop()
+        #     visited.append(cur_id)
+        #     critical_path.append(self.critical_dag_aon.dag.nodes[cur_id]["inst"])
+        #     if cur_id == self.exit_id:
+        #         break
+        #     for succ_id in self.critical_dag_aon.dag.successors(cur_id):
+        #         if succ_id not in visited:
+        #             q.append(succ_id)
 
         # Slice out entry and exit nodes
         return list(filter(lambda node: not isinstance(node, _Dummy), critical_path))
