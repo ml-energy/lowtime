@@ -176,20 +176,22 @@ class ReneDAG:
 
                 # Set the output directory for each instruction
                 inst.output_dir = self.output_dir
+
+                # Input some info needed by p2p blocking energy reduction 
+                inst.num_stages = self.num_stages
+                inst.p2p_power = self.p2p_power
+
                 # Do interpolation here
                 if (type(inst) not in self.coeffs_dict):
                     self.coeffs_dict[type(inst)] = dict()
                 if (inst.stage_id not in self.coeffs_dict[type(inst)]):
                     self.coeffs_dict[type(inst)][inst.stage_id] = inst.interpolate(self.fit_method)
+
                 else:
                     inst.fit_coeffs = self.coeffs_dict[type(inst)][inst.stage_id]
                     inst.fit_method = self.fit_method
                 # inst.unit_cost = abs(inst.k)
 
-
-                # Input some info needed by p2p blocking energy reduction 
-                inst.num_stages = self.num_stages
-                inst.p2p_power = self.p2p_power
 
                 self._insts.append(inst)
 
@@ -347,9 +349,9 @@ class CriticalDAG(ReneDAG):
 
         # get a single critical path and mark all nodes on it for P2P cost reduction
         # we only need to do it once as what is initially on the critical path will always be on the critical path
-        critical_path = self.get_critical_path()
-        for node in critical_path:
-            node.on_critical_path = True
+        # critical_path = self.get_critical_path()
+        # for node in critical_path:
+        #     node.on_critical_path = True
 
     def annotate_nodes(self) -> None:
         """Annotate earliest/latest start/finish/slack times in nodes.

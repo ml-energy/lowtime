@@ -9,6 +9,7 @@ import networkx as nx
 from matplotlib.axes import Axes  # type: ignore
 from matplotlib.figure import Figure # type: ignore
 from matplotlib.ticker import FormatStrFormatter  # type: ignore
+from networkx.algorithms.flow import edmonds_karp
 from queue import SimpleQueue
 from collections import deque
 from typing import Generator
@@ -325,30 +326,30 @@ class PD_Solver:
         t_prime = self.node_id
         self.node_id += 1
         unbound_graph.add_node(t_prime)
-        # Step 1: For every edge in the original graph, modify the weight to be upper bound - lower bound
+        # Step 1: For every edge in the original graph, modify the capacity to be upper bound - lower bound
         for u, v in unbound_graph.edges:
-            unbound_graph[u][v]["weight"] = unbound_graph[u][v]["ub"] - unbound_graph[u][v]["lb"]
+            unbound_graph[u][v]["capacity"] = unbound_graph[u][v]["ub"] - unbound_graph[u][v]["lb"]
 
         # Step 2: Add edges from s_prime to all nodes in original graph
-        # weight = sum of all lower bounds of parents of current node
+        # capacity = sum of all lower bounds of parents of current node
         for node_id in unbound_graph.nodes:
-            weight = 0
+            capacity = 0
             for parent_id in unbound_graph.predecessors(node_id):
-                weight += unbound_graph[parent_id][node_id]["lb"]
-            unbound_graph.add_edge(s_prime, node_id, weight=weight, inst=None)
+                capacity += unbound_graph[parent_id][node_id]["lb"]
+            unbound_graph.add_edge(s_prime, node_id, capacity=capacity, inst=None)
         
         # Step 3: Add edges from all nodes in original graph to t_prime
-        # weight = sum of all lower bounds of children of current node
+        # capacity = sum of all lower bounds of children of current node
         for node_id in unbound_graph.nodes:
             if node_id == s_prime:
                 continue
-            weight = 0
+            capacity = 0
             for child_id in unbound_graph.successors(node_id):
-                weight += unbound_graph[node_id][child_id]["lb"]
-            unbound_graph.add_edge(node_id, t_prime, weight=weight, inst=None)
+                capacity += unbound_graph[node_id][child_id]["lb"]
+            unbound_graph.add_edge(node_id, t_prime, capacity=capacity, inst=None)
 
         # Step 4: Add an edge from t to s with infinite weight
-        unbound_graph.add_edge(self.exit_id, self.entry_id, weight=float("inf"), inst=None)
+        unbound_graph.add_edge(self.exit_id, self.entry_id, capacity=float("inf"), inst=None)
 
         # plt.figure(figsize=(30, 30))
         # pos = nx.circular_layout(unbound_graph)
@@ -371,7 +372,7 @@ class PD_Solver:
         # Step 5: Find min cut on the unbound graph
         # TODO: change weight to capacity, it is confusing right now
         # extend_residual_graph: nx.DiGraph = self.find_max_flow(unbound_graph, s_prime, t_prime)
-        flow_value, flow_dict = nx.maximum_flow(unbound_graph, s_prime, t_prime, capacity="weight")
+        flow_value, flow_dict = nx.maximum_flow(unbound_graph, s_prime, t_prime, capacity="capacity", flow_func=edmonds_karp)
         # source_capacity: int = 0
         # sink_capacity: int = 0
         # for node_id in unbound_graph.successors(s_prime):
@@ -381,10 +382,10 @@ class PD_Solver:
 
         # Step 6: Check if residual graph is saturated
         for node_id in unbound_graph.successors(s_prime):
-            if abs(flow_dict[s_prime][node_id] - unbound_graph[s_prime][node_id]["weight"]) > 1e-5:
+            if abs(flow_dict[s_prime][node_id] - unbound_graph[s_prime][node_id]["capacity"]) > 1e-5:
                 raise Exception(f"Residual graph is not saturated at the new source (edge {s_prime}->{node_id} has weight {flow_dict[s_prime][node_id]}), no flow in the original DAG!")
         for node_id in unbound_graph.predecessors(t_prime):
-            if abs(flow_dict[node_id][t_prime] - unbound_graph[node_id][t_prime]["weight"]) > 1e-5:
+            if abs(flow_dict[node_id][t_prime] - unbound_graph[node_id][t_prime]["capacity"]) > 1e-5:
                 raise Exception(f"Residual graph is not saturated at the new sink (edge {node_id}->{t_prime} has weight {flow_dict[node_id][t_prime]}), no flow in the original DAG!")
             
         # plt.figure(figsize=(30, 30))
@@ -432,7 +433,8 @@ class PD_Solver:
         # residual_graph = self.find_max_flow(residual_graph, self.entry_id, self.exit_id)
         try:
             # cut_value, partition = nx.minimum_cut(residual_graph, self.entry_id, self.exit_id, capacity="capacity")
-            flow_value, flow_dict = nx.maximum_flow(residual_graph, self.entry_id, self.exit_id, capacity="capacity")
+            flow_value, flow_dict = nx.maximum_flow(residual_graph, self.entry_id, self.exit_id, capacity="capacity", flow_func=edmonds_karp)
+
             # Add additional flow we get to the original graph
             for u, v in graph.edges:
                 graph[u][v]["weight"] += flow_dict[u][v]
@@ -699,9 +701,9 @@ class PD_Solver:
         #         inst.actual_finish = inst.earliest_finish    
 
         total_freqs: list[list[int]] = []
-        logging.info(f"Iteration {self.iteration} outputing frequency assignment...")
+        # logging.info(f"Iteration {self.iteration} outputing frequency assignment...")
         for stage_id in sorted(stage_view.keys()):
-            logging.info(f"Stage {stage_id} frequency assignment ")
+            # logging.info(f"Stage {stage_id} frequency assignment ")
             insts: list[Instruction] = stage_view[stage_id]
             freqs: list[int] = []
             reprs: list[int] = []
@@ -709,8 +711,8 @@ class PD_Solver:
                 assert(inst.frequency != -1)
                 freqs.append(inst.frequency)
                 reprs.append(inst.__repr__())
-            logging.info(f"Freqs: {freqs}")
-            logging.info(f"Reprs: {reprs}")
+            # logging.info(f"Freqs: {freqs}")
+            # logging.info(f"Reprs: {reprs}")
             total_freqs.append(freqs)
 
         with open(os.path.join(self.output_dir, f"freqs_{self.iteration:04d}.py"), "w+") as f:

@@ -198,8 +198,12 @@ class Instruction(metaclass=InstructionType):
         # ax.plot(x, np.polyval(self.fit_coeffs, x), 'r-')
         y = []
         for i in x:
-            y.append(self.get_p2p_refined_cost(i))
+            y.append(self.get_cost(i))
+        refined_y = []    
+        for i in x:
+            refined_y.append(self.get_p2p_refined_cost(i))
         ax.plot(x, y, 'r-')
+        ax.plot(x, refined_y, 'b-')
         for x, y in convex_points:
             ax.annotate(f"({x:.6f}, {y:.6f})", (x, y))
         ax.set_xlabel("time")
@@ -276,12 +280,12 @@ class Instruction(metaclass=InstructionType):
             time: Time to get the cost at
         """
         cost = self.get_cost(time)
-        additional_cost = self.p2p_power * (self.num_stages - 1) * time
-        if self.on_critical_path:
-            return cost + self.p2p_power * (self.num_stages - 1) * time
-        else:
-            assert(cost - self.p2p_power * time >= 0)
-            return cost - self.p2p_power * time
+        # additional_cost = self.p2p_power * (self.num_stages - 1) * time
+        # if self.on_critical_path:
+        #     return cost + self.p2p_power * (self.num_stages - 1) * time
+        # else:
+        assert(cost - self.p2p_power * time >= 0)
+        return cost - self.p2p_power * time
     
     def get_derivative(self, time_left: float, time_right: float) -> float:
         """Get the derivative/slope between two time points time_left and time_right.
