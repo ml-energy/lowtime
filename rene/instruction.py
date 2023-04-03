@@ -264,7 +264,6 @@ class Instruction(metaclass=InstructionType):
         else:
             raise ValueError(f"Unknown fit method {self.fit_method}")
     
-    
     def get_derivative(self, time_left: float, time_right: float) -> float:
         """Get the derivative/slope between two time points time_left and time_right.
 

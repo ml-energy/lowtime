@@ -176,13 +176,13 @@ class PD_Solver:
                 cur_inst: Instruction = cap_graph[cur_id][succ_id]["inst"]
                 if isinstance(cur_inst, _Dummy):
                     cap_graph[cur_id][succ_id]["lb"]: float = 0.0
-                    cap_graph[cur_id][succ_id]["ub"]: float = float('inf')
+                    cap_graph[cur_id][succ_id]["ub"]: float = 10000.0
                 elif abs(cur_inst.max_duration - cur_inst.duration) < 1e-5 and abs(cur_inst.min_duration - cur_inst.duration) < 1e-5:
                     cap_graph[cur_id][succ_id]["lb"]: float = 0.0
-                    cap_graph[cur_id][succ_id]["ub"]: float = float('inf')
+                    cap_graph[cur_id][succ_id]["ub"]: float = 10000.0
                 elif cur_inst.duration - self.unit_scale < cur_inst.min_duration:
                     cap_graph[cur_id][succ_id]["lb"]: float = cur_inst.get_derivative(cur_inst.duration, cur_inst.duration + self.unit_scale)
-                    cap_graph[cur_id][succ_id]["ub"]: float = float('inf')
+                    cap_graph[cur_id][succ_id]["ub"]: float = 10000.0
                 elif cur_inst.duration + self.unit_scale > cur_inst.max_duration:
                     cap_graph[cur_id][succ_id]["lb"]: float = 0.0
                     cap_graph[cur_id][succ_id]["ub"]: float = cur_inst.get_derivative(cur_inst.duration, cur_inst.duration - self.unit_scale)
@@ -213,7 +213,7 @@ class PD_Solver:
             if cur_id == t:
                 break
             for child_id in list(graph.successors(cur_id)):
-                if visited[child_id] == False and graph[cur_id][child_id]["weight"] > 0:
+                if visited[child_id] == False and abs(graph[cur_id][child_id]["weight"] - 0) > 1e-5:
                     parents[child_id] = cur_id
                     q.put(child_id)
 
@@ -235,7 +235,7 @@ class PD_Solver:
             if cur_id == t:
                 break
             for child_id in list(graph.successors(cur_id)):
-                if visited[child_id] == False and graph[cur_id][child_id]["weight"] > 0:
+                if visited[child_id] == False and abs(graph[cur_id][child_id]["weight"] - 0) > 1e-5:
                     parents[child_id] = cur_id
                     q.append(child_id)
 
@@ -304,7 +304,7 @@ class PD_Solver:
             s_set, t_set {tuple(set[int], set[int])} -- two sets of nodes in the min cut
         """
         # Find the cut:
-        visited, _ = self.search_path_bfs(residual_graph, source_id, sink_id)
+        visited, _ = self.search_path_dfs(residual_graph, source_id, sink_id)
         s_set: set[int] = set()
         t_set: set[int] = set()
         for i in range(len(visited)):
@@ -411,7 +411,7 @@ class PD_Solver:
             # else:
             #     graph[u][v]["weight"] = graph[u][v]["lb"]
             graph[u][v]["weight"] = flow_dict[u][v] + graph[u][v]["lb"]
-        
+
         # Step 8: Modify capacity of the residual graph
         residual_graph: nx.DiGraph = nx.DiGraph(graph)
         edge_pending: list[tuple] = []
@@ -429,9 +429,24 @@ class PD_Solver:
         # Step 9: Find min cut on the original graph
         # residual_graph = self.find_max_flow(residual_graph, self.entry_id, self.exit_id)
         try:
-            cut_value, partition = nx.minimum_cut(residual_graph, self.entry_id, self.exit_id)
+            # cut_value, partition = nx.minimum_cut(residual_graph, self.entry_id, self.exit_id, capacity="capacity")
+            flow_value, flow_dict = nx.maximum_flow(residual_graph, self.entry_id, self.exit_id, capacity="capacity")
+            # Add additional flow we get to the original graph
+            for u, v in graph.edges:
+                graph[u][v]["weight"] += flow_dict[u][v]
+                graph[u][v]["weight"] -= flow_dict[v][u]
+            
+            # Do a minimum cut on the residual graph of the original graph
+            new_residual = nx.DiGraph(graph)
+            add_candidates = []
+            for u, v in new_residual.edges:
+                new_residual[u][v]["weight"] = graph[u][v]["ub"] - graph[u][v]["weight"]
+                add_candidates.append((v, u, graph[u][v]["weight"] - graph[u][v]["lb"]))
+            for u, v, weight in add_candidates:
+                new_residual.add_edge(u, v, weight=weight)
+
         except nx.NetworkXUnbounded:
-            return float("inf"), None
+            return None
         # print(cut_value, partition)
         # plt.figure(figsize=(30, 30))
         # pos = nx.circular_layout(residual_graph)
@@ -456,7 +471,7 @@ class PD_Solver:
         #     graph[u][v]["weight"] = flow_dict[u][v]
 
 
-        return cut_value, partition
+        return new_residual
         
     
     def run_pd_algorithm(self) -> None:
@@ -473,34 +488,34 @@ class PD_Solver:
             
             self.capacity_graph: nx.DiGraph = self.generate_capacity_graph()
 
-            # if self.iteration >= 1345:
+            # if self.iteration >= 135:
             # # if self.iteration % self.interval == 0:
             #     self.draw_aoa_graph(os.path.join(self.output_dir, f"aoa_graph_{self.iteration}.png"))
             #     self.draw_capacity_graph(os.path.join(self.output_dir, f"capacity_graph_{self.iteration}_before.png"))
 
             # run double side bounded max flow algorithm on capacity graph, after this the capacity graph will be annoated with the flow
-            cut_value, partition = self.find_max_flow_bounded(self.capacity_graph, self.entry_id, self.exit_id)
-            if cut_value == float('inf'):
+            residual_graph = self.find_max_flow_bounded(self.capacity_graph, self.entry_id, self.exit_id)
+            if residual_graph is None:
                 break
             # s_set, t_set = self.find_min_cut(self.capacity_graph, self.entry_id, self.exit_id, flow_dict)
-            s_set, t_set = partition
+            s_set, t_set = self.find_min_cut(residual_graph, self.entry_id, self.exit_id)
             cost_change = self.reduce_duration(s_set, t_set)
             if cost_change == float('inf'):
                 break
 
-            # if self.iteration >= 1735:
+            # if self.iteration >= 135:
             if self.iteration % self.interval == 0:
                 # self.draw_aoa_graph(os.path.join(self.output_dir, f"aoa_graph_{self.iteration}.png"))
-                self.draw_capacity_graph(os.path.join(self.output_dir, f"capacity_graph_{self.iteration}.png"))
+                self.draw_capacity_graph(os.path.join(self.output_dir, f"capacity_graph_{self.iteration}_after.png"))
                 self.draw_pipeline_graph(os.path.join(self.output_dir, f"pipeline_{self.iteration}.png"), draw_time_axis=True)
                 self.assign_frequency()
 
-                total_cost = self.calculate_total_cost()
-                total_time = self.calculate_total_time()
-            
-                logging.info(f"Iteration {self.iteration}: cost change {cost_change}")
-                logging.info(f"Iteration {self.iteration}: total cost {total_cost}")
-                logging.info(f"Iteration {self.iteration}: total time {total_time - self.unit_scale}")
+            total_cost = self.calculate_total_cost()
+            total_time = self.calculate_total_time()
+        
+            logging.info(f"Iteration {self.iteration}: cost change {cost_change}")
+            logging.info(f"Iteration {self.iteration}: total cost {total_cost}")
+            logging.info(f"Iteration {self.iteration}: total time {total_time - self.unit_scale}")
 
             self.critical_dag_aon.clear_annotations()
             self.node_id = self.critical_dag_aon.node_id
@@ -535,7 +550,7 @@ class PD_Solver:
 
         for u, v in reduce_edges:
             inst: Instruction = self.capacity_graph[u][v]["inst"]
-            if inst.duration - self.unit_scale < inst.min_duration:
+            if inst.duration - self.unit_scale < inst.min_duration or type(inst) == _Dummy:
                 return float('inf')
             else:
                 cost_change += inst.get_derivative(inst.duration, inst.duration - self.unit_scale) * self.unit_scale
@@ -544,7 +559,12 @@ class PD_Solver:
 
         for u, v in increase_edges:
             inst: Instruction = self.capacity_graph[u][v]["inst"]
-            if inst.duration < inst.max_duration:
+            # Notice: dummy edge is always valid for increasing duration
+            if type(inst) == _Dummy:
+                inst.duration += self.unit_scale
+            elif inst.duration + self.unit_scale > inst.max_duration:
+                return float('inf')
+            else:
                 cost_change -= inst.get_derivative(inst.duration, inst.duration + self.unit_scale) * self.unit_scale
                 inst.duration += self.unit_scale
 
