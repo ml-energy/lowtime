@@ -105,6 +105,7 @@ def main():
             time_costs=time_costs,  # NOTE: This is from inst_df, not sub_p2p_inst_df, because we want to use the original energy to determine colors.
             output_dir=output_dir.__str__(),
             fit_method=fit_method,
+            p2p_power=0,
         )
         pd_solver = PD_Solver(dag, output_dir.__str__(), interval, unit_scale)
         pd_solver.run_pd_algorithm()

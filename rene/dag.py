@@ -55,6 +55,7 @@ class ReneDAG:
         dependency_rules: Sequence[Callable[..., bool]] = [forward_dep, backward_dep],
         output_dir: str = "",
         fit_method: str = "linear",
+        p2p_power: float = 0.0,
     ) -> None:
         """Instantiate instructions and construct the DAG.
 
@@ -103,6 +104,9 @@ class ReneDAG:
 
         # For interpolation caching
         self.coeffs_dict: dict[Type[Instruction], dict[int, np.ndarray]] = dict()
+
+        # For p2p energy reduction
+        self.p2p_power = p2p_power
 
         # Sanity check.
         if self.time_costs is not None:
@@ -181,6 +185,11 @@ class ReneDAG:
                     inst.fit_coeffs = self.coeffs_dict[type(inst)][inst.stage_id]
                     inst.fit_method = self.fit_method
                 # inst.unit_cost = abs(inst.k)
+
+
+                # Input some info needed by p2p blocking energy reduction 
+                inst.num_stages = self.num_stages
+                inst.p2p_power = self.p2p_power
 
                 self._insts.append(inst)
 
@@ -327,13 +336,20 @@ class CriticalDAG(ReneDAG):
         dependency_rules: Sequence[Callable[..., bool]] = [forward_dep, backward_dep], 
         output_dir: str = "",
         fit_method: str = "linear",
+        p2p_power: float = 0.0,
     ) -> None:
-        super(CriticalDAG, self).__init__(schedule_type, num_stages, num_micro_batches, time_costs, dependency_rules, output_dir, fit_method)
+        super(CriticalDAG, self).__init__(schedule_type, num_stages, num_micro_batches, time_costs, dependency_rules, output_dir, fit_method, p2p_power)
         logging.info("Initializing CriticalDAG...")
         # store the original DAG as complete dag 
         self.complete_dag = self.dag
         # store the critical DAG as the new dag 
         self.update_critical_dag()
+
+        # get a single critical path and mark all nodes on it for P2P cost reduction
+        # we only need to do it once as what is initially on the critical path will always be on the critical path
+        critical_path = self.get_critical_path()
+        for node in critical_path:
+            node.on_critical_path = True
 
     def annotate_nodes(self) -> None:
         """Annotate earliest/latest start/finish/slack times in nodes.
@@ -410,6 +426,28 @@ class CriticalDAG(ReneDAG):
             for child_id in self.complete_dag.successors(cur_id):
                 q.put(child_id)
 
+    def get_critical_path(self) -> list[Instruction]:
+        """Return a single critical path of the DAG.
+
+        """
+        critical_path: list[Instruction] = []
+        q: deque[int] = deque()
+        # do a DFS to get the critical path
+        q.append(self.inst_id_map[repr(self.entry_node)])
+        visited: list[int] = list()
+        while len(q) > 0:
+            cur_id = q.pop()
+            visited.append(cur_id)
+            critical_path.append(self.dag.nodes[cur_id]["inst"])
+            if cur_id == self.inst_id_map[repr(self.exit_node)]:
+                break
+            for succ_id in self.dag.successors(cur_id):
+                if succ_id not in visited:
+                    q.append(succ_id)
+
+        # Slice out entry and exit nodes
+        return list(filter(lambda node: not isinstance(node, _Dummy), critical_path))
+
     def update_critical_dag(self) -> None:
         """Update the critical DAG, which is a subgraph of self.complete_dag.
         """
@@ -441,17 +479,18 @@ class CriticalDAG(ReneDAG):
 
         self._dag = critical_dag
 
+
         # let's check if the critical dag has only a single path
-        q: SimpleQueue[int] = SimpleQueue()
-        q.put(self.inst_id_map[self.entry_node.__repr__()])
-        visited: list[int] = []
-        while not q.empty():
-            node_id = q.get()
-            if node_id in visited:
-                continue
-            visited.append(node_id)
-            # if len(list(self._dag.successors(node_id))) > 1:
-            #     raise Exception("Critical DAG has multiple paths!")
-            for child_id in self._dag.successors(node_id):
-                q.put(child_id)
+        # q: SimpleQueue[int] = SimpleQueue()
+        # q.put(self.inst_id_map[self.entry_node.__repr__()])
+        # visited: list[int] = []
+        # while not q.empty():
+        #     node_id = q.get()
+        #     if node_id in visited:
+        #         continue
+        #     visited.append(node_id)
+        #     # if len(list(self._dag.successors(node_id))) > 1:
+        #     #     raise Exception("Critical DAG has multiple paths!")
+        #     for child_id in self._dag.successors(node_id):
+        #         q.put(child_id)
     

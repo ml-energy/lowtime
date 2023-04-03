@@ -189,6 +189,8 @@ class PD_Solver:
                 else:
                     cap_graph[cur_id][succ_id]["lb"]: float = cur_inst.get_derivative(cur_inst.duration, cur_inst.duration + self.unit_scale)        
                     cap_graph[cur_id][succ_id]["ub"]: float = cur_inst.get_derivative(cur_inst.duration, cur_inst.duration - self.unit_scale)  
+                    # if cur_id == 20 and succ_id == 21:
+                    #     print(cap_graph[cur_id][succ_id]["lb"], cap_graph[cur_id][succ_id]["ub"])
 
         # Change weight to max capacity
         # for u, v in cap_graph.edges:
@@ -445,6 +447,25 @@ class PD_Solver:
             for u, v, weight in add_candidates:
                 new_residual.add_edge(u, v, weight=weight)
 
+            # if self.iteration >= 45:
+            #     plt.figure(figsize=(30, 30))
+            #     pos = nx.circular_layout(graph)
+            #     nx.draw(graph, pos, with_labels=True, font_weight='bold')
+            #     # node_labels = nx.get_node_attributes(self.critical_dag_aoa, "repr")
+            #     # nx.draw_networkx_labels(self.critical_dag_aoa, pos, labels=node_labels)
+
+
+            #     # set the attribute of edge as a combination of lb and ub, and round lb and ub to 2 decimal places
+            #     for edge in graph.edges:
+            #         graph.edges[edge]["label"] = f"lb:{round(graph.edges[edge]['lb'], 2)} ub:{round(graph.edges[edge]['ub'], 2)} {round(graph.edges[edge]['weight'], 2)}"
+
+            #     edge_labels = nx.get_edge_attributes(graph, "label")
+            #     nx.draw_networkx_edge_labels(graph, pos, edge_labels=edge_labels)
+            #     # plt.tight_layout()
+            #     plt.savefig(os.path.join(self.output_dir, f"capacity_final_flow_{self.iteration}.png"), format="PNG")
+            #     plt.clf()
+            #     plt.close()
+
         except nx.NetworkXUnbounded:
             return None
         # print(cut_value, partition)
@@ -508,7 +529,7 @@ class PD_Solver:
                 # self.draw_aoa_graph(os.path.join(self.output_dir, f"aoa_graph_{self.iteration}.png"))
                 self.draw_capacity_graph(os.path.join(self.output_dir, f"capacity_graph_{self.iteration}_after.png"))
                 self.draw_pipeline_graph(os.path.join(self.output_dir, f"pipeline_{self.iteration}.png"), draw_time_axis=True)
-                self.assign_frequency()
+            self.assign_frequency()
 
             total_cost = self.calculate_total_cost()
             total_time = self.calculate_total_time()
@@ -584,7 +605,7 @@ class PD_Solver:
             visited.append(cur_id)
             cur_node: Instruction = self.critical_dag_aon.complete_dag.nodes[cur_id]["inst"]
             if not isinstance(cur_node, _Dummy) and cur_node.__repr__() not in visited:
-                total_cost += cur_node.get_cost(cur_node.duration)
+                total_cost += cur_node.get_p2p_refined_cost(cur_node.duration)
                 visited.append(cur_node.__repr__())
             for child_id in self.critical_dag_aon.complete_dag.successors(cur_id):
                 q.put(child_id)
@@ -592,7 +613,7 @@ class PD_Solver:
         return total_cost
     
     def calculate_total_time(self) -> float:
-        critical_path = self.get_critical_path()
+        critical_path = self.critical_dag_aon.get_critical_path()
         total_time: float = 0.0
         for inst in critical_path:
             total_time += inst.actual_duration
@@ -825,40 +846,6 @@ class PD_Solver:
             filtered_critical_pairs.append((inst1, inst2))
 
         return filtered_critical_pairs
-
-    def get_critical_path(self) -> list[Instruction]:
-        """Return a single critical path of the DAG.
-
-        """
-        critical_path: list[Instruction] = []
-        q: deque[int] = deque()
-        # do a DFS to get the critical path
-        q.append(self.entry_id)
-        visited: list[int] = list()
-        while len(q) > 0:
-            cur_id = q.pop()
-            visited.append(cur_id)
-            critical_path.append(self.critical_dag_aon.dag.nodes[cur_id]["inst"])
-            if cur_id == self.exit_id:
-                break
-            for succ_id in self.critical_dag_aon.dag.successors(cur_id):
-                if succ_id not in visited:
-                    q.append(succ_id)
-
-        # q.put(self.entry_id)
-        # visited: list[int] = list()
-        # while len(q) > 0:
-        #     cur_id = q.pop()
-        #     visited.append(cur_id)
-        #     critical_path.append(self.critical_dag_aon.dag.nodes[cur_id]["inst"])
-        #     if cur_id == self.exit_id:
-        #         break
-        #     for succ_id in self.critical_dag_aon.dag.successors(cur_id):
-        #         if succ_id not in visited:
-        #             q.append(succ_id)
-
-        # Slice out entry and exit nodes
-        return list(filter(lambda node: not isinstance(node, _Dummy), critical_path))
 
 def aon_to_aoa_pure() -> nx.DiGraph:
     # TODO: crash dummy nodes for optimization

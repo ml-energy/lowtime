@@ -84,6 +84,11 @@ class Instruction(metaclass=InstructionType):
     frequency: int = -1
     cost: float = -1.0
 
+    # For P2P blocking cost reduction
+    num_stages: int = 0
+    p2p_power: float = 0.0
+    on_critical_path: bool = False
+
     output_dir: str = ""
 
     def __repr__(self) -> str:
@@ -193,7 +198,7 @@ class Instruction(metaclass=InstructionType):
         # ax.plot(x, np.polyval(self.fit_coeffs, x), 'r-')
         y = []
         for i in x:
-            y.append(self.get_cost(i))
+            y.append(self.get_p2p_refined_cost(i))
         ax.plot(x, y, 'r-')
         for x, y in convex_points:
             ax.annotate(f"({x:.6f}, {y:.6f})", (x, y))
@@ -205,7 +210,7 @@ class Instruction(metaclass=InstructionType):
 
         return self.fit_coeffs
     
-    def get_cost(self, time: float):
+    def get_cost(self, time: float) -> float:
         """Get the cost of the instruction at the given time.
 
         Arguments:
@@ -229,13 +234,13 @@ class Instruction(metaclass=InstructionType):
 
             while low <= high:
                 mid = (low + high) // 2
-                if self.fit_coeffs[mid][0] < time:
-                    low = mid + 1
-                elif self.fit_coeffs[mid][0] > time:
-                    high = mid - 1
-                else:
-                    # exact match found
+                # exact match found
+                if abs(self.fit_coeffs[mid][0] - time) < 1e-6:
                     return self.fit_coeffs[mid][1]
+                elif self.fit_coeffs[mid][0] < time:
+                    low = mid + 1
+                else:
+                    high = mid - 1
 
             # if no exact match is found, return the closest x value
             if high < 0:
@@ -263,6 +268,20 @@ class Instruction(metaclass=InstructionType):
             raise ValueError(f"time = {time} is out of the range of the breakpoints")
         else:
             raise ValueError(f"Unknown fit method {self.fit_method}")
+        
+    def get_p2p_refined_cost(self, time: float) -> float: 
+        """Get the cost of the instruction at the given time using p2p refinement.
+
+        Arguments:
+            time: Time to get the cost at
+        """
+        cost = self.get_cost(time)
+        additional_cost = self.p2p_power * (self.num_stages - 1) * time
+        if self.on_critical_path:
+            return cost + self.p2p_power * (self.num_stages - 1) * time
+        else:
+            assert(cost - self.p2p_power * time >= 0)
+            return cost - self.p2p_power * time
     
     def get_derivative(self, time_left: float, time_right: float) -> float:
         """Get the derivative/slope between two time points time_left and time_right.
@@ -270,7 +289,9 @@ class Instruction(metaclass=InstructionType):
         Arguments:
             time_left, time_right: Time points to get the derivative at
         """
-        return abs((self.get_cost(time_left) - self.get_cost(time_right)) / (time_left - time_right))
+        left = self.get_p2p_refined_cost(time_left)
+        right = self.get_p2p_refined_cost(time_right)
+        return abs((self.get_p2p_refined_cost(time_left) - self.get_p2p_refined_cost(time_right)) / (time_left - time_right))
         # if self.fit_method == "linear":
         #     return np.polyval(np.polyder(self.fit_coeffs), time)
         # elif self.fit_method == "piecewise-linear":
