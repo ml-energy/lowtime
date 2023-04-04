@@ -1,4 +1,5 @@
 .envrc
+results
 *.egg-info
 **/__pycache__
 **/*.png
