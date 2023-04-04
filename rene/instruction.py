@@ -10,7 +10,7 @@ import numpy as np  # type: ignore
 import matplotlib.pyplot as plt  # type: ignore
 from matplotlib.axes import Axes  # type: ignore
 from matplotlib.patches import Rectangle  # type: ignore
-from scipy.optimize import minimize
+from scipy.optimize import curve_fit, minimize
 from scipy.spatial import ConvexHull
 
 
@@ -155,41 +155,42 @@ class Instruction(metaclass=InstructionType):
             time_list.append(t)
             cost_list.append(e)
 
-        # Your dataset of (x, y) pairs
-        time_data = time_list
-        cost_data = cost_list
+        if fit_method == "linear":
+            # Linear interpolation
+            self.fit_coeffs = np.polyfit(time_list, cost_list, 1)   
+        
+        elif fit_method == "piecewise-linear":
+            # Piecewise linear interpolation
+            data = np.array(list(zip(time_list, cost_list)), dtype=[("time", float), ("cost", float)])
+            data = data[data.argsort(order=["time", "cost"])]
+            # Add a second axis to the array
+            data = data.view((float, 2))
+            # Flip the y-coordinates
+            data[:, 1] = -data[:, 1]
 
-        # Combine the time and cost data into an array of (x, y) pairs
-        data = np.column_stack((time_data, cost_data))
+            # Compute the convex hull
+            hull = ConvexHull(data)
 
-        # Sort the points by their x-coordinate in ascending order
-        data = data[data[:, 0].argsort()]
-
-        # Remove duplicate points by x-coordinate
-        data = data[np.unique(data[:, 0], return_index=True)[1]]
-
-        # Flip the y-coordinates
-        data[:, 1] = -data[:, 1]
-
-        # Compute the convex hull
-        hull = ConvexHull(data)
-
-        # Restore the original y-coordinates
-        convex_points = data[hull.vertices]
-        convex_points[:, 1] = -convex_points[:, 1]
-        # Roll convex_points until the first point's x coordinate is the smallest on the convex hull
-        convex_points = np.roll(convex_points, -np.argmin(convex_points[:, 0]), axis=0)
-        print(repr(self), convex_points)
-        # Scan points on the convex hull from the beginning, and when the x coordinate increases, remove everything after that
-        # point. This is because the convex hull is not necessarily a piecewise linear function, and we want to make it one.
-        for i in range(len(convex_points) - 1):
-            if convex_points[i, 0] > convex_points[i + 1, 0]:
-                convex_points = np.delete(convex_points, np.s_[1:i], axis=0)
-                break
-        # Sort the convex_points by their x-coordinate in ascending order
-        convex_points = convex_points[convex_points[:, 0].argsort()]
-        self.fit_coeffs = convex_points
-        # Now, convex_points contains the points that form a convex piecewise linear function
+            # Restore the original y-coordinates
+            convex_points = data[hull.vertices]
+            convex_points[:, 1] = -convex_points[:, 1]
+            # Roll convex_points until the first point's x coordinate is the smallest on the convex hull
+            convex_points = np.roll(convex_points, -np.argmin(convex_points[:, 0]), axis=0)
+            print(repr(self), convex_points)
+            # Scan points on the convex hull from the beginning, and when the x coordinate increases, remove everything after that
+            # point. This is because the convex hull is not necessarily a piecewise linear function, and we want to make it one.
+            for i in range(len(convex_points) - 1):
+                if convex_points[i, 0] > convex_points[i + 1, 0]:
+                    convex_points = np.delete(convex_points, np.s_[1:i], axis=0)
+                    break
+            # Sort the convex_points by their x-coordinate in ascending order
+            convex_points = convex_points[convex_points[:, 0].argsort()]
+            self.fit_coeffs = convex_points
+            # Now, convex_points contains the points that form a convex piecewise linear function
+        elif fit_method == "exponential":
+            self.fit_coeffs, _ = curve_fit(lambda t, a, b, c: a * np.exp(b * t) + c, time_list, cost_list, maxfev=10000)
+        else:
+            raise ValueError(f"Unknown fit method: {fit_method}")
 
         fig, ax = plt.subplots(figsize=(8, 8), tight_layout=True)
         ax.plot(time_list, cost_list, 'o')
@@ -204,8 +205,9 @@ class Instruction(metaclass=InstructionType):
             refined_y.append(self.get_p2p_refined_cost(i))
         ax.plot(x, y, 'r-')
         ax.plot(x, refined_y, 'b-')
-        for x, y in convex_points:
-            ax.annotate(f"({x:.6f}, {y:.6f})", (x, y))
+        if fit_method == "piecewise-linear":
+            for x, y in convex_points:
+                ax.annotate(f"({x:.6f}, {y:.6f})", (x, y))
         ax.set_xlabel("time")
         ax.set_ylabel("energy")
         fig.savefig(os.path.join(self.output_dir, f"{self.__repr__()}_HULL.png"), format="PNG")
@@ -270,6 +272,9 @@ class Instruction(metaclass=InstructionType):
             #         return y1 + t * (y2 - y1)                
 
             raise ValueError(f"time = {time} is out of the range of the breakpoints")
+        elif self.fit_method == "exponential":
+            a, b, c = self.fit_coeffs
+            return a * np.exp(b * time) + c
         else:
             raise ValueError(f"Unknown fit method {self.fit_method}")
         
@@ -293,8 +298,7 @@ class Instruction(metaclass=InstructionType):
         Arguments:
             time_left, time_right: Time points to get the derivative at
         """
-        left = self.get_p2p_refined_cost(time_left)
-        right = self.get_p2p_refined_cost(time_right)
+
         return abs((self.get_p2p_refined_cost(time_left) - self.get_p2p_refined_cost(time_right)) / (time_left - time_right))
         # if self.fit_method == "linear":
         #     return np.polyval(np.polyder(self.fit_coeffs), time)

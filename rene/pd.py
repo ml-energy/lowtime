@@ -531,7 +531,7 @@ class PD_Solver:
                 # self.draw_aoa_graph(os.path.join(self.output_dir, f"aoa_graph_{self.iteration}.png"))
                 self.draw_capacity_graph(os.path.join(self.output_dir, f"capacity_graph_{self.iteration}_after.png"))
                 self.draw_pipeline_graph(os.path.join(self.output_dir, f"pipeline_{self.iteration}.png"), draw_time_axis=True)
-            self.assign_frequency()
+                self.assign_frequency()
 
             total_cost = self.calculate_total_cost()
             total_time = self.calculate_total_time()

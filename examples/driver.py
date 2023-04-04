@@ -10,6 +10,7 @@ from matplotlib.patches import Patch
 from matplotlib.colors import Normalize
 from pathlib import Path
 
+import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 plt.rc("svg", hashsalt=None)
@@ -90,10 +91,21 @@ def main():
         interval = algo_conf["interval"]
         unit_scale = algo_conf["unit_scale"]
         fit_method = algo_conf["fit_method"]
-        # Quantize the time costs.
+        # Quantize the time costs and preprocess data points: remove redundant time points, break ties by lower cost value.
         for stage_to_time_costs in time_costs.values():
             for stage, time_cost_list in stage_to_time_costs.items():
                 time_cost_list = [(t // unit_scale * unit_scale, e, f) for t, e, f in time_cost_list]
+                # turn the 3-tuple list into 3D numpy array, use float for frequency as numpy array needs to have the same type
+                time_cost_array = np.asarray(time_cost_list, dtype=[('time', float), ('cost', float), ('freq', float)])
+                # Sort the points by their x-coordinate in ascending order, break ties by choosing the point with the smallest y-coordinate
+                time_cost_array = time_cost_array[time_cost_array.argsort(order=["time", "cost"])]
+                # time_cost_array = time_cost_array.reshape(time_cost_array.shape[0], 3)
+                time_cost_array = time_cost_array.view((float, 3))
+                # time_cost_array = time_cost_array.view(dtype=[('time', float), ('cost', float), ('freq', int)], type=np.ndarray)
+                # Remove duplicate points by x-coordinate, break ties by choosing the point with the smallest y-coordinate
+                time_cost_array = time_cost_array[np.unique(time_cost_array[:, 0], return_index=True)[1]]
+                # Retrive the new time_cost_list
+                time_cost_list = list(zip(time_cost_array[:, 0], time_cost_array[:, 1], time_cost_array[:, 2].astype(int)))
                 stage_to_time_costs[stage] = time_cost_list
 
 
