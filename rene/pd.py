@@ -66,6 +66,7 @@ class PD_Solver:
 
         # for Pareto frontier
         self.costs: list[float] = []
+        self.refined_costs: list[float] = []
         self.times: list[float] = []
         # self.run_pd_algorithm()
 
@@ -531,13 +532,29 @@ class PD_Solver:
                 # self.draw_aoa_graph(os.path.join(self.output_dir, f"aoa_graph_{self.iteration}.png"))
                 self.draw_capacity_graph(os.path.join(self.output_dir, f"capacity_graph_{self.iteration}_after.png"))
                 self.draw_pipeline_graph(os.path.join(self.output_dir, f"pipeline_{self.iteration}.png"), draw_time_axis=True)
-                self.assign_frequency()
 
+            total_freqs = self.assign_frequency()
             total_cost = self.calculate_total_cost()
             total_time = self.calculate_total_time()
+            # refine the total cost with p2p blockig energy
+            insts_time = 0
+            for inst in self.critical_dag_aon.insts:
+                insts_time += inst.actual_duration
+            refined_cost = total_cost + (self.critical_dag_aon.num_stages * total_time - insts_time) * self.critical_dag_aon.p2p_power
+
+            with open(os.path.join(self.output_dir, f"freqs_pipeline_{self.iteration:04d}.py"), "w+") as f:
+                f.write("[\n")
+                for freqs in total_freqs:
+                    f.write(str([int(freq) for freq in freqs])+",\n")
+                f.write("]\n")
+                f.write(f"# Iteration {self.iteration}: cost change {cost_change} \n")
+                f.write(f"# Iteration {self.iteration}: total cost {total_cost} \n")
+                f.write(f"# Iteration {self.iteration}: refined cost {refined_cost} \n")
+                f.write(f"# Iteration {self.iteration}: total time {total_time - self.unit_scale} \n")
         
             logging.info(f"Iteration {self.iteration}: cost change {cost_change}")
             logging.info(f"Iteration {self.iteration}: total cost {total_cost}")
+            logging.info(f"Iteration {self.iteration}: refined cost {refined_cost}")
             logging.info(f"Iteration {self.iteration}: total time {total_time - self.unit_scale}")
 
             self.critical_dag_aon.clear_annotations()
@@ -545,6 +562,7 @@ class PD_Solver:
             self.critical_dag_aon.update_critical_dag()
 
             self.costs.append(total_cost)
+            self.refined_costs.append(refined_cost)
             self.times.append(total_time - self.unit_scale)
             self.iteration += 1
         # need to output final frequency assignment
@@ -700,8 +718,10 @@ class PD_Solver:
         #         inst.actual_start = inst.earliest_start
         #         inst.actual_finish = inst.earliest_finish    
 
+        # with open(os.path.join(self.output_dir, f"freqs_pipeline_{self.iteration:04d}.py"), "w+") as f:
         total_freqs: list[list[int]] = []
         # logging.info(f"Iteration {self.iteration} outputing frequency assignment...")
+        # f.write("[\n")
         for stage_id in sorted(stage_view.keys()):
             # logging.info(f"Stage {stage_id} frequency assignment ")
             insts: list[Instruction] = stage_view[stage_id]
@@ -713,10 +733,14 @@ class PD_Solver:
                 reprs.append(inst.__repr__())
             # logging.info(f"Freqs: {freqs}")
             # logging.info(f"Reprs: {reprs}")
+            # Output the frequency assignment for this stage using rjust to make sure the length is 4
+            # f.write(str([int(freq) for freq in freqs])+",\n")
             total_freqs.append(freqs)
+            # f.write("]\n")
+            
 
-        with open(os.path.join(self.output_dir, f"freqs_{self.iteration:04d}.py"), "w+") as f:
-            f.write(repr(total_freqs)+'\n')
+        # with open(os.path.join(self.output_dir, f"freqs_{self.iteration:04d}.py"), "w+") as f:
+        #     f.write(repr(total_freqs)+'\n')
             
 
         return total_freqs
@@ -799,9 +823,11 @@ class PD_Solver:
 
     def draw_pareto_frontier(self, path: str) -> None:
         fig, ax = plt.subplots(figsize=(8, 8), tight_layout=True)
-        ax.plot(self.times, self.costs)
+        ax.plot(self.times, self.costs, label="cost")
+        ax.plot(self.times, self.refined_costs, label="refined cost")
         ax.set_xlabel("time")
         ax.set_ylabel("energy")
+        ax.legend()
         fig.savefig(path, format="PNG")
         plt.clf()
         plt.close()
