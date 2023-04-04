@@ -131,7 +131,7 @@ class Instruction(metaclass=InstructionType):
         ax.add_patch(rectangle)
         # Annotate the micro batch number inside the rectangle
         final_annotation_args = dict(
-            text=str(self.micro_batch_id),
+            text=str(self.frequency),
             xy=(rectangle.get_x() + rectangle.get_width() / 2, rectangle.get_y() + 0.5),  # type: ignore
         )
         final_annotation_args.update(annotation_args[type(self)])

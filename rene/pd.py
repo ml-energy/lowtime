@@ -25,8 +25,8 @@ DEFAULT_RECTANGLE_ARGS = {
 }
 
 DEFAULT_ANNOTATION_ARGS = {
-    Forward: dict(color="#2e00ff", fontsize=20.0, ha="center", va="center"),
-    Backward: dict(color="#000000", fontsize=20.0, ha="center", va="center"),
+    Forward: dict(color="#2e00ff", fontsize=10.0, ha="center", va="center"),
+    Backward: dict(color="#000000", fontsize=10.0, ha="center", va="center"),
 }
 
 DEFAULT_LINE_ARGS = dict(color="#ff9900", linewidth=4.0)
@@ -527,15 +527,16 @@ class PD_Solver:
             if cost_change == float('inf'):
                 break
 
+            total_freqs = self.assign_frequency()
+            total_cost = self.calculate_total_cost()
+            total_time = self.calculate_total_time()
+
             # if self.iteration >= 135:
             if self.iteration % self.interval == 0:
                 # self.draw_aoa_graph(os.path.join(self.output_dir, f"aoa_graph_{self.iteration}.png"))
                 self.draw_capacity_graph(os.path.join(self.output_dir, f"capacity_graph_{self.iteration}_after.png"))
-                self.draw_pipeline_graph(os.path.join(self.output_dir, f"pipeline_{self.iteration}.png"), draw_time_axis=True)
+            self.draw_pipeline_graph(os.path.join(self.output_dir, f"pipeline_{self.iteration}.png"), draw_time_axis=True)
 
-            total_freqs = self.assign_frequency()
-            total_cost = self.calculate_total_cost()
-            total_time = self.calculate_total_time()
             # refine the total cost with p2p blockig energy
             insts_time = 0
             for inst in self.critical_dag_aon.insts:
@@ -791,7 +792,7 @@ class PD_Solver:
 
     def draw_pipeline_graph(self, path: str, draw_time_axis: bool = False) -> None:
         """Draw the pipeline on the given Axes object."""
-        fig, ax = plt.subplots(figsize=(12, 4), tight_layout=True)
+        fig, ax = plt.subplots(figsize=(24, 4), tight_layout=True)
         ax.set_xlim(0, 58)
         for inst in self.critical_dag_aon.insts:
             # Draw rectangle for Instructions
