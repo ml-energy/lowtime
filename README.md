@@ -17,7 +17,7 @@ René is a visualizer for pipeline parallel training schedules like 1F1B.
           │                     │ schedule                    │
           │                     │                             │
 ┌─────────┴──────────┐     ┌────┴────────────┐     ┌──────────┴───────────┐
-│  PipelineSchedule  ├────►│  ReneDAG ├────►│  PipelineVisualizer  │
+│  PipelineSchedule  ├────►│     ReneDAG     ├────►│  PipelineVisualizer  │
 └────────────────────┘     └─────────────────┘     └──────────────────────┘
 ```
 
