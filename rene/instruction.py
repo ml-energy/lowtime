@@ -10,7 +10,7 @@ import numpy as np  # type: ignore
 import matplotlib.pyplot as plt  # type: ignore
 from matplotlib.axes import Axes  # type: ignore
 from matplotlib.patches import Rectangle  # type: ignore
-from scipy.optimize import curve_fit, minimize
+from scipy.optimize import curve_fit
 from scipy.spatial import ConvexHull
 
 
@@ -140,8 +140,7 @@ class Instruction(metaclass=InstructionType):
         ax.annotate(**final_annotation_args)
 
     def interpolate(self, fit_method: int) -> (float, float):
-        """Do interpolation on the given instruction and its time-costs meta-data, return the coefficients
-        Assumes self.time_costs[inst] has already been sorted.
+        """Do interpolation on the given instruction and its time-costs meta-data, return the coefficients. Assumes self.time_costs[inst] has already been sorted.
 
         Arguments:
             fit_method: Degree of the polynomial to fit
@@ -220,7 +219,7 @@ class Instruction(metaclass=InstructionType):
         ax.set_xlabel("time")
         ax.set_ylabel("energy")
         fig.savefig(
-            os.path.join(self.output_dir, f"{self.__repr__()}_HULL.png"), format="PNG"
+            os.path.join(self.output_dir, f"{repr(self)}_HULL.png"), format="PNG"
         )
         plt.clf()
         plt.close()
@@ -296,7 +295,6 @@ class Instruction(metaclass=InstructionType):
         Arguments:
             time_left, time_right: Time points to get the derivative at
         """
-
         return abs(
             (
                 self.get_p2p_refined_cost(time_left)
@@ -304,6 +302,7 @@ class Instruction(metaclass=InstructionType):
             )
             / (time_left - time_right)
         )
+
 
 class Forward(Instruction):
     """Forward computation for a pipeline stage."""

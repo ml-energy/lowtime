@@ -5,13 +5,9 @@ from __future__ import annotations
 import inspect
 import itertools
 import logging
-import os
 import matplotlib.pyplot as plt
 import networkx as nx
 import numpy as np
-from matplotlib.axes import Axes  # type: ignore
-from matplotlib.figure import Figure  # type: ignore
-from matplotlib.ticker import FormatStrFormatter  # type: ignore
 from typing import Iterable, Sequence, Type, Callable, Generator, Literal
 from queue import SimpleQueue
 from collections import deque
@@ -67,7 +63,7 @@ class ReneDAG:
             time_costs: A dict that maps instruction type to a dict of stage_id : list of (duration, cost, frequency) tuples.
             output_dir: output directory for figures
             dependency_rules: A list of functions that define the dependency between instructions.
-            fit_method: The method to fit the time cost data. Can be "linear" or "piecewise-linear".
+            fit_method: The method to fit the time cost data. Can be "linear" or "piecewise-linear" or "exponential".
 
         ## Dependency rules
 
@@ -98,12 +94,12 @@ class ReneDAG:
 
         # For graph generation
         self.node_id: int = 0
-        self.inst_map: dict[str, Instruction] = dict()
-        self.inst_id_map: dict[str, int] = dict()
+        self.inst_map: dict[str, Instruction] = {}
+        self.inst_id_map: dict[str, int] = {}
         self._dag: nx.DiGraph = nx.DiGraph()
 
         # For interpolation caching
-        self.coeffs_dict: dict[Type[Instruction], dict[int, np.ndarray]] = dict()
+        self.coeffs_dict: dict[Type[Instruction], dict[int, np.ndarray]] = {}
 
         # For p2p energy reduction
         self.p2p_power = p2p_power
@@ -138,13 +134,13 @@ class ReneDAG:
         # Assign node_id 0 to entry_node and node_id 1 to exit_node
         self.entry_node = _Dummy(-1, -1, duration=0.0, repr="Entry")
         self._dag.add_node(self.node_id, inst=self.entry_node)
-        self.inst_map[self.entry_node.__repr__()] = self.entry_node
-        self.inst_id_map[self.entry_node.__repr__()] = self.node_id
+        self.inst_map[repr(self.entry_node)] = self.entry_node
+        self.inst_id_map[repr(self.entry_node)] = self.node_id
         self.node_id += 1
         self.exit_node = _Dummy(-1, -1, duration=0.0, repr="Exit")
         self._dag.add_node(self.node_id, inst=self.exit_node)
-        self.inst_map[self.exit_node.__repr__()] = self.exit_node
-        self.inst_id_map[self.exit_node.__repr__()] = self.node_id
+        self.inst_map[repr(self.exit_node)] = self.exit_node
+        self.inst_id_map[repr(self.exit_node)] = self.node_id
         self.node_id += 1
 
         # Generate instructions from `PipelineSchedule` and pipeline configurations.
@@ -168,7 +164,7 @@ class ReneDAG:
                 # Sanity check
                 if len(self.time_costs[type(inst)][stage_ind]) == 0:
                     raise ValueError(
-                        f"No time-cost meta-data for instruction '{inst.__repr__()}'. "
+                        f"No time-cost meta-data for instruction '{repr(inst)}'. "
                     )
                 # Pick longest duration by default, as default schedule policy is "eager"
                 inst.duration = self.time_costs[type(inst)][stage_ind][0][0]
@@ -185,7 +181,7 @@ class ReneDAG:
 
                 # Do interpolation here
                 if type(inst) not in self.coeffs_dict:
-                    self.coeffs_dict[type(inst)] = dict()
+                    self.coeffs_dict[type(inst)] = {}
                 if inst.stage_id not in self.coeffs_dict[type(inst)]:
                     self.coeffs_dict[type(inst)][inst.stage_id] = inst.interpolate(
                         self.fit_method
@@ -199,16 +195,16 @@ class ReneDAG:
                 self._insts.append(inst)
 
                 # add a new node
-                if inst.__repr__() not in self.inst_map:
+                if repr(inst) not in self.inst_map:
                     self._dag.add_node(self.node_id, inst=inst)
-                    self.inst_map[inst.__repr__()] = inst
-                    self.inst_id_map[inst.__repr__()] = self.node_id
+                    self.inst_map[repr(inst)] = inst
+                    self.inst_id_map[repr(inst)] = self.node_id
                     self.node_id += 1
 
                 if prev_inst is not None:
                     self._dag.add_edge(
-                        self.inst_id_map[prev_inst.__repr__()],
-                        self.inst_id_map[inst.__repr__()],
+                        self.inst_id_map[repr(prev_inst)],
+                        self.inst_id_map[repr(inst)],
                     )
                     prev_inst.then(inst)
                 prev_inst = inst
@@ -226,14 +222,14 @@ class ReneDAG:
             if not node.parents:
                 self.entry_node.then(node)
                 self._dag.add_edge(
-                    self.inst_id_map[self.entry_node.__repr__()],
-                    self.inst_id_map[node.__repr__()],
+                    self.inst_id_map[repr(self.entry_node)],
+                    self.inst_id_map[repr(node)],
                 )
             if not node.children:
                 node.then(self.exit_node)
                 self._dag.add_edge(
-                    self.inst_id_map[node.__repr__()],
-                    self.inst_id_map[self.exit_node.__repr__()],
+                    self.inst_id_map[repr(node)],
+                    self.inst_id_map[repr(self.exit_node)],
                 )
 
         # Don't do annotation at here
@@ -305,7 +301,7 @@ class ReneDAG:
 
     @property
     def dag(self) -> nx.DiGraph:
-        """Return a networkx graph representation of the dag"""
+        """Return a networkx graph representation of the dag."""
         return self._dag
 
     def schedule(self, algo: Literal["eager", "lazy", "pd"] = "eager") -> None:
@@ -333,6 +329,11 @@ class ReneDAG:
             )
 
     def draw_aon_graph(self, path: str) -> None:
+        """Draw the graph in Activity-on-Node form (AON).
+
+        Arguments:
+            path: Path to save the graph.
+        """
         pos = nx.spring_layout(self.dag)
         nx.draw(self.dag, pos, with_labels=True, font_weight="bold")
         labels = nx.get_node_attributes(self.dag, "repr")
@@ -357,6 +358,18 @@ class CriticalDAG(ReneDAG):
         fit_method: str = "linear",
         p2p_power: float = 0.0,
     ) -> None:
+        """Initialize a CriticalDAG, subclass of ReneDAG.
+
+        Arguments:
+            schedule_type: A callable that returns an iterable of pipeline instructions.
+                Can also be a subclass of `rene.schedule.PipeSchedule` like `Synchronous1F1B`.
+            num_stages: The number of pipeline stages.
+            num_micro_batches: The number of micro batches in the pipeline.
+            time_costs: A dict that maps instruction type to a dict of stage_id : list of (duration, cost, frequency) tuples.
+            output_dir: output directory for figures
+            dependency_rules: A list of functions that define the dependency between instructions.
+            fit_method: The method to fit the time cost data. Can be "linear" or "piecewise-linear" or "exponential".
+        """
         super(CriticalDAG, self).__init__(
             schedule_type,
             num_stages,
@@ -386,9 +399,9 @@ class CriticalDAG(ReneDAG):
         self.entry_node.earliest_start = 0.0
         self.entry_node.earliest_finish = 0.0
         q: SimpleQueue[int] = SimpleQueue()
-        q.put(self.inst_id_map[self.entry_node.__repr__()])
+        q.put(self.inst_id_map[repr(self.entry_node)])
 
-        visited: dict[int, bool] = dict()
+        visited: dict[int, bool] = {}
         for node_id in self.complete_dag.nodes:
             visited[node_id] = False
         while not q.empty():
@@ -411,7 +424,7 @@ class CriticalDAG(ReneDAG):
         # Exit node has duration 0, so latest finish and latest start should be the same.
         self.exit_node.latest_finish = self.exit_node.earliest_start
         self.exit_node.latest_start = self.exit_node.earliest_start
-        q.put(self.inst_id_map[self.exit_node.__repr__()])
+        q.put(self.inst_id_map[repr(self.exit_node)])
 
         for node_id in self.complete_dag.nodes:
             visited[node_id] = False
@@ -437,8 +450,9 @@ class CriticalDAG(ReneDAG):
                 q.put(parent_id)
 
     def clear_annotations(self) -> None:
+        """Clear all annotations in nodes."""
         q: SimpleQueue[int] = SimpleQueue()
-        q.put(self.inst_id_map[self.entry_node.__repr__()])
+        q.put(self.inst_id_map[repr(self.entry_node)])
 
         visited: list[int] = []
         while not q.empty():
@@ -483,7 +497,7 @@ class CriticalDAG(ReneDAG):
         # Start to construct critical path graph, in AON format
         # This is different than get_critical_path() in ReneDAG as it allows multiple critcal paths
         q: SimpleQueue[int] = SimpleQueue()
-        q.put(self.inst_id_map[self.entry_node.__repr__()])
+        q.put(self.inst_id_map[repr(self.entry_node)])
 
         critical_ids: list[int] = []
         visited: list[int] = []
@@ -510,7 +524,7 @@ class CriticalDAG(ReneDAG):
 
         # let's check if the critical dag has only a single path
         # q: SimpleQueue[int] = SimpleQueue()
-        # q.put(self.inst_id_map[self.entry_node.__repr__()])
+        # q.put(self.inst_id_map[repr(self.entry_node)])
         # visited: list[int] = []
         # while not q.empty():
         #     node_id = q.get()

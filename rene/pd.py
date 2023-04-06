@@ -1,4 +1,4 @@
-"""A linear time-cost trade-off solver using PD-algorithm"""
+"""A time-cost trade-off solver based on PD-algorithm, support linear, piecewise-linear and convex interpolation."""
 
 from __future__ import annotations
 
@@ -7,15 +7,13 @@ import os
 import matplotlib.pyplot as plt
 import networkx as nx
 from matplotlib.axes import Axes  # type: ignore
-from matplotlib.figure import Figure  # type: ignore
 from matplotlib.ticker import FormatStrFormatter  # type: ignore
 from networkx.algorithms.flow import edmonds_karp
 from queue import SimpleQueue
 from collections import deque
-from typing import Generator
 
-from rene.dag import ReneDAG, CriticalDAG
-from rene.instruction import Instruction, InstructionType, _Dummy, Forward, Backward
+from rene.dag import CriticalDAG
+from rene.instruction import Instruction, _Dummy, Forward, Backward
 
 
 DEFAULT_RECTANGLE_ARGS = {
@@ -32,7 +30,10 @@ DEFAULT_LINE_ARGS = dict(color="#ff9900", linewidth=4.0)
 
 
 class PD_Solver:
-    """The PD solver for linear time-cost trade-off given an ReneDAG"""
+    """The PD solver class for time-cost trade-off problem.
+
+    Takes a critical DAG as input and iteratively run the PD algorithm to update the instruction durations.
+    """
 
     def __init__(
         self,
@@ -41,15 +42,14 @@ class PD_Solver:
         interval: int = 100,
         unit_scale: float = 0.01,
     ) -> None:
-        """Given a critical graph, iteratively run the PD algorithm and update the instruction durations
+        """Initialize the PD solver.
 
         Arguments:
             critical_dag: a critical DAG in the form of ReneDAG
-            output_dir: output directory for figures
+            output_dir: output directory for figures and frequency assignments
             interval: number of iterations to output pipeline graph and frequency assignment
             unit_scale: the single unit of duration deduction per PD iteration
         """
-        # TODO: change node access to instruction instead of ids
         self.iteration: int = 0
         self.output_dir: str = output_dir
         self.critical_dag_aon: CriticalDAG = critical_dag
@@ -66,58 +66,9 @@ class PD_Solver:
         self.costs: list[float] = []
         self.refined_costs: list[float] = []
         self.times: list[float] = []
-        # self.run_pd_algorithm()
-
-        # logging.info("aoa", list(self.critical_dag_aoa.edges()))
-
-    def generate_aon_graph(self) -> nx.DiGraph:
-        dag: nx.DiGraph = nx.DiGraph()
-        # Start to construct critical path graph, in AON format
-        # This is different than get_critical_path() in ReneDAG as it allows multiple critcal paths
-        q: SimpleQueue[Instruction] = SimpleQueue()
-        q.put(self.entry_node)
-
-        while not q.empty():
-            node = q.get()
-            # logging.info("current ", node.__repr__())
-            parent_is_critical: bool = False
-            if abs(node.latest_finish - node.earliest_start - node.duration) < 1e-10:
-                parent_is_critical = True
-                # Create a new critical node for current instruction
-                if node.__repr__() not in self.inst_id_map:
-                    dag.add_node(self.node_id, repr=node.__repr__())
-                    self.inst_map[node.__repr__()] = node
-                    self.inst_id_map[node.__repr__()] = self.node_id
-                    self.node_id += 1
-            for child in node.children:
-                q.put(child)
-                if (
-                    abs(child.latest_finish - child.earliest_start - child.duration)
-                    < 1e-10
-                ):
-                    # Create a new critical node for child instruction
-                    if child.__repr__() not in self.inst_id_map:
-                        dag.add_node(self.node_id, repr=child.__repr__())
-                        self.inst_map[child.__repr__()] = child
-                        self.inst_id_map[child.__repr__()] = self.node_id
-                        self.node_id += 1
-                    # Add a critical edge in the graph if both parent and child are critical
-                    if parent_is_critical:
-                        dag.add_edge(
-                            self.inst_id_map[node.__repr__()],
-                            self.inst_id_map[child.__repr__()],
-                            weight=0.0,
-                            inst=_Dummy(
-                                -1,
-                                -1,
-                                duration=0,
-                                min_duration=0,
-                                max_duration=float("inf"),
-                            ),
-                        )
-        return dag
 
     def aon_to_aoa(self) -> nx.DiGraph:
+        """Convert the critical  Activity-on-Node (AON) graph to a critical  Activity-on-Arc (AOA) graph."""
         # TODO: crash dummy nodes for optimization
         # do a BFS to split all nodes and reconnect
         dag: nx.DiGraph = nx.DiGraph(self.critical_dag_aon.dag)
@@ -150,8 +101,8 @@ class PD_Solver:
             # Split node
             left_id = self.node_id
             right_id = left_id + 1
-            dag.add_node(left_id, inst=cur_inst, repr=cur_inst.__repr__())
-            dag.add_node(right_id, inst=cur_inst, repr=cur_inst.__repr__())
+            dag.add_node(left_id, inst=cur_inst, repr=repr(cur_inst))
+            dag.add_node(right_id, inst=cur_inst, repr=repr(cur_inst))
             # Create activity-on-edge
             dag.add_edge(left_id, right_id, weight=cur_inst.duration, inst=cur_inst)
             # logging.info(f"add edge {left_id}, {right_id}, weight {cur_inst.duration}")
@@ -180,11 +131,12 @@ class PD_Solver:
         return dag
 
     def generate_capacity_graph(self) -> nx.DiGraph:
+        """Generate the capacity graph from the critical AOA graph."""
         # Require self.critical_dag_aoa to be present
         cap_graph: nx.DiGraph = nx.DiGraph(self.critical_dag_aoa)
         # Relabel all nodes
         node_ids: list[int] = list(cap_graph.nodes)
-        mapping: dict = dict()
+        mapping: dict = {}
         index = 0
         for node_id in node_ids:
             mapping[node_id] = index
@@ -231,21 +183,24 @@ class PD_Solver:
                     cap_graph[cur_id][succ_id]["ub"]: float = cur_inst.get_derivative(
                         cur_inst.duration, cur_inst.duration - self.unit_scale
                     )
-                    # if cur_id == 20 and succ_id == 21:
-                    #     print(cap_graph[cur_id][succ_id]["lb"], cap_graph[cur_id][succ_id]["ub"])
-
-        # Change weight to max capacity
-        # for u, v in cap_graph.edges:
-        #     cap_graph[u][v]["weight"] = cap_graph[u][v]["ub"]
 
         return cap_graph
 
     def search_path_bfs(
         self, graph: nx.DiGraph, s: int, t: int
     ) -> tuple[dict[int, bool], dict[int, int]]:
-        """Search path from s to t using BFS search, return a tuple of visited and parents"""
-        parents: dict[int, int] = dict()
-        visited: dict[int, bool] = dict()
+        """Search path from s to t using BFS search, return a tuple of visited and parents.
+
+        Args:
+            graph (nx.DiGraph): The graph to search on.
+            s (int): The source node id.
+            t (int): The target node id.
+
+        Returns:
+            tuple[dict[int, bool], dict[int, int]]: A tuple of visited indices and parents.
+        """
+        parents: dict[int, int] = {}
+        visited: dict[int, bool] = {}
         for node_id in graph.nodes:
             parents[node_id] = -1
             visited[node_id] = False
@@ -259,7 +214,7 @@ class PD_Solver:
                 break
             for child_id in list(graph.successors(cur_id)):
                 if (
-                    visited[child_id] == False
+                    visited[child_id] is False
                     and abs(graph[cur_id][child_id]["weight"] - 0) > 1e-5
                 ):
                     parents[child_id] = cur_id
@@ -270,9 +225,18 @@ class PD_Solver:
     def search_path_dfs(
         self, graph: nx.DiGraph, s: int, t: int
     ) -> tuple[dict[int, bool], dict[int, int]]:
-        """Search path from s to t using DFS search, return a tuple of visited and parents"""
-        parents: dict[int, int] = dict()
-        visited: dict[int, bool] = dict()
+        """Search path from s to t using DFS search, return a tuple of visited and parents.
+
+        Args:
+            graph (nx.DiGraph): The graph to search on.
+            s (int): The source node id.
+            t (int): The target node id.
+
+        Returns:
+            tuple[dict[int, bool], dict[int, int]]: A tuple of visited indices and parents.
+        """
+        parents: dict[int, int] = {}
+        visited: dict[int, bool] = {}
         for node_id in graph.nodes:
             parents[node_id] = -1
             visited[node_id] = False
@@ -286,7 +250,7 @@ class PD_Solver:
                 break
             for child_id in list(graph.successors(cur_id)):
                 if (
-                    visited[child_id] == False
+                    visited[child_id] is False
                     and abs(graph[cur_id][child_id]["weight"] - 0) > 1e-5
                 ):
                     parents[child_id] = cur_id
@@ -297,7 +261,7 @@ class PD_Solver:
     def find_max_flow(
         self, graph: nx.DiGraph, source_id: int, sink_id: int
     ) -> nx.DiGraph:
-        """Find max flow using BFS search, each edge in the graph has a capacity [0, weight]
+        """Find max flow using DFS search, each edge in the graph has a upper bound capacity, i.e. flow is [0, weight].
 
         Arguments:
             graph {nx.DiGraph} -- a DAG with annoated capacity on edges
@@ -312,7 +276,7 @@ class PD_Solver:
         while True:
             # Step 1: get a path from entry to exit
             visited, parents = self.search_path_dfs(residual_graph, source_id, sink_id)
-            if visited[sink_id] == False:
+            if visited[sink_id] is False:
                 break
             # Step 2: find min capacity along the path
             right_ptr = sink_id
@@ -334,7 +298,7 @@ class PD_Solver:
             while True:
                 residual_graph[left_ptr][right_ptr]["weight"] -= min_capacity
                 # Create residual edge if needed
-                if residual_graph.has_edge(right_ptr, left_ptr) == False:
+                if residual_graph.has_edge(right_ptr, left_ptr) is False:
                     residual_graph.add_edge(
                         right_ptr,
                         left_ptr,
@@ -355,7 +319,7 @@ class PD_Solver:
     def find_min_cut(
         self, residual_graph: nx.DiGraph, source_id: int, sink_id: int
     ) -> tuple(set[int], set[int]):
-        """Find min cut given a residual graph
+        """Find min cut given a residual graph.
 
         Arguments:
             residual_graph {nx.DiGraph} -- a residual graph annotated with flow on edges
@@ -370,7 +334,7 @@ class PD_Solver:
         s_set: set[int] = set()
         t_set: set[int] = set()
         for i in range(len(visited)):
-            if visited[i] == True:
+            if visited[i] is True:
                 s_set.add(i)
             else:
                 t_set.add(i)
@@ -380,6 +344,18 @@ class PD_Solver:
     def find_max_flow_bounded(
         self, graph: nx.DiGraph, source_id: int, sink_id: int
     ) -> nx.DiGraph:
+        """Find max flow given a double-sides capacity bounded graph.
+
+        Each edge in the graph has a double-side bounded capacity [lb, ub].
+
+        Arguments:
+            graph {nx.DiGraph} -- a DAG with annoated capacity on edges
+            source_id {int} -- start node id
+            sink_id {int} -- sink node id
+
+        Returns:
+            residual_graph {nx.DiGraph} -- a residual graph annotated with flow on edges
+        """
         unbound_graph: nx.DiGraph = nx.DiGraph(graph)
         s_prime = self.node_id
         self.node_id += 1
@@ -438,8 +414,11 @@ class PD_Solver:
                 )
                 > 1e-5
             ):
+                logging.info(
+                    f"Edge {s_prime}->{node_id} has weight {flow_dict[s_prime][node_id]}"
+                )
                 raise Exception(
-                    f"Residual graph is not saturated at the new source (edge {s_prime}->{node_id} has weight {flow_dict[s_prime][node_id]}), no flow in the original DAG!"
+                    "Residual graph is not saturated at the new source, no flow in the original DAG!"
                 )
         for node_id in unbound_graph.predecessors(t_prime):
             if (
@@ -449,8 +428,11 @@ class PD_Solver:
                 )
                 > 1e-5
             ):
+                logging.info(
+                    f"Edge {node_id}->{t_prime} has weight {flow_dict[node_id][t_prime]}"
+                )
                 raise Exception(
-                    f"Residual graph is not saturated at the new sink (edge {node_id}->{t_prime} has weight {flow_dict[node_id][t_prime]}), no flow in the original DAG!"
+                    "Residual graph is not saturated at the new sink, no flow in the original DAG!"
                 )
 
         # Step 7: Retreive the flow for the original graph
@@ -474,7 +456,6 @@ class PD_Solver:
                     residual_graph[u][v]["weight"] - residual_graph[u][v]["lb"]
                 )
             else:
-                # residual_graph.add_edge(v, u, weight=residual_graph[u][v]["weight"] - residual_graph[u][v]["lb"], inst=residual_graph[u][v]["inst"])
                 edge_pending.append(
                     (
                         v,
@@ -515,21 +496,25 @@ class PD_Solver:
 
         except nx.NetworkXUnbounded:
             return None
-        
+
         return new_residual
 
     def run_pd_algorithm(self) -> None:
+        """Run the PD algorithm iteratively to solve for the Pareto optimal schedule for each time breakpoint.
+
+        This is the main workflow of the algorithm.
+        """
         # TODO: need to start the following iterations using the assigned flows
         while True:
-            # Do eager assignment and draw the current pipeline
+            # Step 1: Do eager assignment given annotated graph
             for inst in self.critical_dag_aon.insts:
                 inst.actual_start = inst.earliest_start
                 inst.actual_finish = inst.earliest_finish
 
-            # self.critical_dag_aon.draw_aon_graph(os.path.join(self.output_dir, f"aon_graph_{self.iteration}.png"))
-            # logging.info("aon", list(self.critical_graph_aon.edges()))
+            # Step 2: Convert critical AON dag to critical AOA dag
             self.critical_dag_aoa: nx.DiGraph = self.aon_to_aoa()
 
+            # Step 3: Generate capacity graph
             self.capacity_graph: nx.DiGraph = self.generate_capacity_graph()
 
             # if self.iteration >= 135:
@@ -537,25 +522,31 @@ class PD_Solver:
             #     self.draw_aoa_graph(os.path.join(self.output_dir, f"aoa_graph_{self.iteration}.png"))
             #     self.draw_capacity_graph(os.path.join(self.output_dir, f"capacity_graph_{self.iteration}_before.png"))
 
-            # run double side bounded max flow algorithm on capacity graph, after this the capacity graph will be annoated with the flow
+            # Step 4: Run double side bounded max flow algorithm on capacity graph,
+            # After this the capacity graph will be annoated with the flow
             residual_graph = self.find_max_flow_bounded(
                 self.capacity_graph, self.entry_id, self.exit_id
             )
             if residual_graph is None:
                 break
             # s_set, t_set = self.find_min_cut(self.capacity_graph, self.entry_id, self.exit_id, flow_dict)
+
+            #  Step 5: Find the min cut on the residual graph
             s_set, t_set = self.find_min_cut(
                 residual_graph, self.entry_id, self.exit_id
             )
+
+            # Step 6: Reduce the duration by cutting crossing edges between s_set and t_set
             cost_change = self.reduce_duration(s_set, t_set)
             if cost_change == float("inf"):
                 break
 
+            # Step 7: Assign frequency to each instruction, solve for the total cost and the total time
             total_freqs = self.assign_frequency()
             total_cost = self.calculate_total_cost()
             total_time = self.calculate_total_time()
 
-            # refine the total cost with p2p blockig energy
+            # Step 8: Refine the total cost with p2p blockig energy
             insts_time = 0
             for inst in self.critical_dag_aon.insts:
                 insts_time += inst.actual_duration
@@ -565,6 +556,7 @@ class PD_Solver:
                 * self.critical_dag_aon.p2p_power
             )
 
+            # Step 9: Draw the pipeline graph, the capacity graph and output the frequency assignment
             # if self.iteration >= 135:
             if self.iteration % self.interval == 0:
                 # self.draw_aoa_graph(os.path.join(self.output_dir, f"aoa_graph_{self.iteration}.png"))
@@ -606,6 +598,7 @@ class PD_Solver:
                 f"Iteration {self.iteration}: total time {total_time - self.unit_scale}"
             )
 
+            # Step 10: Clear the annotations on the critical dag and update the critical dag with the new durations, then start the next iteration
             self.critical_dag_aon.clear_annotations()
             self.node_id = self.critical_dag_aon.node_id
             self.critical_dag_aon.update_critical_dag()
@@ -614,14 +607,23 @@ class PD_Solver:
             self.refined_costs.append(refined_cost)
             self.times.append(total_time - self.unit_scale)
             self.iteration += 1
-        # need to output final frequency assignment
+        # Step 11: Output final frequency assignment, final pipeline graph and Pareto frontier
         self.assign_frequency()
         self.draw_pipeline_graph(
-            os.path.join(self.output_dir, f"pipeline_final.png"), draw_time_axis=True
+            os.path.join(self.output_dir, "pipeline_final.png"), draw_time_axis=True
         )
-        self.draw_pareto_frontier(os.path.join(self.output_dir, f"Pareto_frontier.png"))
+        self.draw_pareto_frontier(os.path.join(self.output_dir, "Pareto_frontier.png"))
 
     def reduce_duration(self, s: set[int], t: set[int]) -> float:
+        """Reduce the duration of forward edges from s set to t set and increase the duration of backward edges from t to s.
+
+        Arguments:
+            s {set[int]} -- set of nodes in s set
+            t {set[int]} -- set of nodes in t set
+
+        Returns:
+            float -- the cost change
+        """
         reduce_edges: list[tuple(int, int)] = list()
         increase_edges: list[tuple(int, int)] = list()
         for node_id in s:
@@ -674,6 +676,11 @@ class PD_Solver:
         return cost_change
 
     def calculate_total_cost(self) -> float:
+        """Calculate the total cost of the current pipeline.
+
+        Returns:
+            float -- the total cost
+        """
         q: SimpleQueue[int] = SimpleQueue()
         q.put(0)
         visited: list[str] = list()
@@ -687,15 +694,20 @@ class PD_Solver:
             cur_node: Instruction = self.critical_dag_aon.complete_dag.nodes[cur_id][
                 "inst"
             ]
-            if not isinstance(cur_node, _Dummy) and cur_node.__repr__() not in visited:
+            if not isinstance(cur_node, _Dummy) and repr(cur_node) not in visited:
                 total_cost += cur_node.get_p2p_refined_cost(cur_node.duration)
-                visited.append(cur_node.__repr__())
+                visited.append(repr(cur_node))
             for child_id in self.critical_dag_aon.complete_dag.successors(cur_id):
                 q.put(child_id)
 
         return total_cost
 
     def calculate_total_time(self) -> float:
+        """Calculate the total time of the current pipeline.
+
+        Returns:
+            float -- the total time
+        """
         critical_path = self.critical_dag_aon.get_critical_path()
         total_time: float = 0.0
         for inst in critical_path:
@@ -703,20 +715,25 @@ class PD_Solver:
         return total_time
 
     def assign_frequency(self) -> list[list[int]]:
+        """Assign frequency to each instruction in the pipeline based on the duration.
+
+        Returns:
+            list[list[int]] -- the frequency assignment, indexed by stage_id
+        """
         # do binary search on inst.time_costs, list of (duration, cost, frequency) tuples, sorted by reverse duration
         q: SimpleQueue[int] = SimpleQueue()
         q.put(0)
         # stage_id -> list of Instructions with that stage_id
-        stage_view: dict[int, list[Instruction]] = dict()
+        stage_view: dict[int, list[Instruction]] = {}
         visited: list[str] = list()
         while not q.empty():
             cur_id: int = q.get()
             cur_node: Instruction = self.critical_dag_aon.complete_dag.nodes[cur_id][
                 "inst"
             ]
-            if cur_node.__repr__() in visited:
+            if repr(cur_node) in visited:
                 continue
-            visited.append(cur_node.__repr__())
+            visited.append(repr(cur_node))
             for child_id in self.critical_dag_aon.complete_dag.successors(cur_id):
                 q.put(child_id)
             if isinstance(cur_node, _Dummy):
@@ -774,7 +791,7 @@ class PD_Solver:
         #     insts: list[Instruction] = stage_view[stage_id]
         #     for inst in insts:
         #         if inst.duration - self.unit_scale < inst.min_duration:
-        #             logging.info(f"{inst.__repr__()} will exceed min duration in the next iteration, assign highest frequency {inst.time_costs[-1][2]} instead of {inst.frequency}")
+        #             logging.info(f"{repr(inst)} will exceed min duration in the next iteration, assign highest frequency {inst.time_costs[-1][2]} instead of {inst.frequency}")
         #             inst.frequency = inst.time_costs[-1][2]
         #             inst.duration = inst.time_costs[-1][0]
         #             changed = True
@@ -799,7 +816,7 @@ class PD_Solver:
             for inst in insts:
                 assert inst.frequency != -1
                 freqs.append(inst.frequency)
-                reprs.append(inst.__repr__())
+                reprs.append(repr(inst))
             # logging.info(f"Freqs: {freqs}")
             # logging.info(f"Reprs: {reprs}")
             # Output the frequency assignment for this stage using rjust to make sure the length is 4
@@ -813,6 +830,11 @@ class PD_Solver:
         return total_freqs
 
     def draw_aoa_graph(self, path: str) -> None:
+        """Draw the AOA graph to the given path.
+
+        Arguments:
+            path {str} -- The path to save the graph.
+        """
         plt.figure(figsize=(20, 20))
         pos = nx.circular_layout(self.critical_dag_aoa)
         nx.draw(self.critical_dag_aoa, pos, with_labels=True, font_weight="bold")
@@ -826,7 +848,11 @@ class PD_Solver:
         plt.close()
 
     def draw_capacity_graph(self, path: str) -> None:
+        """Draw the capacity graph to the given path.
 
+        Arguments:
+            path {str} -- The path to save the graph.
+        """
         plt.figure(figsize=(30, 30))
         pos = nx.circular_layout(self.capacity_graph)
         nx.draw(self.capacity_graph, pos, with_labels=True, font_weight="bold")
@@ -845,7 +871,12 @@ class PD_Solver:
         plt.close()
 
     def draw_pipeline_graph(self, path: str, draw_time_axis: bool = False) -> None:
-        """Draw the pipeline on the given Axes object."""
+        """Draw the pipeline to the given path.
+
+        Arguments:
+            path {str} -- The path to save the graph.
+            draw_time_axis {bool} -- Whether to draw the time axis. (default: {False})
+        """
         fig, ax = plt.subplots(figsize=(24, 4), tight_layout=True)
         ax.set_xlim(0, 58)
         for inst in self.critical_dag_aon.insts:
@@ -877,6 +908,11 @@ class PD_Solver:
         plt.close()
 
     def draw_pareto_frontier(self, path: str) -> None:
+        """Draw the pareto frontier to the given path.
+
+        Arguments:
+            path {str} -- The path to save the graph.
+        """
         fig, ax = plt.subplots(figsize=(8, 8), tight_layout=True)
         ax.plot(self.times, self.costs, label="cost")
         ax.plot(self.times, self.refined_costs, label="refined cost")
@@ -888,7 +924,11 @@ class PD_Solver:
         plt.close()
 
     def draw_critical_path(self, ax: Axes) -> None:
-        """Draw the critical path of the DAG on the given Axes object."""
+        """Draw the critical path of the DAG on the given Axes object.
+
+        Arguments:
+            ax {Axes} -- The Axes object to draw the critical path.
+        """
         # critical_path = self.get_critical_path()
 
         # get all pairs of instructions in the critical path defined by self.critical_dag_aon by BFS
@@ -905,6 +945,11 @@ class PD_Solver:
             )
 
     def get_critical_pairs(self) -> list[tuple[Instruction, Instruction]]:
+        """Get all pairs of instructions that are neighbours and both critical, defined by self.critical_dag_aon.
+
+        Returns:
+            list[tuple[Instruction, Instruction]] -- The list of critical pairs.
+        """
         # get all pairs of instructions in the critical path defined by self.critical_dag_aon by BFS
         critical_pairs = []
         q: SimpleQueue[int] = SimpleQueue()
@@ -937,4 +982,3 @@ class PD_Solver:
             filtered_critical_pairs.append((inst1, inst2))
 
         return filtered_critical_pairs
-
