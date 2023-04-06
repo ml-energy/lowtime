@@ -416,23 +416,6 @@ class PD_Solver:
             self.exit_id, self.entry_id, capacity=float("inf"), inst=None
         )
 
-        # plt.figure(figsize=(30, 30))
-        # pos = nx.circular_layout(unbound_graph)
-        # nx.draw(unbound_graph, pos, with_labels=True, font_weight='bold')
-        # # node_labels = nx.get_node_attributes(self.critical_dag_aoa, "repr")
-        # # nx.draw_networkx_labels(self.critical_dag_aoa, pos, labels=node_labels)
-
-        # # set the attribute of edge as a combination of lb and ub, and round lb and ub to 2 decimal places
-        # for edge in unbound_graph.edges:
-        #     unbound_graph.edges[edge]["label"] = f"{round(unbound_graph.edges[edge]['weight'], 2)}"
-
-        # edge_labels = nx.get_edge_attributes(unbound_graph, "label")
-        # nx.draw_networkx_edge_labels(unbound_graph, pos, edge_labels=edge_labels)
-        # # plt.tight_layout()
-        # plt.savefig(os.path.join(self.output_dir, f"unbounded_{self.iteration}.png"), format="PNG")
-        # plt.clf()
-        # plt.close()
-
         # Step 5: Find min cut on the unbound graph
         # TODO: change weight to capacity, it is confusing right now
         # extend_residual_graph: nx.DiGraph = self.find_max_flow(unbound_graph, s_prime, t_prime)
@@ -469,23 +452,6 @@ class PD_Solver:
                 raise Exception(
                     f"Residual graph is not saturated at the new sink (edge {node_id}->{t_prime} has weight {flow_dict[node_id][t_prime]}), no flow in the original DAG!"
                 )
-
-        # plt.figure(figsize=(30, 30))
-        # pos = nx.circular_layout(extend_residual_graph)
-        # nx.draw(extend_residual_graph, pos, with_labels=True, font_weight='bold')
-        # # node_labels = nx.get_node_attributes(self.critical_dag_aoa, "repr")
-        # # nx.draw_networkx_labels(self.critical_dag_aoa, pos, labels=node_labels)
-
-        # # set the attribute of edge as a combination of lb and ub, and round lb and ub to 2 decimal places
-        # for edge in extend_residual_graph.edges:
-        #     extend_residual_graph.edges[edge]["label"] = f"{round(extend_residual_graph.edges[edge]['weight'], 2)}"
-
-        # edge_labels = nx.get_edge_attributes(extend_residual_graph, "label")
-        # nx.draw_networkx_edge_labels(extend_residual_graph, pos, edge_labels=edge_labels)
-        # # plt.tight_layout()
-        # plt.savefig(os.path.join(self.output_dir, f"extended_residual_{self.iteration}.png"), format="PNG")
-        # plt.clf()
-        # plt.close()
 
         # Step 7: Retreive the flow for the original graph
         for u, v in graph.edges:
@@ -547,48 +513,9 @@ class PD_Solver:
             for u, v, weight in add_candidates:
                 new_residual.add_edge(u, v, weight=weight)
 
-            # if self.iteration >= 45:
-            #     plt.figure(figsize=(30, 30))
-            #     pos = nx.circular_layout(graph)
-            #     nx.draw(graph, pos, with_labels=True, font_weight='bold')
-            #     # node_labels = nx.get_node_attributes(self.critical_dag_aoa, "repr")
-            #     # nx.draw_networkx_labels(self.critical_dag_aoa, pos, labels=node_labels)
-
-            #     # set the attribute of edge as a combination of lb and ub, and round lb and ub to 2 decimal places
-            #     for edge in graph.edges:
-            #         graph.edges[edge]["label"] = f"lb:{round(graph.edges[edge]['lb'], 2)} ub:{round(graph.edges[edge]['ub'], 2)} {round(graph.edges[edge]['weight'], 2)}"
-
-            #     edge_labels = nx.get_edge_attributes(graph, "label")
-            #     nx.draw_networkx_edge_labels(graph, pos, edge_labels=edge_labels)
-            #     # plt.tight_layout()
-            #     plt.savefig(os.path.join(self.output_dir, f"capacity_final_flow_{self.iteration}.png"), format="PNG")
-            #     plt.clf()
-            #     plt.close()
-
         except nx.NetworkXUnbounded:
             return None
-        # print(cut_value, partition)
-        # plt.figure(figsize=(30, 30))
-        # pos = nx.circular_layout(residual_graph)
-        # nx.draw(residual_graph, pos, with_labels=True, font_weight='bold')
-        # # node_labels = nx.get_node_attributes(self.critical_dag_aoa, "repr")
-        # # nx.draw_networkx_labels(self.critical_dag_aoa, pos, labels=node_labels)
-
-        # # set the attribute of edge as a combination of lb and ub, and round lb and ub to 2 decimal places
-        # for edge in residual_graph.edges:
-        #     residual_graph.edges[edge]["label"] = f"{round(residual_graph.edges[edge]['weight'], 2)}"
-
-        # edge_labels = nx.get_edge_attributes(residual_graph, "label")
-        # nx.draw_networkx_edge_labels(residual_graph, pos, edge_labels=edge_labels)
-        # # plt.tight_layout()
-        # plt.savefig(os.path.join(self.output_dir, f"residual_{self.iteration}.png"), format="PNG")
-        # plt.clf()
-        # plt.close()
-
-        # Step 10: Annotate capacity graph again with new max flow
-        # for u, v in graph.edges:
-        #     graph[u][v]["weight"] = flow_dict[u][v]
-
+        
         return new_residual
 
     def run_pd_algorithm(self) -> None:
@@ -899,23 +826,10 @@ class PD_Solver:
         plt.close()
 
     def draw_capacity_graph(self, path: str) -> None:
-        # get all edges that are critical
-        # filtered_critical_pairs = self.get_critical_pairs()
-        # # remove all other edges not in the critical pairs
-        # filtered_edges = []
-        # for inst1, inst2 in filtered_critical_pairs:
-        #     filtered_edges.append((self.critical_dag_aon.inst_id_map[repr(inst1)], self.critical_dag_aon.inst_id_map[repr(inst2)]))
-        # remove_edges = []
-        # for edge in self.capacity_graph.edges:
-        #     if edge not in filtered_edges:
-        #         remove_edges.append(edge)
-        # self.capacity_graph.remove_edges_from(remove_edges)
 
         plt.figure(figsize=(30, 30))
         pos = nx.circular_layout(self.capacity_graph)
         nx.draw(self.capacity_graph, pos, with_labels=True, font_weight="bold")
-        # node_labels = nx.get_node_attributes(self.critical_dag_aoa, "repr")
-        # nx.draw_networkx_labels(self.critical_dag_aoa, pos, labels=node_labels)
 
         # set the attribute of edge as a combination of lb and ub, and round lb and ub to 2 decimal places
         for edge in self.capacity_graph.edges:
@@ -1024,56 +938,3 @@ class PD_Solver:
 
         return filtered_critical_pairs
 
-
-def aon_to_aoa_pure() -> nx.DiGraph:
-    # TODO: crash dummy nodes for optimization
-    # do a BFS to split all nodes and reconnect
-    weight_dict = {1: 20, 2: 30, 3: 10, 4: 25}
-    dag: nx.DiGraph = nx.DiGraph()
-    dag.add_nodes_from([1, 2, 3, 4])
-    dag.add_edges_from([(1, 2), (1, 3), (2, 4), (3, 4)])
-    node_id = 5
-    pos = nx.spring_layout(dag)
-    nx.draw(dag, pos, with_labels=True, font_weight="bold")
-    plt.tight_layout()
-    plt.savefig("aon_proof_of_concept.png", format="PNG")
-    plt.clf()
-    q: SimpleQueue[int] = SimpleQueue()
-    q.put(1)
-    targets = [1, 2, 3, 4]
-    while not q.empty():
-        cur_id: int = q.get()
-        if cur_id not in targets:
-            continue
-        logging.info("current: ", cur_id)
-        # Store current node's predecessors and successors
-        pred_ids: list[int] = list(dag.predecessors(cur_id))
-        succ_ids: list[int] = list(dag.successors(cur_id))
-        # Remove current node
-        dag.remove_node(cur_id)
-        # Split node
-        left_id = node_id
-        right_id = left_id + 1
-        dag.add_node(left_id)
-        dag.add_node(right_id)
-        # Create activity-on-edge
-        dag.add_edge(left_id, right_id, weight=weight_dict[cur_id])
-        node_id += 2
-        # Reconnect with predecessors and successors
-        for pred_id in pred_ids:
-            dag.add_edge(pred_id, left_id, weight=0.0)
-        for succ_id in succ_ids:
-            dag.add_edge(right_id, succ_id, weight=0.0)
-            q.put(succ_id)
-        targets.remove(cur_id)
-    pos = nx.spring_layout(dag)
-    nx.draw(dag, pos, with_labels=True, font_weight="bold")
-    edge_labels = nx.get_edge_attributes(dag, "weight")
-    nx.draw_networkx_edge_labels(dag, pos, edge_labels=edge_labels)
-    plt.tight_layout()
-    plt.savefig("aoa_proof_of_concept.png", format="PNG")
-    plt.clf()
-
-
-if __name__ == "__main__":
-    aon_to_aoa_pure()
