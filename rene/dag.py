@@ -13,6 +13,7 @@ from queue import SimpleQueue
 from collections import deque
 import typing
 
+from rene.common import FP_ERROR
 from rene.instruction import Instruction, InstructionType, Forward, Backward, _Dummy
 
 
@@ -43,7 +44,7 @@ class ReneDAG:
 
     # pylint: disable=dangerous-default-value,too-many-branches
     def __init__(
-        self,
+        self: ReneDAG,
         schedule_type: Callable[[int, int, int], Iterable[Instruction]],
         num_stages: int,
         num_micro_batches: int,
@@ -60,11 +61,11 @@ class ReneDAG:
                 Can also be a subclass of `rene.schedule.PipeSchedule` like `Synchronous1F1B`.
             num_stages: The number of pipeline stages.
             num_micro_batches: The number of micro batches in the pipeline.
-            time_costs: A dict that maps instruction type to a dict of stage_id : list of (duration, cost, frequency) tuples.
+            time_costs: A dict that maps inst type to a dict of stage_id: list of (duration, cost, frequency) tuples.
             output_dir: output directory for figures
             dependency_rules: A list of functions that define the dependency between instructions.
             fit_method: The method to fit the time cost data. Can be "linear" or "piecewise-linear" or "exponential".
-
+            p2p_power: The power consumption of p2p communication between GPUs.
         ## Dependency rules
 
         ```python
@@ -236,7 +237,7 @@ class ReneDAG:
         # # Annotate earliest/latest start/finish/slack times in nodes.
         # self.annotate_nodes()
 
-    def _is_dependent(self, inst1: Instruction, inst2: Instruction) -> bool:
+    def _is_dependent(self: ReneDAG, inst1: Instruction, inst2: Instruction) -> bool:
         """Check if there is a dependency from `inst1` to `inst2`.
 
         Checks the function type annotation and only call rules that
@@ -257,7 +258,7 @@ class ReneDAG:
                     return True
         return False
 
-    def get_critical_path(self) -> list[Instruction]:
+    def get_critical_path(self: ReneDAG) -> list[Instruction]:
         """Return the critical path of the DAG.
 
         When there are multiple possible critical paths, choose the smoothest,
@@ -276,18 +277,18 @@ class ReneDAG:
             for child in node.children:
                 # Only go through nodes on the critical path.
                 # Cannot use the `==` operator due to floating point errors.
-                if abs(child.earliest_start - child.latest_start) < 1e-5:
+                if abs(child.earliest_start - child.latest_start) < FP_ERROR:
                     if isinstance(node, _Dummy) or isinstance(child, _Dummy):
                         stage_diff = 0.0
                     else:
                         stage_diff = abs(node.stage_id - child.stage_id)
-                    stack.append((length + stage_diff, path + [child]))
+                    stack.append((length + stage_diff, [*path, child]))
 
         # Slice out entry and exit nodes
         return list(filter(lambda node: not isinstance(node, _Dummy), critical_path))
 
     @property
-    def total_execution_time(self) -> float:
+    def total_execution_time(self: ReneDAG) -> float:
         """Return the finish time of the last instruction."""
         assert (
             self.exit_node.earliest_finish == self.exit_node.latest_finish
@@ -295,16 +296,16 @@ class ReneDAG:
         return self.exit_node.earliest_finish
 
     @property
-    def insts(self) -> Generator[Instruction, None, None]:
+    def insts(self: ReneDAG) -> Generator[Instruction, None, None]:
         """Yield non-dummy instructions."""
         yield from filter(lambda inst: not isinstance(inst, _Dummy), self._insts)
 
     @property
-    def dag(self) -> nx.DiGraph:
+    def dag(self: ReneDAG) -> nx.DiGraph:
         """Return a networkx graph representation of the dag."""
         return self._dag
 
-    def schedule(self, algo: Literal["eager", "lazy", "pd"] = "eager") -> None:
+    def schedule(self: ReneDAG, algo: Literal["eager", "lazy", "pd"] = "eager") -> None:
         """Determine the actual start/finish times of all instructions.
 
         Available algorithms:
@@ -328,7 +329,7 @@ class ReneDAG:
                 f"Scheduling algorithm '{algo}' is not implemented"
             )
 
-    def draw_aon_graph(self, path: str) -> None:
+    def draw_aon_graph(self: ReneDAG, path: str) -> None:
         """Draw the graph in Activity-on-Node form (AON).
 
         Arguments:
@@ -348,7 +349,7 @@ class CriticalDAG(ReneDAG):
     """DAG of instructions on the critical path, represented in Activity-on-Node form (AON), a subgraph of ReneDAG."""
 
     def __init__(
-        self,
+        self: CriticalDAG,
         schedule_type: Callable[[int, int, int], Iterable[Instruction]],
         num_stages: int,
         num_micro_batches: int,
@@ -365,10 +366,11 @@ class CriticalDAG(ReneDAG):
                 Can also be a subclass of `rene.schedule.PipeSchedule` like `Synchronous1F1B`.
             num_stages: The number of pipeline stages.
             num_micro_batches: The number of micro batches in the pipeline.
-            time_costs: A dict that maps instruction type to a dict of stage_id : list of (duration, cost, frequency) tuples.
+            time_costs: A dict that maps inst type to a dict of stage_id : list of (duration, cost, frequency) tuples.
             output_dir: output directory for figures
             dependency_rules: A list of functions that define the dependency between instructions.
             fit_method: The method to fit the time cost data. Can be "linear" or "piecewise-linear" or "exponential".
+            p2p_power: The power consumption of p2p communication between GPUs.
         """
         super(CriticalDAG, self).__init__(
             schedule_type,
@@ -392,7 +394,7 @@ class CriticalDAG(ReneDAG):
         # for node in critical_path:
         #     node.on_critical_path = True
 
-    def annotate_nodes(self) -> None:
+    def annotate_nodes(self: CriticalDAG) -> None:
         """Annotate earliest/latest start/finish/slack times in nodes."""
         logging.info("Annotating nodes with start/finish/slack times...")
         # Forward computation: Assign earliest start and finish times
@@ -449,7 +451,7 @@ class CriticalDAG(ReneDAG):
 
                 q.put(parent_id)
 
-    def clear_annotations(self) -> None:
+    def clear_annotations(self: CriticalDAG) -> None:
         """Clear all annotations in nodes."""
         q: SimpleQueue[int] = SimpleQueue()
         q.put(self.inst_id_map[repr(self.entry_node)])
@@ -469,7 +471,7 @@ class CriticalDAG(ReneDAG):
             for child_id in self.complete_dag.successors(cur_id):
                 q.put(child_id)
 
-    def get_critical_path(self) -> list[Instruction]:
+    def get_critical_path(self: CriticalDAG) -> list[Instruction]:
         """Return a single critical path of the DAG."""
         critical_path: list[Instruction] = []
         q: deque[int] = deque()
@@ -489,7 +491,7 @@ class CriticalDAG(ReneDAG):
         # Slice out entry and exit nodes
         return list(filter(lambda node: not isinstance(node, _Dummy), critical_path))
 
-    def update_critical_dag(self) -> None:
+    def update_critical_dag(self: CriticalDAG) -> None:
         """Update the critical DAG, which is a subgraph of self.complete_dag."""
         # TODO: add an if changed flag?
         self.annotate_nodes()
@@ -509,7 +511,7 @@ class CriticalDAG(ReneDAG):
             visited.append(node_id)
             node: Instruction = self.complete_dag.nodes[node_id]["inst"]
             if (
-                abs(node.latest_finish - node.earliest_start - node.duration) < 1e-10
+                abs(node.latest_finish - node.earliest_start - node.duration) < FP_ERROR
                 and node_id not in critical_ids
             ):
                 critical_ids.append(node_id)

@@ -23,7 +23,9 @@ class InstructionType(type):
     # Names of Instruction subclasses.
     subclass_names: set[str] = set()
 
-    def __new__(cls, name, bases, dct):
+    def __new__(
+        cls: InstructionType, name: str, bases: tuple[type, ...], dct: dict[str, Any]
+    ) -> type:
         """Collect the names of all `Instruction` classes defined."""
         if name in cls.subclass_names:
             raise ValueError(f"Instruction class '{name}' already exists")
@@ -37,19 +39,19 @@ class Instruction(metaclass=InstructionType):
     """A chunk of operation in one pipeline stage.
 
     Attributes:
-        stage_id: Zero-indexed pipeline stage
-        micro_batch_id: Zero-indexed micro batch number
-        duration: Duration of this instruction
-        unit_cost: Projected unit energy cost when changing a single unit of duration
-        parents: Instructions that this instruction depends on
-        children: Instructions that depend on this instruction
-        earliest_start: The earliest time this instruction can start
-        latest_start: The latest time this instruction can start
-        earliest_finish: The earliest time this instruction can finish
-        latest_finish: The latest time this instruction can finish
-        slack: The max delay for this instruction without delaying latest_finish
-        actual_start: The actual start time determined by the scheduling algorithm
-        actual_finish: The actual finish time determined by the scheduling algorithm
+        stage_id: {int} -- Zero-indexed pipeline stage
+        micro_batch_id: {int} -- Zero-indexed micro batch number
+        duration: {float} -- Duration of this instruction
+        unit_cost: {float} -- Projected unit energy cost when changing a single unit of duration
+        parents: {list[Instruction]} -- Instructions that this instruction depends on
+        children: list[Instruction]} -- Instructions that depend on this instruction
+        earliest_start: {float} -- The earliest time this instruction can start
+        latest_start: {float} -- The latest time this instruction can start
+        earliest_finish: {float} -- The earliest time this instruction can finish
+        latest_finish: {float} -- The latest time this instruction can finish
+        slack: {float} -- The max delay for this instruction without delaying latest_finish
+        actual_start: {float} -- The actual start time determined by the scheduling algorithm
+        actual_finish: {float} -- The actual finish time determined by the scheduling algorithm
     """
 
     stage_id: int
@@ -91,7 +93,7 @@ class Instruction(metaclass=InstructionType):
 
     output_dir: str = ""
 
-    def __repr__(self) -> str:
+    def __repr__(self: Instruction) -> str:
         """Return a concise representation of the Instruction."""
         if self.repr == "":
             return f"{type(self).__name__}(S{self.stage_id}B{self.micro_batch_id})"
@@ -99,17 +101,21 @@ class Instruction(metaclass=InstructionType):
             return self.repr
 
     @property
-    def actual_duration(self) -> float:
+    def actual_duration(self: Instruction) -> float:
         """Return the execution duration of the Instruction."""
         return self.actual_finish - self.actual_start
 
-    def then(self, other: Instruction) -> None:
-        """Declare that `other` depends on the completion of this instruction."""
+    def then(self: Instruction, other: Instruction) -> None:
+        """Declare that `other` depends on the completion of this instruction.
+
+        Arguments:
+            other: {Instruction} -- Instruction that depends on this instruction
+        """
         self.children.append(other)
         other.parents.append(self)
 
     def draw(
-        self,
+        self: Instruction,
         ax: Axes,
         rectangle_args: dict[InstructionType, dict[str, Any]],
         annotation_args: dict[InstructionType, dict[str, Any]],
@@ -118,6 +124,12 @@ class Instruction(metaclass=InstructionType):
         """Draw the instruction on the Axes object.
 
         Override this method to change how instructions are drawn.
+
+        Arguments:
+            ax: {Axes} -- Axes object to draw on
+            rectangle_args: {dict[InstructionType, dict[str, Any]]} -- Arguments to pass to `Rectangle`
+            annotation_args: {dict[InstructionType, dict[str, Any]]} -- Arguments to pass to `ax.annotate`
+            power_color: {str | None} -- Color map to use for power coloring (default: {"Oranges"})
         """
         final_rectangle_args = dict(
             xy=(self.actual_start, self.stage_id),
@@ -139,17 +151,19 @@ class Instruction(metaclass=InstructionType):
         final_annotation_args.update(annotation_args[type(self)])
         ax.annotate(**final_annotation_args)
 
-    def interpolate(self, fit_method: int) -> (float, float):
-        """Do interpolation on the given instruction and its time-costs meta-data, return the coefficients. Assumes self.time_costs[inst] has already been sorted.
+    def interpolate(self: Instruction, fit_method: int) -> (float, float):
+        """Do interpolation on the given instruction and its time-costs meta-data, return the coefficients.
+
+        Assumes self.time_costs[inst] has already been sorted.
 
         Arguments:
-            fit_method: Degree of the polynomial to fit
+            fit_method: {int} -- Degree of the polynomial to fit
         """
         # Get the slope from two endpoints
         self.fit_method = fit_method
         time_list = []
         cost_list = []
-        for t, e, f in self.time_costs:
+        for t, e, _f in self.time_costs:
             time_list.append(t)
             cost_list.append(e)
 
@@ -180,8 +194,9 @@ class Instruction(metaclass=InstructionType):
                 convex_points, -np.argmin(convex_points[:, 0]), axis=0
             )
             print(repr(self), convex_points)
-            # Scan points on the convex hull from the beginning, and when the x coordinate increases, remove everything after that
-            # point. This is because the convex hull is not necessarily a piecewise linear function, and we want to make it one.
+            # Scan points on the convex hull from the beginning, and when the x coordinate increases, remove everything
+            # after that point. This is because the convex hull is not necessarily a piecewise linear function,
+            # and we want to make it one.
             for i in range(len(convex_points) - 1):
                 if convex_points[i, 0] > convex_points[i + 1, 0]:
                     convex_points = np.delete(convex_points, np.s_[1:i], axis=0)
@@ -226,11 +241,11 @@ class Instruction(metaclass=InstructionType):
 
         return self.fit_coeffs
 
-    def get_cost(self, time: float) -> float:
+    def get_cost(self: Instruction, time: float) -> float:
         """Get the cost of the instruction at the given time.
 
         Arguments:
-            time: Time to get the cost at
+            time: {float} -- Time to get the cost at
         """
         if len(self.fit_coeffs) == 0:
             raise ValueError("No fit coefficients have been computed yet")
@@ -279,21 +294,25 @@ class Instruction(metaclass=InstructionType):
         else:
             raise ValueError(f"Unknown fit method {self.fit_method}")
 
-    def get_p2p_refined_cost(self, time: float) -> float:
+    def get_p2p_refined_cost(self: Instruction, time: float) -> float:
         """Get the cost of the instruction at the given time using p2p refinement.
 
         Arguments:
-            time: Time to get the cost at
+            time: {float} -- Time to get the cost at
         """
         cost = self.get_cost(time)
         assert cost - self.p2p_power * time >= 0
         return cost - self.p2p_power * time
 
-    def get_derivative(self, time_left: float, time_right: float) -> float:
+    def get_derivative(self: Instruction, time_left: float, time_right: float) -> float:
         """Get the derivative/slope between two time points time_left and time_right.
 
         Arguments:
-            time_left, time_right: Time points to get the derivative at
+            time_left: {float} -- Start time points to get the derivative at
+            time_right: {float} -- End time points to get the derivative at
+
+        Returns:
+            {float} -- The derivative between the two time points
         """
         return abs(
             (
@@ -307,9 +326,9 @@ class Instruction(metaclass=InstructionType):
 class Forward(Instruction):
     """Forward computation for a pipeline stage."""
 
-    def __repr__(self) -> str:
+    def __repr__(self: Forward) -> str:
         """Return a concise representation of the Instruction."""
-        if self.repr == "":
+        if not self.repr:
             return f"FW(S{self.stage_id}B{self.micro_batch_id})"
         else:
             return self.repr
@@ -318,9 +337,9 @@ class Forward(Instruction):
 class Backward(Instruction):
     """Backward computation for a pipeline stage."""
 
-    def __repr__(self) -> str:
+    def __repr__(self: Backward) -> str:
         """Return a concise representation of the Instruction."""
-        if self.repr == "":
+        if not self.repr:
             return f"BW(S{self.stage_id}B{self.micro_batch_id})"
         else:
             return self.repr

@@ -1,0 +1,17 @@
+select = [
+  "E",   # pycodestyle error
+  "F",   # pyflakes
+  "D",   # pydocstyle
+  "PL",  # pylint
+  "N",   # pep8-naming
+  "ANN", # flake8-annotations (reports missing function annotations)
+  "B",   # flake8-bugbear (detects likely bugs)
+  "G",   # flake8-logging-format (complains about logging)
+  "SIM", # flake8-simplify (suggests code simplifications)
+  "RUF", # Ruff-introduced misc rules
+]
+line-length = 120
+show-source = true
+
+[pydocstyle]
+convention = "google"

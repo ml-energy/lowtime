@@ -15,7 +15,7 @@ class PipelineSchedule(ABC):
     """
 
     def __init__(
-        self,
+        self: PipelineSchedule,
         num_stages: int,
         num_micro_batches: int,
         stage_id: int,
@@ -23,9 +23,9 @@ class PipelineSchedule(ABC):
         """Instantiate the pipeline schedule.
 
         Arguments:
-            num_stages: The number of pipeline stages
-            num_micro_batches: The number of micro batches in the pipeline
-            stage_id: Zero-indexed pipeline stage for `step` to yield instructions for
+            num_stages: {int} -- The number of pipeline stages
+            num_micro_batches: {int} -- The number of micro batches in the pipeline
+            stage_id: {int} -- Zero-indexed pipeline stage for `step` to yield instructions for
         """
         self.num_micro_batches = num_micro_batches
         self.num_stages = num_stages
@@ -34,7 +34,7 @@ class PipelineSchedule(ABC):
         self.next_stage = self.stage_id + 1
 
     @abstractmethod
-    def __iter__(self) -> Generator[Instruction, None, None]:
+    def __iter__(self: PipelineSchedule) -> Generator[Instruction, None, None]:
         """Return a generator that yields `Instruction`s for one stage.
 
         `Instruction`s just need their stage ID and microbatch ID.
@@ -51,7 +51,7 @@ class Synchronous1F1B(PipelineSchedule):
     Adapted from DeepSpeed's TrainSchedule class.
     """
 
-    def __iter__(self) -> Generator[Instruction, None, None]:
+    def __iter__(self: Synchronous1F1B) -> Generator[Instruction, None, None]:
         """Return a generator that yields `Instruction`s for one stage."""
         total_steps = 2 * (self.num_micro_batches + self.num_stages - 1)
         for step_id in range(total_steps):
@@ -65,10 +65,10 @@ class Synchronous1F1B(PipelineSchedule):
                 else:
                     yield Backward(self.stage_id, micro_batch_id)
 
-    def _valid_micro_batch(self, micro_batch_id):
+    def _valid_micro_batch(self: Synchronous1F1B, micro_batch_id: int) -> bool:
         return 0 <= micro_batch_id < self.num_micro_batches
 
-    def _step_to_micro_batch(self, step_id):
+    def _step_to_micro_batch(self: Synchronous1F1B, step_id: int) -> tuple[int, bool]:
         def _is_even(x: int) -> bool:
             return x % 2 == 0
 
@@ -92,26 +92,26 @@ class Synchronous1F1B(PipelineSchedule):
             is_forward = False
 
         else:
-            assert False
+            raise AssertionError()
 
         return micro_batch_id, is_forward
 
-    def _even_step_forward_id(self, step_id):
+    def _even_step_forward_id(self: Synchronous1F1B, step_id: int) -> int:
         base = step_id // 2
         micro_batch_id = int(base - self.stage_id // 2)
         return micro_batch_id
 
-    def _odd_step_forward_id(self, step_id):
+    def _odd_step_forward_id(self: Synchronous1F1B, step_id: int) -> int:
         base = (step_id - 1) // 2
         micro_batch_id = int(base - self.stage_id // 2)
         return micro_batch_id
 
-    def _even_step_backward_id(self, step_id):
+    def _even_step_backward_id(self: Synchronous1F1B, step_id: int) -> int:
         base = step_id // 2
         micro_batch_id = int(base - self.num_stages + (self.stage_id + 1) // 2)
         return micro_batch_id
 
-    def _odd_step_backward_id(self, step_id):
+    def _odd_step_backward_id(self: Synchronous1F1B, step_id: int) -> int:
         base = ((step_id - 1) // 2) - self.num_stages + 1
         micro_batch_id = int(base + self.stage_id // 2)
         return micro_batch_id
