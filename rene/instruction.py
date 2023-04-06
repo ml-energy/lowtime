@@ -43,8 +43,6 @@ class Instruction(metaclass=InstructionType):
         micro_batch_id: {int} -- Zero-indexed micro batch number
         duration: {float} -- Duration of this instruction
         unit_cost: {float} -- Projected unit energy cost when changing a single unit of duration
-        parents: {list[Instruction]} -- Instructions that this instruction depends on
-        children: list[Instruction]} -- Instructions that depend on this instruction
         earliest_start: {float} -- The earliest time this instruction can start
         latest_start: {float} -- The latest time this instruction can start
         earliest_finish: {float} -- The earliest time this instruction can finish
@@ -61,10 +59,6 @@ class Instruction(metaclass=InstructionType):
     max_duration: float = 0.0
     min_duration: float = 0.0
     repr: str = ""
-
-    # DAG metadata
-    parents: list[Instruction] = field(default_factory=list)
-    children: list[Instruction] = field(default_factory=list)
 
     # Values set by critical path analysis (in `ReneDAG.__init__`)
     earliest_start: float = 0.0
@@ -95,7 +89,7 @@ class Instruction(metaclass=InstructionType):
 
     def __repr__(self: Instruction) -> str:
         """Return a concise representation of the Instruction."""
-        if self.repr == "":
+        if not self.repr:
             return f"{type(self).__name__}(S{self.stage_id}B{self.micro_batch_id})"
         else:
             return self.repr
@@ -104,15 +98,6 @@ class Instruction(metaclass=InstructionType):
     def actual_duration(self: Instruction) -> float:
         """Return the execution duration of the Instruction."""
         return self.actual_finish - self.actual_start
-
-    def then(self: Instruction, other: Instruction) -> None:
-        """Declare that `other` depends on the completion of this instruction.
-
-        Arguments:
-            other: {Instruction} -- Instruction that depends on this instruction
-        """
-        self.children.append(other)
-        other.parents.append(self)
 
     def draw(
         self: Instruction,
@@ -174,7 +159,7 @@ class Instruction(metaclass=InstructionType):
         elif fit_method == "piecewise-linear":
             # Piecewise linear interpolation
             data = np.array(
-                list(zip(time_list, cost_list)),
+                list(zip(time_list, cost_list)), # noqa
                 dtype=[("time", float), ("cost", float)],
             )
             data = data[data.argsort(order=["time", "cost"])]
@@ -266,7 +251,7 @@ class Instruction(metaclass=InstructionType):
             while low <= high:
                 mid = (low + high) // 2
                 # exact match found
-                if abs(self.fit_coeffs[mid][0] - time) < 1e-6:
+                if abs(self.fit_coeffs[mid][0] - time) < 1e-6: # noqa
                     return self.fit_coeffs[mid][1]
                 elif self.fit_coeffs[mid][0] < time:
                     low = mid + 1

@@ -19,14 +19,7 @@ from examples.common import df_to_time_cost_pareto, subtract_p2p
 from rene import (
     CriticalDAG,
     Synchronous1F1B,
-    Instruction,
-    Forward,
-    Backward,
-    PipelineVisualizer,
-    PD_Solver,
-    DEFAULT_ANNOTATION_ARGS,
-    DEFAULT_RECTANGLE_ARGS,
-    DEFAULT_LINE_ARGS,
+    PDSolver,
 )
 
 
@@ -119,7 +112,7 @@ def main():
             fit_method=fit_method,
             p2p_power=p_p2p,
         )
-        pd_solver = PD_Solver(dag, output_dir.__str__(), interval, unit_scale)
+        pd_solver = PDSolver(dag, output_dir.__str__(), interval, unit_scale)
         pd_solver.run_pd_algorithm()
     else:
         raise NotImplementedError

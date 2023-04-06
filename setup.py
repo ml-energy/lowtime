@@ -37,7 +37,7 @@ setup(
         "matplotlib==3.6.2",
         "networkx==3.0",
         "numpy==1.23.4",
-        "scipy=1.10.1",
+        "scipy==1.10.1",
         "pandas==1.5.3",
     ],
     python_requires=">=3.9",

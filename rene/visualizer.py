@@ -9,7 +9,7 @@ from matplotlib.axes import Axes  # type: ignore
 from matplotlib.patches import Rectangle  # type: ignore
 from matplotlib.ticker import FormatStrFormatter  # type: ignore
 
-from rene.common import (
+from rene.constants import (
     DEFAULT_RECTANGLE_ARGS,
     DEFAULT_ANNOTATION_ARGS,
     DEFAULT_LINE_ARGS,
@@ -86,7 +86,7 @@ class PipelineVisualizer:
             ax.set_xlabel("Time (s)")
             ax.xaxis.set_major_formatter(FormatStrFormatter("%.2f"))
             xticks = [float(t * 5) for t in range(int(total_time) // 5)] + [total_time]
-            if 0.0 not in xticks:
+            if 0.0 not in xticks: # noqa
                 xticks = [0.0, *xticks]
             ax.set_xticks(xticks)
 
@@ -106,7 +106,7 @@ class PipelineVisualizer:
             ax: {Axes} -- The Axes object to draw on.
         """
         critical_path = self.dag.get_critical_path()
-        for inst1, inst2 in zip(critical_path, critical_path[1:]):
+        for inst1, inst2 in zip(critical_path, critical_path[1:]): # noqa
             ax.plot(
                 [
                     (inst1.actual_start + inst1.actual_finish) / 2,

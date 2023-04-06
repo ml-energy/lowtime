@@ -12,7 +12,7 @@ from networkx.algorithms.flow import edmonds_karp
 from queue import SimpleQueue
 from collections import deque
 
-from rene.common import (
+from rene.constants import (
     FP_ERROR,
     DEFAULT_RECTANGLE_ARGS,
     DEFAULT_ANNOTATION_ARGS,
@@ -22,14 +22,14 @@ from rene.dag import CriticalDAG
 from rene.instruction import Instruction, _Dummy
 
 
-class PD_Solver:
+class PDSolver:
     """The PD solver class for time-cost trade-off problem.
 
     Takes a critical DAG as input and iteratively run the PD algorithm to update the instruction durations.
     """
 
     def __init__(
-        self: PD_Solver,
+        self: PDSolver,
         critical_dag: CriticalDAG,
         output_dir: str,
         interval: int = 100,
@@ -60,7 +60,7 @@ class PD_Solver:
         self.refined_costs: list[float] = []
         self.times: list[float] = []
 
-    def aon_to_aoa(self: PD_Solver) -> nx.DiGraph:
+    def aon_to_aoa(self: PDSolver) -> nx.DiGraph:
         """Convert the critical  Activity-on-Node (AON) graph to a critical  Activity-on-Arc (AOA) graph."""
         # TODO: crash dummy nodes for optimization
         # do a BFS to split all nodes and reconnect
@@ -123,7 +123,7 @@ class PD_Solver:
 
         return dag
 
-    def generate_capacity_graph(self: PD_Solver) -> nx.DiGraph:
+    def generate_capacity_graph(self: PDSolver) -> nx.DiGraph:
         """Generate the capacity graph from the critical AOA graph."""
         # Require self.critical_dag_aoa to be present
         cap_graph: nx.DiGraph = nx.DiGraph(self.critical_dag_aoa)
@@ -177,7 +177,7 @@ class PD_Solver:
         return cap_graph
 
     def search_path_bfs(
-        self: PD_Solver, graph: nx.DiGraph, s: int, t: int
+        self: PDSolver, graph: nx.DiGraph, s: int, t: int
     ) -> tuple[dict[int, bool], dict[int, int]]:
         """Search path from s to t using BFS search, return a tuple of visited and parents.
 
@@ -213,7 +213,7 @@ class PD_Solver:
         return (visited, parents)
 
     def search_path_dfs(
-        self: PD_Solver, graph: nx.DiGraph, s: int, t: int
+        self: PDSolver, graph: nx.DiGraph, s: int, t: int
     ) -> tuple[dict[int, bool], dict[int, int]]:
         """Search path from s to t using DFS search, return a tuple of visited and parents.
 
@@ -249,7 +249,7 @@ class PD_Solver:
         return (visited, parents)
 
     def find_max_flow(
-        self: PD_Solver, graph: nx.DiGraph, source_id: int, sink_id: int
+        self: PDSolver, graph: nx.DiGraph, source_id: int, sink_id: int
     ) -> nx.DiGraph:
         """Find max flow using DFS search, each edge in the graph has a upper bound capacity, i.e. flow is [0, weight].
 
@@ -307,7 +307,7 @@ class PD_Solver:
         return residual_graph
 
     def find_min_cut(
-        self: PD_Solver, residual_graph: nx.DiGraph, source_id: int, sink_id: int
+        self: PDSolver, residual_graph: nx.DiGraph, source_id: int, sink_id: int
     ) -> tuple(set[int], set[int]):
         """Find min cut given a residual graph.
 
@@ -332,7 +332,7 @@ class PD_Solver:
         return (s_set, t_set)
 
     def find_max_flow_bounded(
-        self: PD_Solver, graph: nx.DiGraph, source_id: int, sink_id: int
+        self: PDSolver, graph: nx.DiGraph, source_id: int, sink_id: int
     ) -> nx.DiGraph:
         """Find max flow given a double-sides capacity bounded graph.
 
@@ -495,7 +495,7 @@ class PD_Solver:
 
         return new_residual
 
-    def run_pd_algorithm(self: PD_Solver) -> None:
+    def run_pd_algorithm(self: PDSolver) -> None:
         """Run the PD algorithm iteratively to solve for the Pareto optimal schedule for each time breakpoint.
 
         This is the main workflow of the algorithm.
@@ -613,7 +613,7 @@ class PD_Solver:
         )
         self.draw_pareto_frontier(os.path.join(self.output_dir, "Pareto_frontier.png"))
 
-    def reduce_duration(self: PD_Solver, s: set[int], t: set[int]) -> float:
+    def reduce_duration(self: PDSolver, s: set[int], t: set[int]) -> float:
         """Reduce the duration of forward edges from s to t and increase the duration of backward edges from t to s.
 
         Arguments:
@@ -676,7 +676,7 @@ class PD_Solver:
 
         return cost_change
 
-    def calculate_total_cost(self: PD_Solver) -> float:
+    def calculate_total_cost(self: PDSolver) -> float:
         """Calculate the total cost of the current pipeline.
 
         Returns:
@@ -703,7 +703,7 @@ class PD_Solver:
 
         return total_cost
 
-    def calculate_total_time(self: PD_Solver) -> float:
+    def calculate_total_time(self: PDSolver) -> float:
         """Calculate the total time of the current pipeline.
 
         Returns:
@@ -715,7 +715,7 @@ class PD_Solver:
             total_time += inst.actual_duration
         return total_time
 
-    def assign_frequency(self: PD_Solver) -> list[list[int]]:
+    def assign_frequency(self: PDSolver) -> list[list[int]]:
         """Assign frequency to each instruction in the pipeline based on the duration.
 
         Returns:
@@ -832,7 +832,7 @@ class PD_Solver:
 
         return total_freqs
 
-    def draw_aoa_graph(self: PD_Solver, path: str) -> None:
+    def draw_aoa_graph(self: PDSolver, path: str) -> None:
         """Draw the AOA graph to the given path.
 
         Arguments:
@@ -850,7 +850,7 @@ class PD_Solver:
         plt.clf()
         plt.close()
 
-    def draw_capacity_graph(self: PD_Solver, path: str) -> None:
+    def draw_capacity_graph(self: PDSolver, path: str) -> None:
         """Draw the capacity graph to the given path.
 
         Arguments:
@@ -876,7 +876,7 @@ class PD_Solver:
         plt.close()
 
     def draw_pipeline_graph(
-        self: PD_Solver, path: str, draw_time_axis: bool = False
+        self: PDSolver, path: str, draw_time_axis: bool = False
     ) -> None:
         """Draw the pipeline to the given path.
 
@@ -914,7 +914,7 @@ class PD_Solver:
         plt.clf()
         plt.close()
 
-    def draw_pareto_frontier(self: PD_Solver, path: str) -> None:
+    def draw_pareto_frontier(self: PDSolver, path: str) -> None:
         """Draw the pareto frontier to the given path.
 
         Arguments:
@@ -930,7 +930,7 @@ class PD_Solver:
         plt.clf()
         plt.close()
 
-    def draw_critical_path(self: PD_Solver, ax: Axes) -> None:
+    def draw_critical_path(self: PDSolver, ax: Axes) -> None:
         """Draw the critical path of the DAG on the given Axes object.
 
         Arguments:
@@ -951,7 +951,7 @@ class PD_Solver:
                 **self.line_args,
             )
 
-    def get_critical_pairs(self: PD_Solver) -> list[tuple[Instruction, Instruction]]:
+    def get_critical_pairs(self: PDSolver) -> list[tuple[Instruction, Instruction]]:
         """Get all pairs of instructions that are neighbours and both critical, defined by self.critical_dag_aon.
 
         Returns:

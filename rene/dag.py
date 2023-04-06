@@ -13,7 +13,7 @@ from queue import SimpleQueue
 from collections import deque
 import typing
 
-from rene.common import FP_ERROR
+from rene.constants import FP_ERROR
 from rene.instruction import Instruction, InstructionType, Forward, Backward, _Dummy
 
 
@@ -120,7 +120,7 @@ class ReneDAG:
             type_hints = typing.get_type_hints(rule)
             if "return" in type_hints:
                 type_hints.pop("return")
-            if len(type_hints) != 2:
+            if len(type_hints) != 2: # noqa
                 raise ValueError(
                     "Dependency rules must have exactly two type-annotated arguments."
                 )
@@ -131,6 +131,44 @@ class ReneDAG:
                         f"Should be one of {InstructionType.subclass_names}"
                     )
 
+        # Preprocess the time costs data
+        for stage_ind in range(self.num_stages):
+            for inst_type in [Forward, Backward]:
+                # Sort the (duration, cost, frequency) tuple by reverse duration
+                self.time_costs[inst_type][stage_ind] = sorted(
+                    self.time_costs[inst_type][stage_ind], reverse=True
+                )
+                # Sanity check
+                if len(self.time_costs[inst_type][stage_ind]) == 0:
+                    raise ValueError(
+                        f"No time-cost data for inst type '{inst_type}' at stage '{stage_ind}'. "
+                    )
+        # Initialize the DAG.
+        self.init_dag()
+
+    def _is_dependent(self: ReneDAG, inst1: Instruction, inst2: Instruction) -> bool:
+        """Check if there is a dependency from `inst1` to `inst2`.
+
+        Checks the function type annotation and only call rules that
+        have consistent type annotations with the types of `inst1` and `inst2`.
+        """
+        for rule in self.dependency_rules:
+            type_hints = typing.get_type_hints(rule)
+            if "return" in type_hints:
+                type_hints.pop("return")
+            if all(
+                isinstance(inst, type)
+                for inst, type in zip([inst1, inst2], type_hints.values()) # noqa
+            ):
+                result = rule(inst1, inst2)
+                if not isinstance(result, bool):
+                    raise RuntimeError("Dependency rule returned a non-boolean value.")
+                if result:
+                    return True
+        return False
+    
+    def init_dag(self: ReneDAG) -> None:
+        """Initialize the DAG."""
         # Introduce dummy entry and exit nodes for analysis convenience.
         # Assign node_id 0 to entry_node and node_id 1 to exit_node
         self.entry_node = _Dummy(-1, -1, duration=0.0, repr="Entry")
@@ -157,16 +195,8 @@ class ReneDAG:
                 # if self.durations is not None:
                 #     inst.duration = self.durations[type(inst)][inst.stage_id]
 
-                # Sort the (duration, cost, frequency) tuple by reverse duration
-                self.time_costs[type(inst)][stage_ind] = sorted(
-                    time_costs[type(inst)][stage_ind], reverse=True
-                )
                 inst.time_costs = self.time_costs[type(inst)][stage_ind]
-                # Sanity check
-                if len(self.time_costs[type(inst)][stage_ind]) == 0:
-                    raise ValueError(
-                        f"No time-cost meta-data for instruction '{repr(inst)}'. "
-                    )
+
                 # Pick longest duration by default, as default schedule policy is "eager"
                 inst.duration = self.time_costs[type(inst)][stage_ind][0][0]
                 # Set min/max duration for each instruction
@@ -207,85 +237,29 @@ class ReneDAG:
                         self.inst_id_map[repr(prev_inst)],
                         self.inst_id_map[repr(inst)],
                     )
-                    prev_inst.then(inst)
                 prev_inst = inst
             prev_inst = None
 
         # Define dependencies by the dependency rules passed in.
         for inst1, inst2 in itertools.product(self._insts, self._insts):
             if self._is_dependent(inst1, inst2):
-                inst1.then(inst2)
                 self._dag.add_edge(
                     self.inst_id_map[repr(inst1)], self.inst_id_map[repr(inst2)]
                 )
 
         for node in self._insts:
-            if not node.parents:
-                self.entry_node.then(node)
+            # Add edges from entry_node to all nodes without predecessors.
+            if len(list(self._dag.predecessors(self.inst_id_map[repr(node)]))) == 0:
                 self._dag.add_edge(
                     self.inst_id_map[repr(self.entry_node)],
                     self.inst_id_map[repr(node)],
                 )
-            if not node.children:
-                node.then(self.exit_node)
+            # Add edges from all nodes without successors to exit_node.
+            if len(list(self._dag.successors(self.inst_id_map[repr(node)]))) == 0:
                 self._dag.add_edge(
                     self.inst_id_map[repr(node)],
                     self.inst_id_map[repr(self.exit_node)],
                 )
-
-        # Don't do annotation at here
-        # # Annotate earliest/latest start/finish/slack times in nodes.
-        # self.annotate_nodes()
-
-    def _is_dependent(self: ReneDAG, inst1: Instruction, inst2: Instruction) -> bool:
-        """Check if there is a dependency from `inst1` to `inst2`.
-
-        Checks the function type annotation and only call rules that
-        have consistent type annotations with the types of `inst1` and `inst2`.
-        """
-        for rule in self.dependency_rules:
-            type_hints = typing.get_type_hints(rule)
-            if "return" in type_hints:
-                type_hints.pop("return")
-            if all(
-                isinstance(inst, type)
-                for inst, type in zip([inst1, inst2], type_hints.values())
-            ):
-                result = rule(inst1, inst2)
-                if not isinstance(result, bool):
-                    raise RuntimeError("Dependency rule returned a non-boolean value.")
-                if result:
-                    return True
-        return False
-
-    def get_critical_path(self: ReneDAG) -> list[Instruction]:
-        """Return the critical path of the DAG.
-
-        When there are multiple possible critical paths, choose the smoothest,
-        i.e. one with minimum number of `stage_id` changes along the path.
-        """
-        # Length is the amount of total `stage_id` changes along the critical path.
-        smallest_length, critical_path = float("inf"), []
-        stack: deque[tuple[float, list[Instruction]]] = deque()
-        stack.append((0.0, [self.entry_node]))
-
-        while stack:
-            length, path = stack.pop()
-            node = path[-1]
-            if node is self.exit_node and length < smallest_length:
-                smallest_length, critical_path = length, path
-            for child in node.children:
-                # Only go through nodes on the critical path.
-                # Cannot use the `==` operator due to floating point errors.
-                if abs(child.earliest_start - child.latest_start) < FP_ERROR:
-                    if isinstance(node, _Dummy) or isinstance(child, _Dummy):
-                        stage_diff = 0.0
-                    else:
-                        stage_diff = abs(node.stage_id - child.stage_id)
-                    stack.append((length + stage_diff, [*path, child]))
-
-        # Slice out entry and exit nodes
-        return list(filter(lambda node: not isinstance(node, _Dummy), critical_path))
 
     @property
     def total_execution_time(self: ReneDAG) -> float:
