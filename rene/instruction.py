@@ -80,7 +80,7 @@ class Instruction(metaclass=InstructionType):
     fit_coeffs: list[float] = field(default_factory=list)
 
     # For frequency assignment
-    time_costs: list[tuple] = field(default_factory=list) 
+    time_costs: list[tuple] = field(default_factory=list)
     frequency: int = -1
     cost: float = -1.0
 
@@ -126,7 +126,9 @@ class Instruction(metaclass=InstructionType):
         )
         final_rectangle_args.update(rectangle_args[type(self)])
         if power_color is not None:
-            final_rectangle_args["facecolor"] = plt.get_cmap(power_color)(self.cost / self.duration / 400.0)
+            final_rectangle_args["facecolor"] = plt.get_cmap(power_color)(
+                self.cost / self.duration / 400.0
+            )
         rectangle = Rectangle(**final_rectangle_args)
         ax.add_patch(rectangle)
         # Annotate the micro batch number inside the rectangle
@@ -157,11 +159,14 @@ class Instruction(metaclass=InstructionType):
 
         if fit_method == "linear":
             # Linear interpolation
-            self.fit_coeffs = np.polyfit(time_list, cost_list, 1)   
-        
+            self.fit_coeffs = np.polyfit(time_list, cost_list, 1)
+
         elif fit_method == "piecewise-linear":
             # Piecewise linear interpolation
-            data = np.array(list(zip(time_list, cost_list)), dtype=[("time", float), ("cost", float)])
+            data = np.array(
+                list(zip(time_list, cost_list)),
+                dtype=[("time", float), ("cost", float)],
+            )
             data = data[data.argsort(order=["time", "cost"])]
             # Add a second axis to the array
             data = data.view((float, 2))
@@ -175,7 +180,9 @@ class Instruction(metaclass=InstructionType):
             convex_points = data[hull.vertices]
             convex_points[:, 1] = -convex_points[:, 1]
             # Roll convex_points until the first point's x coordinate is the smallest on the convex hull
-            convex_points = np.roll(convex_points, -np.argmin(convex_points[:, 0]), axis=0)
+            convex_points = np.roll(
+                convex_points, -np.argmin(convex_points[:, 0]), axis=0
+            )
             print(repr(self), convex_points)
             # Scan points on the convex hull from the beginning, and when the x coordinate increases, remove everything after that
             # point. This is because the convex hull is not necessarily a piecewise linear function, and we want to make it one.
@@ -188,34 +195,41 @@ class Instruction(metaclass=InstructionType):
             self.fit_coeffs = convex_points
             # Now, convex_points contains the points that form a convex piecewise linear function
         elif fit_method == "exponential":
-            self.fit_coeffs, _ = curve_fit(lambda t, a, b, c: a * np.exp(b * t) + c, time_list, cost_list, maxfev=10000)
+            self.fit_coeffs, _ = curve_fit(
+                lambda t, a, b, c: a * np.exp(b * t) + c,
+                time_list,
+                cost_list,
+                maxfev=10000,
+            )
         else:
             raise ValueError(f"Unknown fit method: {fit_method}")
 
         fig, ax = plt.subplots(figsize=(8, 8), tight_layout=True)
-        ax.plot(time_list, cost_list, 'o')
+        ax.plot(time_list, cost_list, "o")
         # generate a list with step size 0.1
         x = np.arange(min(time_list), max(time_list), 0.0001)
         # ax.plot(x, np.polyval(self.fit_coeffs, x), 'r-')
         y = []
         for i in x:
             y.append(self.get_cost(i))
-        refined_y = []    
+        refined_y = []
         for i in x:
             refined_y.append(self.get_p2p_refined_cost(i))
-        ax.plot(x, y, 'r-')
-        ax.plot(x, refined_y, 'b-')
+        ax.plot(x, y, "r-")
+        ax.plot(x, refined_y, "b-")
         if fit_method == "piecewise-linear":
             for x, y in convex_points:
                 ax.annotate(f"({x:.6f}, {y:.6f})", (x, y))
         ax.set_xlabel("time")
         ax.set_ylabel("energy")
-        fig.savefig(os.path.join(self.output_dir, f"{self.__repr__()}_HULL.png"), format="PNG")
+        fig.savefig(
+            os.path.join(self.output_dir, f"{self.__repr__()}_HULL.png"), format="PNG"
+        )
         plt.clf()
         plt.close()
 
         return self.fit_coeffs
-    
+
     def get_cost(self, time: float) -> float:
         """Get the cost of the instruction at the given time.
 
@@ -256,12 +270,11 @@ class Instruction(metaclass=InstructionType):
             else:
                 x1, y1 = self.fit_coeffs[high]
                 x2, y2 = self.fit_coeffs[low]
-                assert(low == high + 1)
+                assert low == high + 1
 
                 if x1 <= time <= x2:
                     t = (time - x1) / (x2 - x1)
-                    return y1 + t * (y2 - y1)                
-
+                    return y1 + t * (y2 - y1)
 
             # for i in range(len(self.fit_coeffs) - 1):
             #     x1, y1 = self.fit_coeffs[i]
@@ -269,7 +282,7 @@ class Instruction(metaclass=InstructionType):
 
             #     if x1 <= time <= x2:
             #         t = (time - x1) / (x2 - x1)
-            #         return y1 + t * (y2 - y1)                
+            #         return y1 + t * (y2 - y1)
 
             raise ValueError(f"time = {time} is out of the range of the breakpoints")
         elif self.fit_method == "exponential":
@@ -277,8 +290,8 @@ class Instruction(metaclass=InstructionType):
             return a * np.exp(b * time) + c
         else:
             raise ValueError(f"Unknown fit method {self.fit_method}")
-        
-    def get_p2p_refined_cost(self, time: float) -> float: 
+
+    def get_p2p_refined_cost(self, time: float) -> float:
         """Get the cost of the instruction at the given time using p2p refinement.
 
         Arguments:
@@ -289,9 +302,9 @@ class Instruction(metaclass=InstructionType):
         # if self.on_critical_path:
         #     return cost + self.p2p_power * (self.num_stages - 1) * time
         # else:
-        assert(cost - self.p2p_power * time >= 0)
+        assert cost - self.p2p_power * time >= 0
         return cost - self.p2p_power * time
-    
+
     def get_derivative(self, time_left: float, time_right: float) -> float:
         """Get the derivative/slope between two time points time_left and time_right.
 
@@ -299,7 +312,13 @@ class Instruction(metaclass=InstructionType):
             time_left, time_right: Time points to get the derivative at
         """
 
-        return abs((self.get_p2p_refined_cost(time_left) - self.get_p2p_refined_cost(time_right)) / (time_left - time_right))
+        return abs(
+            (
+                self.get_p2p_refined_cost(time_left)
+                - self.get_p2p_refined_cost(time_right)
+            )
+            / (time_left - time_right)
+        )
         # if self.fit_method == "linear":
         #     return np.polyval(np.polyder(self.fit_coeffs), time)
         # elif self.fit_method == "piecewise-linear":
@@ -307,7 +326,7 @@ class Instruction(metaclass=InstructionType):
         #         return float("inf")
         #     elif time > self.fit_coeffs[-1, 0]:
         #         return 0
-            
+
         #     # do a binary search for time in the correct interval of the first axis of self.fit_coeffs
 
         #     # TODO: debug the buggy binary search code
@@ -348,8 +367,10 @@ class Instruction(metaclass=InstructionType):
         # else:
         #     raise ValueError(f"Unknown fit method {self.fit_method}")
 
+
 class Forward(Instruction):
     """Forward computation for a pipeline stage."""
+
     def __repr__(self) -> str:
         """Return a concise representation of the Instruction."""
         if self.repr == "":
@@ -357,14 +378,17 @@ class Forward(Instruction):
         else:
             return self.repr
 
+
 class Backward(Instruction):
     """Backward computation for a pipeline stage."""
+
     def __repr__(self) -> str:
         """Return a concise representation of the Instruction."""
         if self.repr == "":
             return f"BW(S{self.stage_id}B{self.micro_batch_id})"
         else:
             return self.repr
+
 
 class _Dummy(Instruction):
     """Dummy operation for entry and exit nodes in the DAG."""

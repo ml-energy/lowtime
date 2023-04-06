@@ -10,7 +10,7 @@ import matplotlib.pyplot as plt
 import networkx as nx
 import numpy as np
 from matplotlib.axes import Axes  # type: ignore
-from matplotlib.figure import Figure # type: ignore
+from matplotlib.figure import Figure  # type: ignore
 from matplotlib.ticker import FormatStrFormatter  # type: ignore
 from typing import Iterable, Sequence, Type, Callable, Generator, Literal
 from queue import SimpleQueue
@@ -43,7 +43,7 @@ def backward_dep(inst1: Backward, inst2: Backward) -> bool:
 
 
 class ReneDAG:
-    """DAG of instructions and analysis methods, represented in Activity-on-Node form (AON). """
+    """DAG of instructions and analysis methods, represented in Activity-on-Node form (AON)."""
 
     # pylint: disable=dangerous-default-value,too-many-branches
     def __init__(
@@ -133,7 +133,7 @@ class ReneDAG:
                         f"Unexpected instruction type '{type_hint}'. "
                         f"Should be one of {InstructionType.subclass_names}"
                     )
-                
+
         # Introduce dummy entry and exit nodes for analysis convenience.
         # Assign node_id 0 to entry_node and node_id 1 to exit_node
         self.entry_node = _Dummy(-1, -1, duration=0.0, repr="Entry")
@@ -161,10 +161,12 @@ class ReneDAG:
                 #     inst.duration = self.durations[type(inst)][inst.stage_id]
 
                 # Sort the (duration, cost, frequency) tuple by reverse duration
-                self.time_costs[type(inst)][stage_ind] = sorted(time_costs[type(inst)][stage_ind], reverse=True)
+                self.time_costs[type(inst)][stage_ind] = sorted(
+                    time_costs[type(inst)][stage_ind], reverse=True
+                )
                 inst.time_costs = self.time_costs[type(inst)][stage_ind]
                 # Sanity check
-                if (len(self.time_costs[type(inst)][stage_ind]) == 0):
+                if len(self.time_costs[type(inst)][stage_ind]) == 0:
                     raise ValueError(
                         f"No time-cost meta-data for instruction '{inst.__repr__()}'. "
                     )
@@ -177,21 +179,22 @@ class ReneDAG:
                 # Set the output directory for each instruction
                 inst.output_dir = self.output_dir
 
-                # Input some info needed by p2p blocking energy reduction 
+                # Input some info needed by p2p blocking energy reduction
                 inst.num_stages = self.num_stages
                 inst.p2p_power = self.p2p_power
 
                 # Do interpolation here
-                if (type(inst) not in self.coeffs_dict):
+                if type(inst) not in self.coeffs_dict:
                     self.coeffs_dict[type(inst)] = dict()
-                if (inst.stage_id not in self.coeffs_dict[type(inst)]):
-                    self.coeffs_dict[type(inst)][inst.stage_id] = inst.interpolate(self.fit_method)
+                if inst.stage_id not in self.coeffs_dict[type(inst)]:
+                    self.coeffs_dict[type(inst)][inst.stage_id] = inst.interpolate(
+                        self.fit_method
+                    )
 
                 else:
                     inst.fit_coeffs = self.coeffs_dict[type(inst)][inst.stage_id]
                     inst.fit_method = self.fit_method
                 # inst.unit_cost = abs(inst.k)
-
 
                 self._insts.append(inst)
 
@@ -203,7 +206,10 @@ class ReneDAG:
                     self.node_id += 1
 
                 if prev_inst is not None:
-                    self._dag.add_edge(self.inst_id_map[prev_inst.__repr__()], self.inst_id_map[inst.__repr__()])
+                    self._dag.add_edge(
+                        self.inst_id_map[prev_inst.__repr__()],
+                        self.inst_id_map[inst.__repr__()],
+                    )
                     prev_inst.then(inst)
                 prev_inst = inst
             prev_inst = None
@@ -212,15 +218,23 @@ class ReneDAG:
         for inst1, inst2 in itertools.product(self._insts, self._insts):
             if self._is_dependent(inst1, inst2):
                 inst1.then(inst2)
-                self._dag.add_edge(self.inst_id_map[repr(inst1)], self.inst_id_map[repr(inst2)])
+                self._dag.add_edge(
+                    self.inst_id_map[repr(inst1)], self.inst_id_map[repr(inst2)]
+                )
 
         for node in self._insts:
             if not node.parents:
                 self.entry_node.then(node)
-                self._dag.add_edge(self.inst_id_map[self.entry_node.__repr__()], self.inst_id_map[node.__repr__()])
+                self._dag.add_edge(
+                    self.inst_id_map[self.entry_node.__repr__()],
+                    self.inst_id_map[node.__repr__()],
+                )
             if not node.children:
                 node.then(self.exit_node)
-                self._dag.add_edge(self.inst_id_map[node.__repr__()], self.inst_id_map[self.exit_node.__repr__()])
+                self._dag.add_edge(
+                    self.inst_id_map[node.__repr__()],
+                    self.inst_id_map[self.exit_node.__repr__()],
+                )
 
         # Don't do annotation at here
         # # Annotate earliest/latest start/finish/slack times in nodes.
@@ -320,7 +334,7 @@ class ReneDAG:
 
     def draw_aon_graph(self, path: str) -> None:
         pos = nx.spring_layout(self.dag)
-        nx.draw(self.dag, pos, with_labels=True, font_weight='bold')
+        nx.draw(self.dag, pos, with_labels=True, font_weight="bold")
         labels = nx.get_node_attributes(self.dag, "repr")
         nx.draw_networkx_labels(self.dag, pos, labels=labels)
         plt.tight_layout()
@@ -328,23 +342,35 @@ class ReneDAG:
         plt.clf()
         plt.close()
 
+
 class CriticalDAG(ReneDAG):
-    """DAG of instructions on the critical path, represented in Activity-on-Node form (AON), a subgraph of ReneDAG. """
-    def __init__(self,
+    """DAG of instructions on the critical path, represented in Activity-on-Node form (AON), a subgraph of ReneDAG."""
+
+    def __init__(
+        self,
         schedule_type: Callable[[int, int, int], Iterable[Instruction]],
         num_stages: int,
         num_micro_batches: int,
         time_costs: dict[Type[Instruction], dict[int, list[tuple]]],
-        dependency_rules: Sequence[Callable[..., bool]] = [forward_dep, backward_dep], 
+        dependency_rules: Sequence[Callable[..., bool]] = [forward_dep, backward_dep],
         output_dir: str = "",
         fit_method: str = "linear",
         p2p_power: float = 0.0,
     ) -> None:
-        super(CriticalDAG, self).__init__(schedule_type, num_stages, num_micro_batches, time_costs, dependency_rules, output_dir, fit_method, p2p_power)
+        super(CriticalDAG, self).__init__(
+            schedule_type,
+            num_stages,
+            num_micro_batches,
+            time_costs,
+            dependency_rules,
+            output_dir,
+            fit_method,
+            p2p_power,
+        )
         logging.info("Initializing CriticalDAG...")
-        # store the original DAG as complete dag 
+        # store the original DAG as complete dag
         self.complete_dag = self.dag
-        # store the critical DAG as the new dag 
+        # store the critical DAG as the new dag
         self.update_critical_dag()
 
         # get a single critical path and mark all nodes on it for P2P cost reduction
@@ -354,8 +380,7 @@ class CriticalDAG(ReneDAG):
         #     node.on_critical_path = True
 
     def annotate_nodes(self) -> None:
-        """Annotate earliest/latest start/finish/slack times in nodes.
-        """
+        """Annotate earliest/latest start/finish/slack times in nodes."""
         logging.info("Annotating nodes with start/finish/slack times...")
         # Forward computation: Assign earliest start and finish times
         self.entry_node.earliest_start = 0.0
@@ -378,7 +403,7 @@ class CriticalDAG(ReneDAG):
                     visited[child_id] = False
                     child.earliest_start = node.earliest_finish
                 child.earliest_finish = child.earliest_start + child.duration
-                    
+
                 # child.earliest_start = max(child.earliest_start, node.earliest_finish)
                 q.put(child_id)
 
@@ -405,8 +430,10 @@ class CriticalDAG(ReneDAG):
                     visited[parent_id] = False
                     parent.latest_start = node.latest_start - parent.duration
                 parent.latest_finish = parent.latest_start + parent.duration
-                parent.slack = parent.latest_finish - parent.earliest_start - parent.duration
-                    
+                parent.slack = (
+                    parent.latest_finish - parent.earliest_start - parent.duration
+                )
+
                 q.put(parent_id)
 
     def clear_annotations(self) -> None:
@@ -429,9 +456,7 @@ class CriticalDAG(ReneDAG):
                 q.put(child_id)
 
     def get_critical_path(self) -> list[Instruction]:
-        """Return a single critical path of the DAG.
-
-        """
+        """Return a single critical path of the DAG."""
         critical_path: list[Instruction] = []
         q: deque[int] = deque()
         # do a DFS to get the critical path
@@ -451,8 +476,7 @@ class CriticalDAG(ReneDAG):
         return list(filter(lambda node: not isinstance(node, _Dummy), critical_path))
 
     def update_critical_dag(self) -> None:
-        """Update the critical DAG, which is a subgraph of self.complete_dag.
-        """
+        """Update the critical DAG, which is a subgraph of self.complete_dag."""
         # TODO: add an if changed flag?
         self.annotate_nodes()
         critical_dag: nx.DiGraph = nx.DiGraph(self.complete_dag)
@@ -470,7 +494,10 @@ class CriticalDAG(ReneDAG):
                 continue
             visited.append(node_id)
             node: Instruction = self.complete_dag.nodes[node_id]["inst"]
-            if abs(node.latest_finish - node.earliest_start - node.duration) < 1e-10 and node_id not in critical_ids:
+            if (
+                abs(node.latest_finish - node.earliest_start - node.duration) < 1e-10
+                and node_id not in critical_ids
+            ):
                 critical_ids.append(node_id)
             for child_id in self.complete_dag.successors(node_id):
                 q.put(child_id)
@@ -480,7 +507,6 @@ class CriticalDAG(ReneDAG):
                 critical_dag.remove_node(i)
 
         self._dag = critical_dag
-
 
         # let's check if the critical dag has only a single path
         # q: SimpleQueue[int] = SimpleQueue()
@@ -495,4 +521,3 @@ class CriticalDAG(ReneDAG):
         #     #     raise Exception("Critical DAG has multiple paths!")
         #     for child_id in self._dag.successors(node_id):
         #         q.put(child_id)
-    

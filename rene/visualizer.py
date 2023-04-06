@@ -54,7 +54,12 @@ class PipelineVisualizer:
         self.annotation_args = annotation_args
         self.line_args = line_args
 
-    def draw(self, ax: Axes, draw_time_axis: bool = False, power_color: str | None = "Oranges") -> None:
+    def draw(
+        self,
+        ax: Axes,
+        draw_time_axis: bool = False,
+        power_color: str | None = "Oranges",
+    ) -> None:
         """Draw the pipeline on the given Axes object.
 
         Args:
@@ -66,7 +71,7 @@ class PipelineVisualizer:
         """
         # Fill in the background as a Rectangle
         if power_color is not None:
-            bg_color = plt.get_cmap(power_color)(75.5/400.0)
+            bg_color = plt.get_cmap(power_color)(75.5 / 400.0)
             background = Rectangle(
                 xy=(0, 0),
                 width=self.dag.total_execution_time,
