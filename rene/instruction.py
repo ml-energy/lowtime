@@ -10,8 +10,8 @@ import numpy as np  # type: ignore
 import matplotlib.pyplot as plt  # type: ignore
 from matplotlib.axes import Axes  # type: ignore
 from matplotlib.patches import Rectangle  # type: ignore
-from scipy.optimize import curve_fit
-from scipy.spatial import ConvexHull
+from scipy.optimize import curve_fit  # type: ignore
+from scipy.spatial import ConvexHull  # type: ignore
 
 
 class InstructionType(type):
@@ -73,7 +73,7 @@ class Instruction(metaclass=InstructionType):
 
     # For poly fit
     fit_method: str = "linear"
-    fit_coeffs: list[float] = field(default_factory=list)
+    fit_coeffs: np.ndarray = field(default_factory=np.array)
 
     # For frequency assignment
     time_costs: list[tuple] = field(default_factory=list)
@@ -87,7 +87,7 @@ class Instruction(metaclass=InstructionType):
 
     output_dir: str = ""
 
-    def __repr__(self: Instruction) -> str:
+    def __repr__(self) -> str:
         """Return a concise representation of the Instruction."""
         if not self.repr:
             return f"{type(self).__name__}(S{self.stage_id}B{self.micro_batch_id})"
@@ -95,12 +95,12 @@ class Instruction(metaclass=InstructionType):
             return self.repr
 
     @property
-    def actual_duration(self: Instruction) -> float:
+    def actual_duration(self) -> float:
         """Return the execution duration of the Instruction."""
         return self.actual_finish - self.actual_start
 
     def draw(
-        self: Instruction,
+        self,
         ax: Axes,
         rectangle_args: dict[InstructionType, dict[str, Any]],
         annotation_args: dict[InstructionType, dict[str, Any]],
@@ -136,13 +136,13 @@ class Instruction(metaclass=InstructionType):
         final_annotation_args.update(annotation_args[type(self)])
         ax.annotate(**final_annotation_args)
 
-    def interpolate(self: Instruction, fit_method: int) -> (float, float):
+    def interpolate(self, fit_method: str) -> np.ndarray:
         """Do interpolation on the given instruction and its time-costs meta-data, return the coefficients.
 
         Assumes self.time_costs[inst] has already been sorted.
 
         Arguments:
-            fit_method: {int} -- Degree of the polynomial to fit
+            fit_method: {str} -- Fit method to use, currently supports "linear", "piecewise-linear" and "exponential"
         """
         # Get the slope from two endpoints
         self.fit_method = fit_method
@@ -159,7 +159,7 @@ class Instruction(metaclass=InstructionType):
         elif fit_method == "piecewise-linear":
             # Piecewise linear interpolation
             data = np.array(
-                list(zip(time_list, cost_list)), # noqa
+                list(zip(time_list, cost_list)),  # noqa
                 dtype=[("time", float), ("cost", float)],
             )
             data = data[data.argsort(order=["time", "cost"])]
@@ -226,7 +226,7 @@ class Instruction(metaclass=InstructionType):
 
         return self.fit_coeffs
 
-    def get_cost(self: Instruction, time: float) -> float:
+    def get_cost(self, time: float) -> float:
         """Get the cost of the instruction at the given time.
 
         Arguments:
@@ -237,49 +237,55 @@ class Instruction(metaclass=InstructionType):
         if self.fit_method == "linear":
             return np.polyval(self.fit_coeffs, time)
         elif self.fit_method == "piecewise-linear":
-            if time < self.fit_coeffs[0, 0]:
-                # TODO: return inf here?
-                return self.fit_coeffs[0, 1]
-            elif time > self.fit_coeffs[-1, 0]:
-                # TODO: return 0 here?
-                return self.fit_coeffs[-1, 1]
-            # do a binary search for time in the correct interval of the first axis of self.fit_coeffs
-
-            low = 0
-            high = self.fit_coeffs.shape[0] - 1
-
-            while low <= high:
-                mid = (low + high) // 2
-                # exact match found
-                if abs(self.fit_coeffs[mid][0] - time) < 1e-6: # noqa
-                    return self.fit_coeffs[mid][1]
-                elif self.fit_coeffs[mid][0] < time:
-                    low = mid + 1
-                else:
-                    high = mid - 1
-
-            # if no exact match is found, return the closest x value
-            if high < 0:
-                return self.fit_coeffs[low][1]
-            elif low >= self.fit_coeffs.shape[0]:
-                return self.fit_coeffs[high][1]
-            else:
-                x1, y1 = self.fit_coeffs[high]
-                x2, y2 = self.fit_coeffs[low]
-                assert low == high + 1
-
-                if x1 <= time <= x2:
-                    t = (time - x1) / (x2 - x1)
-                    return y1 + t * (y2 - y1)
-
-            raise ValueError(f"time = {time} is out of the range of the breakpoints")
+            return self.binary_search_piecewise_linear(time)
         elif self.fit_method == "exponential":
             a, b, c = self.fit_coeffs
             return a * np.exp(b * time) + c
         else:
             raise ValueError(f"Unknown fit method {self.fit_method}")
 
-    def get_p2p_refined_cost(self: Instruction, time: float) -> float:
+    def binary_search_piecewise_linear(self, time: float) -> int:
+        """Perform a binary search on the piecewise linear function to find the cost at the given time.
+
+        Arguments:
+            time: {float} -- Time to search for
+
+        Returns:
+            {int} -- Cost of the instruction at the given time
+        """
+        if time < self.fit_coeffs[0, 0]:
+            # TODO: return inf here?
+            return self.fit_coeffs[0, 1]
+        elif time > self.fit_coeffs[-1, 0]:
+            # TODO: return 0 here?
+            return self.fit_coeffs[-1, 1]
+        # do a binary search for time in the correct interval of the first axis of self.fit_coeffs
+        low = 0
+        high = self.fit_coeffs.shape[0] - 1
+        while low <= high:
+            mid = (low + high) // 2
+            # exact match found
+            if abs(self.fit_coeffs[mid][0] - time) < 1e-6:  # noqa
+                return self.fit_coeffs[mid][1]
+            elif self.fit_coeffs[mid][0] < time:
+                low = mid + 1
+            else:
+                high = mid - 1
+        # if no exact match is found, return the closest x value
+        if high < 0:
+            return self.fit_coeffs[low][1]
+        elif low >= self.fit_coeffs.shape[0]:
+            return self.fit_coeffs[high][1]
+        else:
+            x1, y1 = self.fit_coeffs[high]
+            x2, y2 = self.fit_coeffs[low]
+            assert low == high + 1
+            if x1 <= time <= x2:
+                t = (time - x1) / (x2 - x1)
+                return y1 + t * (y2 - y1)
+        raise ValueError(f"time = {time} is out of the range of the breakpoints")
+
+    def get_p2p_refined_cost(self, time: float) -> float:
         """Get the cost of the instruction at the given time using p2p refinement.
 
         Arguments:
@@ -289,7 +295,7 @@ class Instruction(metaclass=InstructionType):
         assert cost - self.p2p_power * time >= 0
         return cost - self.p2p_power * time
 
-    def get_derivative(self: Instruction, time_left: float, time_right: float) -> float:
+    def get_derivative(self, time_left: float, time_right: float) -> float:
         """Get the derivative/slope between two time points time_left and time_right.
 
         Arguments:
@@ -311,7 +317,7 @@ class Instruction(metaclass=InstructionType):
 class Forward(Instruction):
     """Forward computation for a pipeline stage."""
 
-    def __repr__(self: Forward) -> str:
+    def __repr__(self) -> str:
         """Return a concise representation of the Instruction."""
         if not self.repr:
             return f"FW(S{self.stage_id}B{self.micro_batch_id})"
@@ -322,7 +328,7 @@ class Forward(Instruction):
 class Backward(Instruction):
     """Backward computation for a pipeline stage."""
 
-    def __repr__(self: Backward) -> str:
+    def __repr__(self) -> str:
         """Return a concise representation of the Instruction."""
         if not self.repr:
             return f"BW(S{self.stage_id}B{self.micro_batch_id})"

@@ -23,7 +23,7 @@ class PipelineVisualizer:
 
     # pylint: disable=dangerous-default-value
     def __init__(
-        self: PipelineVisualizer,
+        self,
         dag: ReneDAG,
         rectangle_args: dict[InstructionType, dict[str, Any]] = DEFAULT_RECTANGLE_ARGS,  # type: ignore
         annotation_args: dict[InstructionType, dict[str, Any]] = DEFAULT_ANNOTATION_ARGS,  # type: ignore
@@ -48,7 +48,7 @@ class PipelineVisualizer:
         self.line_args = line_args
 
     def draw(
-        self: PipelineVisualizer,
+        self,
         ax: Axes,
         draw_time_axis: bool = False,
         power_color: str | None = "Oranges",
@@ -86,7 +86,7 @@ class PipelineVisualizer:
             ax.set_xlabel("Time (s)")
             ax.xaxis.set_major_formatter(FormatStrFormatter("%.2f"))
             xticks = [float(t * 5) for t in range(int(total_time) // 5)] + [total_time]
-            if 0.0 not in xticks: # noqa
+            if 0.0 not in xticks:  # noqa
                 xticks = [0.0, *xticks]
             ax.set_xticks(xticks)
 
@@ -99,14 +99,14 @@ class PipelineVisualizer:
         ax.autoscale()
         ax.invert_yaxis()
 
-    def draw_critical_path(self: PipelineVisualizer, ax: Axes) -> None:
+    def draw_critical_path(self, ax: Axes) -> None:
         """Draw the critical path of the DAG on the given Axes object.
 
         Arguments:
             ax: {Axes} -- The Axes object to draw on.
         """
         critical_path = self.dag.get_critical_path()
-        for inst1, inst2 in zip(critical_path, critical_path[1:]): # noqa
+        for inst1, inst2 in zip(critical_path, critical_path[1:]):  # noqa
             ax.plot(
                 [
                     (inst1.actual_start + inst1.actual_finish) / 2,

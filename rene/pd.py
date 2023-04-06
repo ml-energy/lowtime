@@ -4,11 +4,11 @@ from __future__ import annotations
 
 import logging
 import os
-import matplotlib.pyplot as plt
-import networkx as nx
+import matplotlib.pyplot as plt  # type: ignore
+import networkx as nx  # type: ignore
 from matplotlib.axes import Axes  # type: ignore
 from matplotlib.ticker import FormatStrFormatter  # type: ignore
-from networkx.algorithms.flow import edmonds_karp
+from networkx.algorithms.flow import edmonds_karp  # type: ignore
 from queue import SimpleQueue
 from collections import deque
 
@@ -29,7 +29,7 @@ class PDSolver:
     """
 
     def __init__(
-        self: PDSolver,
+        self,
         critical_dag: CriticalDAG,
         output_dir: str,
         interval: int = 100,
@@ -60,7 +60,7 @@ class PDSolver:
         self.refined_costs: list[float] = []
         self.times: list[float] = []
 
-    def aon_to_aoa(self: PDSolver) -> nx.DiGraph:
+    def aon_to_aoa(self) -> nx.DiGraph:
         """Convert the critical  Activity-on-Node (AON) graph to a critical  Activity-on-Arc (AOA) graph."""
         # TODO: crash dummy nodes for optimization
         # do a BFS to split all nodes and reconnect
@@ -123,7 +123,7 @@ class PDSolver:
 
         return dag
 
-    def generate_capacity_graph(self: PDSolver) -> nx.DiGraph:
+    def generate_capacity_graph(self) -> nx.DiGraph:
         """Generate the capacity graph from the critical AOA graph."""
         # Require self.critical_dag_aoa to be present
         cap_graph: nx.DiGraph = nx.DiGraph(self.critical_dag_aoa)
@@ -154,30 +154,30 @@ class PDSolver:
                     abs(cur_inst.max_duration - cur_inst.duration) < FP_ERROR
                     and abs(cur_inst.min_duration - cur_inst.duration) < FP_ERROR
                 ):
-                    cap_graph[cur_id][succ_id]["lb"]: float = 0.0
-                    cap_graph[cur_id][succ_id]["ub"]: float = 10000.0
+                    cap_graph[cur_id][succ_id]["lb"] = 0.0
+                    cap_graph[cur_id][succ_id]["ub"] = 10000.0
                 elif cur_inst.duration - self.unit_scale < cur_inst.min_duration:
-                    cap_graph[cur_id][succ_id]["lb"]: float = cur_inst.get_derivative(
+                    cap_graph[cur_id][succ_id]["lb"] = cur_inst.get_derivative(
                         cur_inst.duration, cur_inst.duration + self.unit_scale
                     )
-                    cap_graph[cur_id][succ_id]["ub"]: float = 10000.0
+                    cap_graph[cur_id][succ_id]["ub"] = 10000.0
                 elif cur_inst.duration + self.unit_scale > cur_inst.max_duration:
-                    cap_graph[cur_id][succ_id]["lb"]: float = 0.0
-                    cap_graph[cur_id][succ_id]["ub"]: float = cur_inst.get_derivative(
+                    cap_graph[cur_id][succ_id]["lb"] = 0.0
+                    cap_graph[cur_id][succ_id]["ub"] = cur_inst.get_derivative(
                         cur_inst.duration, cur_inst.duration - self.unit_scale
                     )
                 else:
-                    cap_graph[cur_id][succ_id]["lb"]: float = cur_inst.get_derivative(
+                    cap_graph[cur_id][succ_id]["lb"] = cur_inst.get_derivative(
                         cur_inst.duration, cur_inst.duration + self.unit_scale
                     )
-                    cap_graph[cur_id][succ_id]["ub"]: float = cur_inst.get_derivative(
+                    cap_graph[cur_id][succ_id]["ub"] = cur_inst.get_derivative(
                         cur_inst.duration, cur_inst.duration - self.unit_scale
                     )
 
         return cap_graph
 
     def search_path_bfs(
-        self: PDSolver, graph: nx.DiGraph, s: int, t: int
+        self, graph: nx.DiGraph, s: int, t: int
     ) -> tuple[dict[int, bool], dict[int, int]]:
         """Search path from s to t using BFS search, return a tuple of visited and parents.
 
@@ -213,7 +213,7 @@ class PDSolver:
         return (visited, parents)
 
     def search_path_dfs(
-        self: PDSolver, graph: nx.DiGraph, s: int, t: int
+        self, graph: nx.DiGraph, s: int, t: int
     ) -> tuple[dict[int, bool], dict[int, int]]:
         """Search path from s to t using DFS search, return a tuple of visited and parents.
 
@@ -249,7 +249,7 @@ class PDSolver:
         return (visited, parents)
 
     def find_max_flow(
-        self: PDSolver, graph: nx.DiGraph, source_id: int, sink_id: int
+        self, graph: nx.DiGraph, source_id: int, sink_id: int
     ) -> nx.DiGraph:
         """Find max flow using DFS search, each edge in the graph has a upper bound capacity, i.e. flow is [0, weight].
 
@@ -307,8 +307,8 @@ class PDSolver:
         return residual_graph
 
     def find_min_cut(
-        self: PDSolver, residual_graph: nx.DiGraph, source_id: int, sink_id: int
-    ) -> tuple(set[int], set[int]):
+        self, residual_graph: nx.DiGraph, source_id: int, sink_id: int
+    ) -> tuple[set[int], set[int]]:
         """Find min cut given a residual graph.
 
         Arguments:
@@ -331,8 +331,8 @@ class PDSolver:
 
         return (s_set, t_set)
 
-    def find_max_flow_bounded(
-        self: PDSolver, graph: nx.DiGraph, source_id: int, sink_id: int
+    def find_max_flow_bounded(  # noqa: PLR0912
+        self, graph: nx.DiGraph, source_id: int, sink_id: int
     ) -> nx.DiGraph:
         """Find max flow given a double-sides capacity bounded graph.
 
@@ -495,7 +495,7 @@ class PDSolver:
 
         return new_residual
 
-    def run_pd_algorithm(self: PDSolver) -> None:
+    def run_pd_algorithm(self) -> None:
         """Run the PD algorithm iteratively to solve for the Pareto optimal schedule for each time breakpoint.
 
         This is the main workflow of the algorithm.
@@ -543,7 +543,7 @@ class PDSolver:
             total_time = self.calculate_total_time()
 
             # Step 8: Refine the total cost with p2p blockig energy
-            insts_time = 0
+            insts_time: float = 0.0
             for inst in self.critical_dag_aon.insts:
                 insts_time += inst.actual_duration
             refined_cost = (
@@ -613,7 +613,7 @@ class PDSolver:
         )
         self.draw_pareto_frontier(os.path.join(self.output_dir, "Pareto_frontier.png"))
 
-    def reduce_duration(self: PDSolver, s: set[int], t: set[int]) -> float:
+    def reduce_duration(self, s: set[int], t: set[int]) -> float:
         """Reduce the duration of forward edges from s to t and increase the duration of backward edges from t to s.
 
         Arguments:
@@ -623,8 +623,8 @@ class PDSolver:
         Returns:
             cost_change: {float} -- the cost change
         """
-        reduce_edges: list[tuple(int, int)] = list()
-        increase_edges: list[tuple(int, int)] = list()
+        reduce_edges: list[tuple[int, int]] = list()
+        increase_edges: list[tuple[int, int]] = list()
         for node_id in s:
             for child_id in list(self.capacity_graph.successors(node_id)):
                 if child_id in t:
@@ -639,7 +639,7 @@ class PDSolver:
         logging.info("Iteration %s: increase edges %s", self.iteration, increase_edges)
         # if len(reduce_edges) > 1 or len(increase_edges) > 0:
         #     raise ValueError(f"reduce edges {reduce_edges} and increase edges {increase_edges}")
-        cost_change = 0
+        cost_change: float = 0.0
 
         for u, v in reduce_edges:
             inst: Instruction = self.capacity_graph[u][v]["inst"]
@@ -648,15 +648,14 @@ class PDSolver:
                 or type(inst) == _Dummy
             ):
                 return float("inf")
-            else:
-                cost_change += (
-                    inst.get_derivative(inst.duration, inst.duration - self.unit_scale)
-                    * self.unit_scale
-                )
-                inst.duration -= self.unit_scale
+            cost_change += (
+                inst.get_derivative(inst.duration, inst.duration - self.unit_scale)
+                * self.unit_scale
+            )
+            inst.duration -= self.unit_scale
 
         for u, v in increase_edges:
-            inst: Instruction = self.capacity_graph[u][v]["inst"]
+            inst = self.capacity_graph[u][v]["inst"]
             logging.info("Increase edge: [%s, %s] %s", u, v, repr(inst))
             # Notice: dummy edge is always valid for increasing duration
             if type(inst) == _Dummy:
@@ -676,7 +675,7 @@ class PDSolver:
 
         return cost_change
 
-    def calculate_total_cost(self: PDSolver) -> float:
+    def calculate_total_cost(self) -> float:
         """Calculate the total cost of the current pipeline.
 
         Returns:
@@ -689,12 +688,12 @@ class PDSolver:
 
         while not q.empty():
             cur_id: int = q.get()
-            if cur_id in visited:
-                continue
-            visited.append(cur_id)
             cur_node: Instruction = self.critical_dag_aon.complete_dag.nodes[cur_id][
                 "inst"
             ]
+            if repr(cur_node) in visited:
+                continue
+            visited.append(repr(cur_node))
             if not isinstance(cur_node, _Dummy) and repr(cur_node) not in visited:
                 total_cost += cur_node.get_p2p_refined_cost(cur_node.duration)
                 visited.append(repr(cur_node))
@@ -703,7 +702,7 @@ class PDSolver:
 
         return total_cost
 
-    def calculate_total_time(self: PDSolver) -> float:
+    def calculate_total_time(self) -> float:
         """Calculate the total time of the current pipeline.
 
         Returns:
@@ -715,7 +714,7 @@ class PDSolver:
             total_time += inst.actual_duration
         return total_time
 
-    def assign_frequency(self: PDSolver) -> list[list[int]]:
+    def assign_frequency(self) -> list[list[int]]:
         """Assign frequency to each instruction in the pipeline based on the duration.
 
         Returns:
@@ -745,41 +744,7 @@ class PDSolver:
             elif abs(cur_node.time_costs[-1][0] - cur_node.duration) < FP_ERROR:
                 cur_node.frequency = cur_node.time_costs[-1][2]
             else:
-                # start binary search
-                left = 0
-                right = len(cur_node.time_costs) - 1
-                while left < right:
-                    mid = (left + right) // 2
-                    # if there is an exact match, or we are at the head/end of the list, we are done
-                    if (
-                        abs(cur_node.time_costs[mid][0] - cur_node.duration) < FP_ERROR
-                        or mid == 0
-                        or mid == len(cur_node.time_costs) - 1
-                    ):
-                        cur_node.frequency = cur_node.time_costs[mid][2]
-                        break
-                    elif cur_node.time_costs[mid][0] < cur_node.duration:
-                        if cur_node.time_costs[mid - 1][0] > cur_node.duration:
-                            # we are between two points, choose one with shorter duration since it is deadline problem
-                            cur_node.frequency = cur_node.time_costs[mid][2]
-                            # mid_duration = (cur_node.time_costs[mid][0] + cur_node.time_costs[mid-1][0]) / 2
-                            # if mid_duration < cur_node.duration:
-                            #     cur_node.frequency = cur_node.time_costs[mid-1][2]
-                            # else:
-                            #     cur_node.frequency = cur_node.time_costs[mid][2]
-                            break
-                        right = mid
-                    elif cur_node.time_costs[mid][0] > cur_node.duration:
-                        if cur_node.time_costs[mid + 1][0] < cur_node.duration:
-                            # we are between two points, choose one with shorter duration since it is deadline problem
-                            cur_node.frequency = cur_node.time_costs[mid + 1][2]
-                            # mid_duration = (cur_node.time_costs[mid][0] + cur_node.time_costs[mid+1][0]) / 2
-                            # if mid_duration < cur_node.duration:
-                            #     cur_node.frequency = cur_node.time_costs[mid][2]
-                            # else:
-                            #     cur_node.frequency = cur_node.time_costs[mid+1][2]
-                            # break
-                        left = mid + 1
+                cur_node.frequency = self.binary_search_frequency(cur_node)
 
             if cur_node.stage_id not in stage_view:
                 stage_view[cur_node.stage_id] = [cur_node]
@@ -815,7 +780,7 @@ class PDSolver:
             # logging.info(f"Stage {stage_id} frequency assignment ")
             insts: list[Instruction] = stage_view[stage_id]
             freqs: list[int] = []
-            reprs: list[int] = []
+            reprs: list[str] = []
             for inst in insts:
                 assert inst.frequency != -1
                 freqs.append(inst.frequency)
@@ -832,7 +797,59 @@ class PDSolver:
 
         return total_freqs
 
-    def draw_aoa_graph(self: PDSolver, path: str) -> None:
+    def binary_search_frequency(self, cur_node: Instruction) -> int:
+        """Binary search the frequency based on the duration.
+
+        Arguments:
+            cur_node: {Instruction} -- the instruction to search
+
+        Returns:
+            frequency: {int} -- the frequency
+        """
+        # start binary search
+        left = 0
+        right = len(cur_node.time_costs) - 1
+        frequency = -1
+
+        while left < right:
+            mid = (left + right) // 2
+            # if there is an exact match, or we are at the head/end of the list, we are done
+            if (
+                abs(cur_node.time_costs[mid][0] - cur_node.duration) < FP_ERROR
+                or mid == 0
+                or mid == len(cur_node.time_costs) - 1
+            ):
+                frequency = cur_node.time_costs[mid][2]
+                break
+            elif cur_node.time_costs[mid][0] < cur_node.duration:
+                if cur_node.time_costs[mid - 1][0] > cur_node.duration:
+                    # we are between two points, choose one with shorter duration since it is deadline problem
+                    frequency = cur_node.time_costs[mid][2]
+                    # mid_duration = (cur_node.time_costs[mid][0] + cur_node.time_costs[mid-1][0]) / 2
+                    # if mid_duration < cur_node.duration:
+                    #     cur_node.frequency = cur_node.time_costs[mid-1][2]
+                    # else:
+                    #     cur_node.frequency = cur_node.time_costs[mid][2]
+                    break
+                right = mid
+            elif cur_node.time_costs[mid][0] > cur_node.duration:
+                if cur_node.time_costs[mid + 1][0] < cur_node.duration:
+                    # we are between two points, choose one with shorter duration since it is deadline problem
+                    frequency = cur_node.time_costs[mid + 1][2]
+                    # mid_duration = (cur_node.time_costs[mid][0] + cur_node.time_costs[mid+1][0]) / 2
+                    # if mid_duration < cur_node.duration:
+                    #     cur_node.frequency = cur_node.time_costs[mid][2]
+                    # else:
+                    #     cur_node.frequency = cur_node.time_costs[mid+1][2]
+                    break
+                left = mid + 1
+
+        if frequency == -1:
+            raise Exception(f"Cannot find frequency for {repr(cur_node)}")
+        else:
+            return frequency
+
+    def draw_aoa_graph(self, path: str) -> None:
         """Draw the AOA graph to the given path.
 
         Arguments:
@@ -850,7 +867,7 @@ class PDSolver:
         plt.clf()
         plt.close()
 
-    def draw_capacity_graph(self: PDSolver, path: str) -> None:
+    def draw_capacity_graph(self, path: str) -> None:
         """Draw the capacity graph to the given path.
 
         Arguments:
@@ -875,9 +892,7 @@ class PDSolver:
         plt.clf()
         plt.close()
 
-    def draw_pipeline_graph(
-        self: PDSolver, path: str, draw_time_axis: bool = False
-    ) -> None:
+    def draw_pipeline_graph(self, path: str, draw_time_axis: bool = False) -> None:
         """Draw the pipeline to the given path.
 
         Arguments:
@@ -914,7 +929,7 @@ class PDSolver:
         plt.clf()
         plt.close()
 
-    def draw_pareto_frontier(self: PDSolver, path: str) -> None:
+    def draw_pareto_frontier(self, path: str) -> None:
         """Draw the pareto frontier to the given path.
 
         Arguments:
@@ -930,7 +945,7 @@ class PDSolver:
         plt.clf()
         plt.close()
 
-    def draw_critical_path(self: PDSolver, ax: Axes) -> None:
+    def draw_critical_path(self, ax: Axes) -> None:
         """Draw the critical path of the DAG on the given Axes object.
 
         Arguments:
@@ -951,7 +966,7 @@ class PDSolver:
                 **self.line_args,
             )
 
-    def get_critical_pairs(self: PDSolver) -> list[tuple[Instruction, Instruction]]:
+    def get_critical_pairs(self) -> list[tuple[Instruction, Instruction]]:
         """Get all pairs of instructions that are neighbours and both critical, defined by self.critical_dag_aon.
 
         Returns:

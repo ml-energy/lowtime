@@ -5,8 +5,8 @@ from __future__ import annotations
 import inspect
 import itertools
 import logging
-import matplotlib.pyplot as plt
-import networkx as nx
+import matplotlib.pyplot as plt  # type: ignore
+import networkx as nx  # type: ignore
 import numpy as np
 from typing import Iterable, Sequence, Type, Callable, Generator, Literal
 from queue import SimpleQueue
@@ -43,8 +43,8 @@ class ReneDAG:
     """DAG of instructions and analysis methods, represented in Activity-on-Node form (AON)."""
 
     # pylint: disable=dangerous-default-value,too-many-branches
-    def __init__(
-        self: ReneDAG,
+    def __init__(  # noqa: PLR0913
+        self,
         schedule_type: Callable[[int, int, int], Iterable[Instruction]],
         num_stages: int,
         num_micro_batches: int,
@@ -120,7 +120,7 @@ class ReneDAG:
             type_hints = typing.get_type_hints(rule)
             if "return" in type_hints:
                 type_hints.pop("return")
-            if len(type_hints) != 2: # noqa
+            if len(type_hints) != 2:  # noqa
                 raise ValueError(
                     "Dependency rules must have exactly two type-annotated arguments."
                 )
@@ -146,7 +146,7 @@ class ReneDAG:
         # Initialize the DAG.
         self.init_dag()
 
-    def _is_dependent(self: ReneDAG, inst1: Instruction, inst2: Instruction) -> bool:
+    def _is_dependent(self, inst1: Instruction, inst2: Instruction) -> bool:
         """Check if there is a dependency from `inst1` to `inst2`.
 
         Checks the function type annotation and only call rules that
@@ -158,7 +158,7 @@ class ReneDAG:
                 type_hints.pop("return")
             if all(
                 isinstance(inst, type)
-                for inst, type in zip([inst1, inst2], type_hints.values()) # noqa
+                for inst, type in zip([inst1, inst2], type_hints.values())  # noqa
             ):
                 result = rule(inst1, inst2)
                 if not isinstance(result, bool):
@@ -166,8 +166,8 @@ class ReneDAG:
                 if result:
                     return True
         return False
-    
-    def init_dag(self: ReneDAG) -> None:
+
+    def init_dag(self) -> None:
         """Initialize the DAG."""
         # Introduce dummy entry and exit nodes for analysis convenience.
         # Assign node_id 0 to entry_node and node_id 1 to exit_node
@@ -262,7 +262,7 @@ class ReneDAG:
                 )
 
     @property
-    def total_execution_time(self: ReneDAG) -> float:
+    def total_execution_time(self) -> float:
         """Return the finish time of the last instruction."""
         assert (
             self.exit_node.earliest_finish == self.exit_node.latest_finish
@@ -270,16 +270,16 @@ class ReneDAG:
         return self.exit_node.earliest_finish
 
     @property
-    def insts(self: ReneDAG) -> Generator[Instruction, None, None]:
+    def insts(self) -> Generator[Instruction, None, None]:
         """Yield non-dummy instructions."""
         yield from filter(lambda inst: not isinstance(inst, _Dummy), self._insts)
 
     @property
-    def dag(self: ReneDAG) -> nx.DiGraph:
+    def dag(self) -> nx.DiGraph:
         """Return a networkx graph representation of the dag."""
         return self._dag
 
-    def schedule(self: ReneDAG, algo: Literal["eager", "lazy", "pd"] = "eager") -> None:
+    def schedule(self, algo: Literal["eager", "lazy", "pd"] = "eager") -> None:
         """Determine the actual start/finish times of all instructions.
 
         Available algorithms:
@@ -303,7 +303,7 @@ class ReneDAG:
                 f"Scheduling algorithm '{algo}' is not implemented"
             )
 
-    def draw_aon_graph(self: ReneDAG, path: str) -> None:
+    def draw_aon_graph(self, path: str) -> None:
         """Draw the graph in Activity-on-Node form (AON).
 
         Arguments:
@@ -322,8 +322,8 @@ class ReneDAG:
 class CriticalDAG(ReneDAG):
     """DAG of instructions on the critical path, represented in Activity-on-Node form (AON), a subgraph of ReneDAG."""
 
-    def __init__(
-        self: CriticalDAG,
+    def __init__(  # noqa: PLR0913
+        self,
         schedule_type: Callable[[int, int, int], Iterable[Instruction]],
         num_stages: int,
         num_micro_batches: int,
@@ -368,7 +368,7 @@ class CriticalDAG(ReneDAG):
         # for node in critical_path:
         #     node.on_critical_path = True
 
-    def annotate_nodes(self: CriticalDAG) -> None:
+    def annotate_nodes(self) -> None:
         """Annotate earliest/latest start/finish/slack times in nodes."""
         logging.info("Annotating nodes with start/finish/slack times...")
         # Forward computation: Assign earliest start and finish times
@@ -409,7 +409,7 @@ class CriticalDAG(ReneDAG):
             if visited[node_id]:
                 continue
             visited[node_id] = True
-            node: Instruction = self.complete_dag.nodes[node_id]["inst"]
+            node = self.complete_dag.nodes[node_id]["inst"]
             for parent_id in self.complete_dag.predecessors(node_id):
                 parent: Instruction = self.complete_dag.nodes[parent_id]["inst"]
                 # parent.latest_start = min(
@@ -425,7 +425,7 @@ class CriticalDAG(ReneDAG):
 
                 q.put(parent_id)
 
-    def clear_annotations(self: CriticalDAG) -> None:
+    def clear_annotations(self) -> None:
         """Clear all annotations in nodes."""
         q: SimpleQueue[int] = SimpleQueue()
         q.put(self.inst_id_map[repr(self.entry_node)])
@@ -445,7 +445,7 @@ class CriticalDAG(ReneDAG):
             for child_id in self.complete_dag.successors(cur_id):
                 q.put(child_id)
 
-    def get_critical_path(self: CriticalDAG) -> list[Instruction]:
+    def get_critical_path(self) -> list[Instruction]:
         """Return a single critical path of the DAG."""
         critical_path: list[Instruction] = []
         q: deque[int] = deque()
@@ -465,7 +465,7 @@ class CriticalDAG(ReneDAG):
         # Slice out entry and exit nodes
         return list(filter(lambda node: not isinstance(node, _Dummy), critical_path))
 
-    def update_critical_dag(self: CriticalDAG) -> None:
+    def update_critical_dag(self) -> None:
         """Update the critical DAG, which is a subgraph of self.complete_dag."""
         # TODO: add an if changed flag?
         self.annotate_nodes()
