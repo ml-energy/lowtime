@@ -73,7 +73,7 @@ class Instruction(metaclass=InstructionType):
 
     # For poly fit
     fit_method: str = "linear"
-    fit_coeffs: np.ndarray = field(default_factory=np.array)
+    fit_coeffs: np.ndarray = field(default_factory=lambda: np.array([]))
 
     # For frequency assignment
     time_costs: list[tuple] = field(default_factory=list)

@@ -1,6 +1,7 @@
 from typing import Type
 import pandas as pd
 import matplotlib.pyplot as plt
+import numpy as np
 
 from rene import (
     Instruction,
@@ -10,7 +11,7 @@ from rene import (
 
 TIME_COST_T = dict[Type[Instruction], dict[int, list[tuple[float, float, int]]]]
 
-def df_to_time_cost_pareto(inst_df: pd.DataFrame) -> TIME_COST_T:
+def df_to_time_costs_pareto(inst_df: pd.DataFrame) -> TIME_COST_T:
     """Filter a raw Instruction dataframe profile into a new dataframe containing only entries on the Pareto frontier"""
     time_costs: TIME_COST_T = {Forward: {}, Backward: {}}
 
@@ -35,16 +36,28 @@ def df_to_time_cost_pareto(inst_df: pd.DataFrame) -> TIME_COST_T:
 
     return time_costs
 
-# Subtract P2P energy: E - P_P2P * T
-def subtract_p2p(inst_df, p2p_df):
-    """Subtract energy profile in inst_df with p2p energy in p2p_df"""
-    _df = p2p_df.loc[p2p_df.time_ms >= 100]
-    p2p_power = {
-        freq: _df.loc[_df.freq == freq].power.to_list()
-        for freq in _df.freq.unique()
-    }
-    p2p_power = {freq: sum(power) / len(power) for freq, power in p2p_power.items()}
-    def subtract_p2p(row):
-        row.energy -= row.time * p2p_power[row.frequency]
-        return row
-    return inst_df.apply(subtract_p2p, axis=1)
+def preprocess_time_costs(time_costs: TIME_COST_T, unit_time: float) -> TIME_COST_T:
+    """Preprocess time costs data. Quantize the time costs and preprocess data points: remove redundant time points, break ties by lower cost value.
+    
+    Arguments:
+        time_costs: time costs data
+        unit_time: time unit to quantize the time costs
+
+    Returns:
+        Preprocessed time costs data
+    """
+    processed_time_costs: TIME_COST_T = time_costs.copy()
+    for stage_to_time_costs in processed_time_costs.values():
+        for stage, time_cost_list in stage_to_time_costs.items():
+            time_cost_list = [(t // unit_time * unit_time, e, f) for t, e, f in time_cost_list]
+            # Turn the 3-tuple list into 3D numpy array, use float for frequency as numpy array needs to have the same type
+            time_cost_array = np.asarray(time_cost_list, dtype=[('time', float), ('cost', float), ('freq', float)])
+            # Sort the points by their x-coordinate in ascending order, break ties by choosing the point with the smallest y-coordinate
+            time_cost_array = time_cost_array[time_cost_array.argsort(order=["time", "cost"])]
+            time_cost_array = time_cost_array.view((float, 3))
+            # Remove duplicate points by x-coordinate, break ties by choosing the point with the smallest y-coordinate
+            time_cost_array = time_cost_array[np.unique(time_cost_array[:, 0], return_index=True)[1]]
+            # Retrive the new time_cost_list
+            time_cost_list = list(zip(time_cost_array[:, 0], time_cost_array[:, 1], time_cost_array[:, 2].astype(int)))
+            stage_to_time_costs[stage] = time_cost_list
+    return processed_time_costs

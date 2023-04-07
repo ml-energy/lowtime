@@ -15,7 +15,7 @@ import pandas as pd
 import matplotlib.pyplot as plt
 plt.rc("svg", hashsalt=None)
 
-from examples.common import df_to_time_cost_pareto, subtract_p2p
+from examples.common import df_to_time_costs_pareto, preprocess_time_costs
 from rene import (
     CriticalDAG,
     Synchronous1F1B,
@@ -40,14 +40,12 @@ def main():
 
 
     # Instruction offline profiling results.
-    # inst_df = pd.read_csv("/users/yilegu/perseus-analysis/data/merak_offline_profiler/merak+bert-large-uncased+uniform_transformer+dp1+tp1+pp4+mbs16.csv")
     inst_df = pd.read_csv(inst_profile)
-    time_costs = df_to_time_cost_pareto(inst_df)
-
+    time_costs = df_to_time_costs_pareto(inst_df)
+    
     print(time_costs)
 
     # P2P communication blocking power consumption.
-    # p2p_block_df = pd.read_csv("../perseus-analysis/data/p2p-benchmark/intranode-bare-nvlink-sleep-1665-0-1.csv")
     p2p_block_df = pd.read_csv(p2p_profile)
     p2p_block_df = p2p_block_df.loc[p2p_block_df.time_ms == 100]
     p2p_block_df["power"] = p2p_block_df.energy_mj / p2p_block_df.time_ms / 100
@@ -56,11 +54,6 @@ def main():
     # In the absolute majority of the times we don't go below 800MHz,
     # so we filter frequencies that are below that and take the average so that we're as accurate as possible.
     p_p2p = p2p_block_df.query("freq >= 800").power.mean().item()
-
-    # def subtract_p2p(row):
-    #         row.energy -= row.time * p_p2p
-    #         return row
-    # inst_df = inst_df.apply(subtract_p2p, axis=1)
 
     time_stamp = datetime.datetime.fromtimestamp(
         time.time()).strftime('%m%d_%H%M%S')
@@ -82,26 +75,10 @@ def main():
     algo_conf = conf["algorithm"]
     if algo_conf["type"] == "pd":
         interval = algo_conf["interval"]
-        unit_scale = algo_conf["unit_scale"]
+        unit_time = algo_conf["unit_time"]
         fit_method = algo_conf["fit_method"]
-        # Quantize the time costs and preprocess data points: remove redundant time points, break ties by lower cost value.
-        for stage_to_time_costs in time_costs.values():
-            for stage, time_cost_list in stage_to_time_costs.items():
-                time_cost_list = [(t // unit_scale * unit_scale, e, f) for t, e, f in time_cost_list]
-                # turn the 3-tuple list into 3D numpy array, use float for frequency as numpy array needs to have the same type
-                time_cost_array = np.asarray(time_cost_list, dtype=[('time', float), ('cost', float), ('freq', float)])
-                # Sort the points by their x-coordinate in ascending order, break ties by choosing the point with the smallest y-coordinate
-                time_cost_array = time_cost_array[time_cost_array.argsort(order=["time", "cost"])]
-                # time_cost_array = time_cost_array.reshape(time_cost_array.shape[0], 3)
-                time_cost_array = time_cost_array.view((float, 3))
-                # time_cost_array = time_cost_array.view(dtype=[('time', float), ('cost', float), ('freq', int)], type=np.ndarray)
-                # Remove duplicate points by x-coordinate, break ties by choosing the point with the smallest y-coordinate
-                time_cost_array = time_cost_array[np.unique(time_cost_array[:, 0], return_index=True)[1]]
-                # Retrive the new time_cost_list
-                time_cost_list = list(zip(time_cost_array[:, 0], time_cost_array[:, 1], time_cost_array[:, 2].astype(int)))
-                stage_to_time_costs[stage] = time_cost_list
 
-
+        time_costs = preprocess_time_costs(time_costs, unit_time)
         # Instantiate the Instruction DAG.
         dag = CriticalDAG(
             schedule_type=Synchronous1F1B,
@@ -112,7 +89,7 @@ def main():
             fit_method=fit_method,
             p2p_power=p_p2p,
         )
-        pd_solver = PDSolver(dag, output_dir.__str__(), interval, unit_scale)
+        pd_solver = PDSolver(dag, output_dir.__str__(), interval, unit_time)
         pd_solver.run_pd_algorithm()
     else:
         raise NotImplementedError

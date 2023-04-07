@@ -29,7 +29,7 @@ parser.add_argument("--name", type=str, default="h_hybrid")
 args = parser.parse_args()
 
 
-def df_to_time_cost_pareto(inst_df: pd.DataFrame) -> TIME_COST_T:
+def df_to_time_costs_pareto(inst_df: pd.DataFrame) -> TIME_COST_T:
     time_costs: TIME_COST_T = {Forward: {}, Backward: {}}
 
     # Leave only Pareto-optimal points.
@@ -56,7 +56,7 @@ def df_to_time_cost_pareto(inst_df: pd.DataFrame) -> TIME_COST_T:
 
 # Instruction offline profiling results.
 inst_df = pd.read_csv("../perseus-analysis/data/merak_offline_profiler/merak+gpt3-large+uniform_transformer+dp1+tp1+pp4+mbs4.csv")
-time_costs = df_to_time_cost_pareto(inst_df)
+time_costs = df_to_time_costs_pareto(inst_df)
 
 # P2P communication blocking power consumption.
 p2p_block_df = pd.read_csv("../perseus-analysis/data/p2p-benchmark/intranode-bare-nvlink-sleep-1665-0-1.csv")

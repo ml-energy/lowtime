@@ -33,7 +33,7 @@ class PDSolver:
         critical_dag: CriticalDAG,
         output_dir: str,
         interval: int = 100,
-        unit_scale: float = 0.01,
+        unit_time: float = 0.01,
     ) -> None:
         """Initialize the PD solver.
 
@@ -41,7 +41,7 @@ class PDSolver:
             critical_dag: {CriticalDAG} -- a critical DAG in the form of ReneDAG
             output_dir: {str} -- output directory for figures and frequency assignments
             interval: {int} -- number of iterations to output pipeline graph and frequency assignment
-            unit_scale: {float} -- the single unit of duration deduction per PD iteration
+            unit_time: {float} -- the single unit of duration deduction per PD iteration
         """
         self.iteration: int = 0
         self.output_dir: str = output_dir
@@ -53,7 +53,7 @@ class PDSolver:
         self.entry_id: int = 0
         self.exit_id: int = 1
         self.interval = interval
-        self.unit_scale = unit_scale
+        self.unit_time = unit_time
 
         # for Pareto frontier
         self.costs: list[float] = []
@@ -156,22 +156,22 @@ class PDSolver:
                 ):
                     cap_graph[cur_id][succ_id]["lb"] = 0.0
                     cap_graph[cur_id][succ_id]["ub"] = 10000.0
-                elif cur_inst.duration - self.unit_scale < cur_inst.min_duration:
+                elif cur_inst.duration - self.unit_time < cur_inst.min_duration:
                     cap_graph[cur_id][succ_id]["lb"] = cur_inst.get_derivative(
-                        cur_inst.duration, cur_inst.duration + self.unit_scale
+                        cur_inst.duration, cur_inst.duration + self.unit_time
                     )
                     cap_graph[cur_id][succ_id]["ub"] = 10000.0
-                elif cur_inst.duration + self.unit_scale > cur_inst.max_duration:
+                elif cur_inst.duration + self.unit_time > cur_inst.max_duration:
                     cap_graph[cur_id][succ_id]["lb"] = 0.0
                     cap_graph[cur_id][succ_id]["ub"] = cur_inst.get_derivative(
-                        cur_inst.duration, cur_inst.duration - self.unit_scale
+                        cur_inst.duration, cur_inst.duration - self.unit_time
                     )
                 else:
                     cap_graph[cur_id][succ_id]["lb"] = cur_inst.get_derivative(
-                        cur_inst.duration, cur_inst.duration + self.unit_scale
+                        cur_inst.duration, cur_inst.duration + self.unit_time
                     )
                     cap_graph[cur_id][succ_id]["ub"] = cur_inst.get_derivative(
-                        cur_inst.duration, cur_inst.duration - self.unit_scale
+                        cur_inst.duration, cur_inst.duration - self.unit_time
                     )
 
         return cap_graph
@@ -584,7 +584,7 @@ class PDSolver:
                         f"# Iteration {self.iteration}: refined cost {refined_cost} \n"
                     )
                     f.write(
-                        f"# Iteration {self.iteration}: total time {total_time - self.unit_scale} \n"
+                        f"# Iteration {self.iteration}: total time {total_time - self.unit_time} \n"
                     )
 
             logging.info("Iteration %s: cost change %s", self.iteration, cost_change)
@@ -593,7 +593,7 @@ class PDSolver:
             logging.info(
                 "Iteration %s: total time %s",
                 self.iteration,
-                total_time - self.unit_scale,
+                total_time - self.unit_time,
             )
 
             # Step 10: Clear the annotations on the critical dag and update the critical dag with the new durations,
@@ -604,7 +604,7 @@ class PDSolver:
 
             self.costs.append(total_cost)
             self.refined_costs.append(refined_cost)
-            self.times.append(total_time - self.unit_scale)
+            self.times.append(total_time - self.unit_time)
             self.iteration += 1
         # Step 11: Output final frequency assignment, final pipeline graph and Pareto frontier
         self.assign_frequency()
@@ -644,31 +644,31 @@ class PDSolver:
         for u, v in reduce_edges:
             inst: Instruction = self.capacity_graph[u][v]["inst"]
             if (
-                inst.duration - self.unit_scale < inst.min_duration
+                inst.duration - self.unit_time < inst.min_duration
                 or type(inst) == _Dummy
             ):
                 return float("inf")
             cost_change += (
-                inst.get_derivative(inst.duration, inst.duration - self.unit_scale)
-                * self.unit_scale
+                inst.get_derivative(inst.duration, inst.duration - self.unit_time)
+                * self.unit_time
             )
-            inst.duration -= self.unit_scale
+            inst.duration -= self.unit_time
 
         for u, v in increase_edges:
             inst = self.capacity_graph[u][v]["inst"]
             logging.info("Increase edge: [%s, %s] %s", u, v, repr(inst))
             # Notice: dummy edge is always valid for increasing duration
             if type(inst) == _Dummy:
-                inst.duration += self.unit_scale
+                inst.duration += self.unit_time
                 logging.info("Increase edge is dummy: [%s, %s] %s", u, v, repr(inst))
-            elif inst.duration + self.unit_scale > inst.max_duration:
+            elif inst.duration + self.unit_time > inst.max_duration:
                 return float("inf")
             else:
                 cost_change -= (
-                    inst.get_derivative(inst.duration, inst.duration + self.unit_scale)
-                    * self.unit_scale
+                    inst.get_derivative(inst.duration, inst.duration + self.unit_time)
+                    * self.unit_time
                 )
-                inst.duration += self.unit_scale
+                inst.duration += self.unit_time
                 logging.info(
                     "Increase edge is non-dummy: [%s, %s] %s", u, v, repr(inst)
                 )
@@ -757,7 +757,7 @@ class PDSolver:
         # for stage_id, insts in stage_view.items():
         #     insts: list[Instruction] = stage_view[stage_id]
         #     for inst in insts:
-        #         if inst.duration - self.unit_scale < inst.min_duration:
+        #         if inst.duration - self.unit_time < inst.min_duration:
         #             logging.info(f"{repr(inst)} will exceed min duration in the next iteration, \
         #               assign highest frequency {inst.time_costs[-1][2]} instead of {inst.frequency}")
         #             inst.frequency = inst.time_costs[-1][2]
