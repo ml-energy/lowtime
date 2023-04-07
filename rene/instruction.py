@@ -178,7 +178,6 @@ class Instruction(metaclass=InstructionType):
             convex_points = np.roll(
                 convex_points, -np.argmin(convex_points[:, 0]), axis=0
             )
-            print(repr(self), convex_points)
             # Scan points on the convex hull from the beginning, and when the x coordinate increases, remove everything
             # after that point. This is because the convex hull is not necessarily a piecewise linear function,
             # and we want to make it one.
