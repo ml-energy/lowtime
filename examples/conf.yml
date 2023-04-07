@@ -1,16 +1,16 @@
 # An example yaml configuration file for running Rene with PD algorithm
 general: 
   # path for instruction profile results
-  inst_profile: /Users/yilegu/Desktop/research/SymbioticLab/Perseus/perseus-analysis/data/merak_offline_profiler/merak+gpt3-large+uniform_transformer+dp1+tp1+pp4+mbs4.csv
+  inst_profile: ../perseus-analysis/data/merak_offline_profiler/merak+gpt3-large+uniform_transformer+dp1+pp4+tp1+mbs4.csv
 
   # path for p2p profile results
-  p2p_profile: /Users/yilegu/Desktop/research/SymbioticLab/Perseus/perseus-analysis/data/p2p-benchmark/intranode-bare-nvlink-sleep-1665-0-1.csv
+  p2p_profile: ../perseus-analysis/data/p2p-benchmark/intranode-bare-nvlink-sleep-1665-0-1.csv
 
   # path for output directory
-  output_dir: /Users/yilegu/Desktop/research/SymbioticLab/Perseus/rene/results/gpt3_pp4_dp128
-
+  output_dir: results/gpt3_large_dp3_exponential
+  
   # num of microbatchs
-  num_mbs: 128
+  num_mbs: 3
 
 algorithm:
   # type of algorithm to use
@@ -20,7 +20,7 @@ algorithm:
   interval: 100
 
   # PD-specific: the unit of reduction for each iteration, the smaller the value, the more iterations it takes to converge and the finer graunularity for the Pareto frontier
-  unit_scale: 0.001
+  unit_time: 0.001
 
   # PD-specific: the degree of the fitting polynomial 
-  fit_method: "piecewise-linear"
+  fit_method: "exponential"
