@@ -71,7 +71,7 @@ class Instruction(metaclass=InstructionType):
     actual_start: float = 0.0
     actual_finish: float = 0.0
 
-    # For poly fit
+    # For time-cost Pareto frontier model fitting
     fit_method: str = "linear"
     fit_coeffs: np.ndarray = field(default_factory=lambda: np.array([]))
 
@@ -89,10 +89,7 @@ class Instruction(metaclass=InstructionType):
 
     def __repr__(self) -> str:
         """Return a concise representation of the Instruction."""
-        if not self.repr:
-            return f"{type(self).__name__}(S{self.stage_id}B{self.micro_batch_id})"
-        else:
-            return self.repr
+        return self.repr or f"{type(self).__name__}(S{self.stage_id}B{self.micro_batch_id})"
 
     @property
     def actual_duration(self) -> float:
@@ -197,7 +194,7 @@ class Instruction(metaclass=InstructionType):
                 maxfev=10000,
             )
         else:
-            raise ValueError(f"Unknown fit method: {fit_method}")
+            raise NotImplementedError(f"Unknown fit method: {fit_method}")
 
         fig, ax = plt.subplots(figsize=(8, 8), tight_layout=True)
         ax.plot(time_list, cost_list, "o")
@@ -231,7 +228,7 @@ class Instruction(metaclass=InstructionType):
         Arguments:
             time: {float} -- Time to get the cost at
         """
-        if len(self.fit_coeffs) == 0:
+        if not self.fit_coeffs:
             raise ValueError("No fit coefficients have been computed yet")
         if self.fit_method == "linear":
             return np.polyval(self.fit_coeffs, time)

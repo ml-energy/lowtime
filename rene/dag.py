@@ -62,10 +62,11 @@ class ReneDAG:
             num_stages: The number of pipeline stages.
             num_micro_batches: The number of micro batches in the pipeline.
             time_costs: A dict that maps inst type to a dict of stage_id: list of (duration, cost, frequency) tuples.
-            output_dir: output directory for figures
+            output_dir: Output directory for figures
             dependency_rules: A list of functions that define the dependency between instructions.
             fit_method: The method to fit the time cost data. Can be "linear" or "piecewise-linear" or "exponential".
             p2p_power: The power consumption of p2p communication between GPUs.
+            
         ## Dependency rules
 
         ```python
@@ -249,13 +250,13 @@ class ReneDAG:
 
         for node in self._insts:
             # Add edges from entry_node to all nodes without predecessors.
-            if len(list(self._dag.predecessors(self.inst_id_map[repr(node)]))) == 0:
+            if self._dag.in_degree(self.inst_id_map[repr(node)]) == 0:
                 self._dag.add_edge(
                     self.inst_id_map[repr(self.entry_node)],
                     self.inst_id_map[repr(node)],
                 )
             # Add edges from all nodes without successors to exit_node.
-            if len(list(self._dag.successors(self.inst_id_map[repr(node)]))) == 0:
+            if self._dag.out_degree(self.inst_id_map[repr(node)]) == 0:
                 self._dag.add_edge(
                     self.inst_id_map[repr(node)],
                     self.inst_id_map[repr(self.exit_node)],

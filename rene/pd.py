@@ -1,4 +1,5 @@
-"""A time-cost trade-off solver based on PD-algorithm, support linear, piecewise-linear and convex interpolation."""
+"""A time-cost trade-off solver based on the PD-algorithm."""
+
 
 from __future__ import annotations
 
@@ -204,8 +205,9 @@ class PDSolver:
                 break
             for child_id in list(graph.successors(cur_id)):
                 if (
-                    visited[child_id] is False
-                    and abs(graph[cur_id][child_id]["weight"] - 0) > FP_ERROR
+                    not visited[child_id]
+                    and abs(graph[cur_id][child_id]["weight"]) > FP_ERROR
+
                 ):
                     parents[child_id] = cur_id
                     q.put(child_id)
@@ -240,8 +242,9 @@ class PDSolver:
                 break
             for child_id in list(graph.successors(cur_id)):
                 if (
-                    visited[child_id] is False
-                    and abs(graph[cur_id][child_id]["weight"] - 0) > FP_ERROR
+                    not visited[child_id]
+                    and abs(graph[cur_id][child_id]["weight"]) > FP_ERROR
+
                 ):
                     parents[child_id] = cur_id
                     q.append(child_id)
@@ -570,7 +573,8 @@ class PDSolver:
                     os.path.join(
                         self.output_dir, f"freqs_pipeline_{self.iteration:04d}.py"
                     ),
-                    "w+",
+                    "w",
+
                 ) as f:
                     f.write("[\n")
                     for freqs in total_freqs:
@@ -645,7 +649,7 @@ class PDSolver:
             inst: Instruction = self.capacity_graph[u][v]["inst"]
             if (
                 inst.duration - self.unit_time < inst.min_duration
-                or type(inst) == _Dummy
+                or isinstance(inst, _Dummy)
             ):
                 return float("inf")
             cost_change += (
@@ -658,7 +662,7 @@ class PDSolver:
             inst = self.capacity_graph[u][v]["inst"]
             logging.info("Increase edge: [%s, %s] %s", u, v, repr(inst))
             # Notice: dummy edge is always valid for increasing duration
-            if type(inst) == _Dummy:
+            if isinstance(inst, _Dummy):
                 inst.duration += self.unit_time
                 logging.info("Increase edge is dummy: [%s, %s] %s", u, v, repr(inst))
             elif inst.duration + self.unit_time > inst.max_duration:

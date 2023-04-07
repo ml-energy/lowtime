@@ -57,10 +57,9 @@ def main():
 
     time_stamp = datetime.datetime.fromtimestamp(
         time.time()).strftime('%m%d_%H%M%S')
-    output_dir = Path.joinpath(Path(output_dir), time_stamp)
+    output_dir = Path(output_dir) / time_stamp
     output_dir.mkdir(parents=True, exist_ok=False)
-
-    log_path = Path.joinpath(output_dir, 'job.log')
+    log_path = output_dir / "job.log"
 
     logging.basicConfig(
         format='%(asctime)s %(levelname)-8s [%(filename)s:%(lineno)d] %(message)s',
@@ -85,7 +84,7 @@ def main():
             num_stages=4,
             num_micro_batches=num_mbs,
             time_costs=time_costs,  # NOTE: This is from inst_df, not sub_p2p_inst_df, because we want to use the original energy to determine colors.
-            output_dir=output_dir.__str__(),
+            output_dir=str(output_dir),
             fit_method=fit_method,
             p2p_power=p_p2p,
         )

@@ -1,4 +1,5 @@
-"""Define some commonly used constants and functions."""
+"""Constants used throughout the package."""
+
 from rene.instruction import Forward, Backward
 
 # The default error tolerance for floating point comparisons.
