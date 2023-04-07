@@ -291,8 +291,9 @@ class Instruction(metaclass=InstructionType):
             time: {float} -- Time to get the cost at
         """
         cost = self.get_cost(time)
-        assert cost - self.p2p_power * time >= 0
-        return cost - self.p2p_power * time
+        refined_cost = cost - self.p2p_power * time
+        assert refined_cost >= 0
+        return refined_cost
 
     def get_derivative(self, time_left: float, time_right: float) -> float:
         """Get the derivative/slope between two time points time_left and time_right.
