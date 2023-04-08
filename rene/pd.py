@@ -525,10 +525,10 @@ class PDSolver:
             # Step 3: Generate capacity graph
             self.capacity_graph: nx.DiGraph = self.generate_capacity_graph()
 
-            if self.iteration >= 1675:
-            # # if self.iteration % self.interval == 0:
-            #     self.draw_aoa_graph(os.path.join(self.output_dir, f"aoa_graph_{self.iteration}.png"))
-                self.draw_capacity_graph(os.path.join(self.output_dir, f"capacity_graph_{self.iteration}_before.png"))
+            # if self.iteration >= 1675:
+            # # # if self.iteration % self.interval == 0:
+            # #     self.draw_aoa_graph(os.path.join(self.output_dir, f"aoa_graph_{self.iteration}.png"))
+            #     self.draw_capacity_graph(os.path.join(self.output_dir, f"capacity_graph_{self.iteration}_before.png"))
 
             # Step 4: Run double side bounded max flow algorithm on capacity graph,
             # After this the capacity graph will be annoated with the flow
@@ -566,38 +566,38 @@ class PDSolver:
 
             # Step 9: Draw the pipeline graph, the capacity graph and output the frequency assignment
             # if self.iteration >= 135:
-            if self.iteration >= 1675:
+            if self.iteration % self.interval == 0:
                 # self.draw_aoa_graph(os.path.join(self.output_dir, f"aoa_graph_{self.iteration}.png"))
-                self.draw_capacity_graph(
-                    os.path.join(
-                        self.output_dir, f"capacity_graph_{self.iteration}.png"
-                    )
-                )
+                # self.draw_capacity_graph(
+                #     os.path.join(
+                #         self.output_dir, f"capacity_graph_{self.iteration}.png"
+                #     )
+                # )
                 self.draw_pipeline_graph(
                     os.path.join(self.output_dir, f"pipeline_{self.iteration}.png"),
                     draw_time_axis=True,
                 )
 
-            # with open(
-            #     os.path.join(
-            #         self.output_dir, f"freqs_pipeline_{self.iteration:04d}.py"
-            #     ),
-            #     "w",
-            # ) as f:
-            #     f.write("[\n")
-            #     for freqs in total_freqs:
-            #         f.write(str([int(freq) for freq in freqs]) + ",\n")
-            #     f.write("]\n")
-            #     f.write(
-            #         f"# Iteration {self.iteration}: cost change {cost_change} \n"
-            #     )
-            #     f.write(f"# Iteration {self.iteration}: total cost {total_cost} \n")
-            #     f.write(
-            #         f"# Iteration {self.iteration}: refined cost {refined_cost} \n"
-            #     )
-            #     f.write(
-            #         f"# Iteration {self.iteration}: total time {total_time - self.unit_time} \n"
-            #     )
+            with open(
+                os.path.join(
+                    self.output_dir, f"freqs_pipeline_{self.iteration:04d}.py"
+                ),
+                "w",
+            ) as f:
+                f.write("[\n")
+                for freqs in total_freqs:
+                    f.write(str([int(freq) for freq in freqs]) + ",\n")
+                f.write("]\n")
+                f.write(
+                    f"# Iteration {self.iteration}: cost change {cost_change} \n"
+                )
+                f.write(f"# Iteration {self.iteration}: total cost {total_cost} \n")
+                f.write(
+                    f"# Iteration {self.iteration}: refined cost {refined_cost} \n"
+                )
+                f.write(
+                    f"# Iteration {self.iteration}: total time {total_time - self.unit_time} \n"
+                )
 
             logging.info("Iteration %s: cost change %s", self.iteration, cost_change)
             logging.info("Iteration %s: total cost %s", self.iteration, total_cost)
