@@ -1,21 +1,13 @@
-import argparse
 import datetime
 import logging
-import shutil
-import sys
 import time
-import yaml
-from typing import Type
-from matplotlib.patches import Patch
-from matplotlib.colors import Normalize
 from pathlib import Path
 
-import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 plt.rc("svg", hashsalt=None)
 
-from examples.common import df_to_time_costs_pareto, preprocess_time_costs
+from examples.common import df_to_time_costs_pareto, preprocess_time_costs, parse_args
 from rene import (
     CriticalDAG,
     Synchronous1F1B,
@@ -24,26 +16,19 @@ from rene import (
 
 
 def main():
-    if len(sys.argv) != 2:
-        print("Usage: ./driver.py [YAML_PATH]")
-        return
-    
-    with open(sys.argv[1]) as f:
-        conf = yaml.load(f, Loader=yaml.FullLoader)
+    # Build an argument parser.
+    args = parse_args()
         
-    general_conf = conf["general"]
-    inst_profile = general_conf["inst_profile"]
-    p2p_profile = general_conf["p2p_profile"]
-    output_dir = general_conf["output_dir"]
-    num_mbs = general_conf["num_mbs"]
+    inst_profile = args.inst_profile
+    p2p_profile = args.p2p_profile
+    output_dir = args.output_dir
+    num_mbs = args.num_mbs
     
-
-
     # Instruction offline profiling results.
     inst_df = pd.read_csv(inst_profile)
     time_costs = df_to_time_costs_pareto(inst_df)
     
-    print(time_costs)
+    # print(time_costs)
 
     # P2P communication blocking power consumption.
     p2p_block_df = pd.read_csv(p2p_profile)
@@ -58,6 +43,7 @@ def main():
     time_stamp = datetime.datetime.fromtimestamp(
         time.time()).strftime('%m%d_%H%M%S')
     output_dir = Path(output_dir) / time_stamp
+    # output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=False)
     log_path = output_dir / "job.log"
 
@@ -70,29 +56,24 @@ def main():
             logging.StreamHandler()
         ])
     
+    logging.info("Arguments: %s", args)
     # Algorithm part
-    algo_conf = conf["algorithm"]
-    if algo_conf["type"] == "pd":
-        interval = algo_conf["interval"]
-        unit_time = algo_conf["unit_time"]
-        fit_method = algo_conf["fit_method"]
-
-        time_costs = preprocess_time_costs(time_costs, unit_time)
-        # Instantiate the Instruction DAG.
-        dag = CriticalDAG(
-            schedule_type=Synchronous1F1B,
-            num_stages=4,
-            num_micro_batches=num_mbs,
-            time_costs=time_costs,  # NOTE: This is from inst_df, not sub_p2p_inst_df, because we want to use the original energy to determine colors.
-            output_dir=str(output_dir),
-            fit_method=fit_method,
-            p2p_power=p_p2p,
-        )
-        pd_solver = PDSolver(dag, output_dir.__str__(), interval, unit_time)
-        pd_solver.run_pd_algorithm()
-    else:
-        raise NotImplementedError
-
+    interval = args.interval
+    unit_time = args.unit_time
+    fit_method = args.fit_method
+    time_costs = preprocess_time_costs(time_costs, unit_time)
+    # Instantiate the Instruction DAG.
+    dag = CriticalDAG(
+        schedule_type=Synchronous1F1B,
+        num_stages=4,
+        num_micro_batches=num_mbs,
+        time_costs=time_costs,  # NOTE: This is from inst_df, not sub_p2p_inst_df, because we want to use the original energy to determine colors.
+        output_dir=str(output_dir),
+        fit_method=fit_method,
+        p2p_power=p_p2p,
+    )
+    pd_solver = PDSolver(dag, output_dir.__str__(), interval, unit_time)
+    pd_solver.run_pd_algorithm()
 
 if __name__ == "__main__":
     main()

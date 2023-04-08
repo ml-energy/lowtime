@@ -127,7 +127,7 @@ class Instruction(metaclass=InstructionType):
         ax.add_patch(rectangle)
         # Annotate the micro batch number inside the rectangle
         final_annotation_args = dict(
-            text=str(self.frequency),
+            text=repr(self),
             xy=(rectangle.get_x() + rectangle.get_width() / 2, rectangle.get_y() + 0.5),  # type: ignore
         )
         final_annotation_args.update(annotation_args[type(self)])
@@ -228,7 +228,7 @@ class Instruction(metaclass=InstructionType):
         Arguments:
             time: {float} -- Time to get the cost at
         """
-        if not self.fit_coeffs:
+        if len(self.fit_coeffs) == 0:
             raise ValueError("No fit coefficients have been computed yet")
         if self.fit_method == "linear":
             return np.polyval(self.fit_coeffs, time)

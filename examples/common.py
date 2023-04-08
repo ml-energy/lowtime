@@ -1,4 +1,5 @@
 from typing import Type
+import argparse
 import pandas as pd
 import matplotlib.pyplot as plt
 import numpy as np
@@ -61,3 +62,16 @@ def preprocess_time_costs(time_costs: TIME_COST_T, unit_time: float) -> TIME_COS
             time_cost_list = list(zip(time_cost_array[:, 0], time_cost_array[:, 1], time_cost_array[:, 2].astype(int)))
             stage_to_time_costs[stage] = time_cost_list
     return processed_time_costs
+
+def parse_args() -> argparse.Namespace:
+    """Parse command line arguments."""
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--inst_profile", type=str, required=True, help="Path for instruction profile results")
+    parser.add_argument("--p2p_profile", type=str, required=True, help="Path for p2p profile results")
+    parser.add_argument("--output_dir", type=str, required=True, help="Path for output results")
+    parser.add_argument("--num_mbs", type=int, default=3, help="Number of microbatchs")
+    parser.add_argument("--num_stages", type=int, default=4, help="Number of stages")
+    parser.add_argument("--interval", type=int, default=100, help="The interval (number of iterations accumulated) to report pipeline graph and frequency assignment")
+    parser.add_argument("--unit_time", type=float, default=0.001, help="The unit of reduction for each iteration, the smaller the value, the more iterations it takes to converge and the finer graunularity for the Pareto frontier")
+    parser.add_argument("--fit_method", type=str, default="exponential", choices=["linear", "piecewise-linear", "exponential"], help="Methods to fit the time costs")
+    return parser.parse_args()

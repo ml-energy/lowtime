@@ -349,6 +349,15 @@ class PDSolver:
         Returns:
             residual_graph: {nx.DiGraph} -- a residual graph annotated with flow on edges
         """
+        if self.iteration == 1678:
+            # logging.info("debug")
+            # logging.info(f"26,27: [{graph[26][27]['lb']}, {graph[26][27]['ub']}], 32,33: [{graph[32][33]['lb']}, {graph[32][33]['ub']}], 36,37: [{graph[36][37]['lb']}, {graph[36][37]['ub']}], 27,36:[{graph[27][36]['lb']}, {graph[27][36]['ub']}]")
+            logging.info(f"26,27: {repr(graph[26][27]['inst'])}, 32,33: {repr(graph[32][33]['inst'])}, 36,37: {repr(graph[36][37]['inst'])}")
+            for pred_id in graph.predecessors(27):
+                logging.info(f"pred of 27: {pred_id}, {repr(graph[pred_id][27]['inst'])}")
+            for succ_id in graph.successors(36):
+                logging.info(f"succ of 36: {succ_id}, {repr(graph[36][succ_id]['inst'])}")
+            graph[26][27]['ub'] = graph[26][27]['lb']+1e-5
         unbound_graph: nx.DiGraph = nx.DiGraph(graph)
         s_prime = self.node_id
         self.node_id += 1
@@ -516,10 +525,10 @@ class PDSolver:
             # Step 3: Generate capacity graph
             self.capacity_graph: nx.DiGraph = self.generate_capacity_graph()
 
-            # if self.iteration >= 135:
+            if self.iteration >= 1675:
             # # if self.iteration % self.interval == 0:
             #     self.draw_aoa_graph(os.path.join(self.output_dir, f"aoa_graph_{self.iteration}.png"))
-            #     self.draw_capacity_graph(os.path.join(self.output_dir, f"capacity_graph_{self.iteration}_before.png"))
+                self.draw_capacity_graph(os.path.join(self.output_dir, f"capacity_graph_{self.iteration}_before.png"))
 
             # Step 4: Run double side bounded max flow algorithm on capacity graph,
             # After this the capacity graph will be annoated with the flow
@@ -557,11 +566,11 @@ class PDSolver:
 
             # Step 9: Draw the pipeline graph, the capacity graph and output the frequency assignment
             # if self.iteration >= 135:
-            if self.iteration % self.interval == 0:
+            if self.iteration >= 1675:
                 # self.draw_aoa_graph(os.path.join(self.output_dir, f"aoa_graph_{self.iteration}.png"))
                 self.draw_capacity_graph(
                     os.path.join(
-                        self.output_dir, f"capacity_graph_{self.iteration}_after.png"
+                        self.output_dir, f"capacity_graph_{self.iteration}.png"
                     )
                 )
                 self.draw_pipeline_graph(
@@ -569,27 +578,26 @@ class PDSolver:
                     draw_time_axis=True,
                 )
 
-                with open(
-                    os.path.join(
-                        self.output_dir, f"freqs_pipeline_{self.iteration:04d}.py"
-                    ),
-                    "w",
-
-                ) as f:
-                    f.write("[\n")
-                    for freqs in total_freqs:
-                        f.write(str([int(freq) for freq in freqs]) + ",\n")
-                    f.write("]\n")
-                    f.write(
-                        f"# Iteration {self.iteration}: cost change {cost_change} \n"
-                    )
-                    f.write(f"# Iteration {self.iteration}: total cost {total_cost} \n")
-                    f.write(
-                        f"# Iteration {self.iteration}: refined cost {refined_cost} \n"
-                    )
-                    f.write(
-                        f"# Iteration {self.iteration}: total time {total_time - self.unit_time} \n"
-                    )
+            # with open(
+            #     os.path.join(
+            #         self.output_dir, f"freqs_pipeline_{self.iteration:04d}.py"
+            #     ),
+            #     "w",
+            # ) as f:
+            #     f.write("[\n")
+            #     for freqs in total_freqs:
+            #         f.write(str([int(freq) for freq in freqs]) + ",\n")
+            #     f.write("]\n")
+            #     f.write(
+            #         f"# Iteration {self.iteration}: cost change {cost_change} \n"
+            #     )
+            #     f.write(f"# Iteration {self.iteration}: total cost {total_cost} \n")
+            #     f.write(
+            #         f"# Iteration {self.iteration}: refined cost {refined_cost} \n"
+            #     )
+            #     f.write(
+            #         f"# Iteration {self.iteration}: total time {total_time - self.unit_time} \n"
+            #     )
 
             logging.info("Iteration %s: cost change %s", self.iteration, cost_change)
             logging.info("Iteration %s: total cost %s", self.iteration, total_cost)
@@ -611,6 +619,7 @@ class PDSolver:
             self.times.append(total_time - self.unit_time)
             self.iteration += 1
         # Step 11: Output final frequency assignment, final pipeline graph and Pareto frontier
+        logging.info("%%% The PD algorithm finishes, generating final pipeline and Pareto frontier... %%%")
         self.assign_frequency()
         self.draw_pipeline_graph(
             os.path.join(self.output_dir, "pipeline_final.png"), draw_time_axis=True
@@ -698,9 +707,8 @@ class PDSolver:
             if repr(cur_node) in visited:
                 continue
             visited.append(repr(cur_node))
-            if not isinstance(cur_node, _Dummy) and repr(cur_node) not in visited:
+            if not isinstance(cur_node, _Dummy):
                 total_cost += cur_node.get_p2p_refined_cost(cur_node.duration)
-                visited.append(repr(cur_node))
             for child_id in self.critical_dag_aon.complete_dag.successors(cur_id):
                 q.put(child_id)
 
@@ -903,7 +911,7 @@ class PDSolver:
             path: {str} -- The path to save the graph.
             draw_time_axis: {bool} -- Whether to draw the time axis. (default: {False})
         """
-        fig, ax = plt.subplots(figsize=(24, 4), tight_layout=True)
+        fig, ax = plt.subplots(figsize=(self.critical_dag_aon.num_micro_batches * 2, self.critical_dag_aon.num_stages), tight_layout=True)
         ax.set_xlim(0, 58)
         for inst in self.critical_dag_aon.insts:
             # Draw rectangle for Instructions
