@@ -9,7 +9,7 @@ plt.rc("svg", hashsalt=None)
 
 from examples.common import df_to_time_costs_pareto, preprocess_time_costs, parse_args
 from rene import (
-    CriticalDAG,
+    ReneDAG,
     Synchronous1F1B,
     PDSolver,
 )
@@ -40,10 +40,10 @@ def main():
     # so we filter frequencies that are below that and take the average so that we're as accurate as possible.
     p_p2p = p2p_block_df.query("freq >= 800").power.mean().item()
 
-    # time_stamp = datetime.datetime.fromtimestamp(
-    #     time.time()).strftime('%m%d_%H%M%S')
-    # output_dir = Path(output_dir) / time_stamp
-    output_dir = Path(output_dir)
+    time_stamp = datetime.datetime.fromtimestamp(
+        time.time()).strftime('%m%d_%H%M%S')
+    output_dir = Path(output_dir) / time_stamp
+    # output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=False)
     log_path = output_dir / "job.log"
 
@@ -63,7 +63,7 @@ def main():
     fit_method = args.fit_method
     time_costs = preprocess_time_costs(time_costs, unit_time)
     # Instantiate the Instruction DAG.
-    dag = CriticalDAG(
+    dag = ReneDAG(
         schedule_type=Synchronous1F1B,
         num_stages=4,
         num_micro_batches=num_mbs,

@@ -99,6 +99,8 @@ class ReneDAG:
         self.inst_map: dict[str, Instruction] = {}
         self.inst_id_map: dict[str, int] = {}
         self._dag: nx.DiGraph = nx.DiGraph()
+        self._critical_dag: nx.DiGraph = nx.DiGraph()
+        self.changed = True
 
         # For interpolation caching
         self.coeffs_dict: dict[Type[Instruction], dict[int, np.ndarray]] = {}
@@ -173,11 +175,13 @@ class ReneDAG:
         # Introduce dummy entry and exit nodes for analysis convenience.
         # Assign node_id 0 to entry_node and node_id 1 to exit_node
         self.entry_node = _Dummy(-1, -1, duration=0.0, repr="Entry")
+        self.entry_id = self.node_id
         self._dag.add_node(self.node_id, inst=self.entry_node)
         self.inst_map[repr(self.entry_node)] = self.entry_node
         self.inst_id_map[repr(self.entry_node)] = self.node_id
         self.node_id += 1
         self.exit_node = _Dummy(-1, -1, duration=0.0, repr="Exit")
+        self.exit_id = self.node_id
         self._dag.add_node(self.node_id, inst=self.exit_node)
         self.inst_map[repr(self.exit_node)] = self.exit_node
         self.inst_id_map[repr(self.exit_node)] = self.node_id
@@ -304,71 +308,6 @@ class ReneDAG:
                 f"Scheduling algorithm '{algo}' is not implemented"
             )
 
-    def draw_aon_graph(self, path: str) -> None:
-        """Draw the graph in Activity-on-Node form (AON).
-
-        Arguments:
-            path: Path to save the graph.
-        """
-        pos = nx.spring_layout(self.dag)
-        nx.draw(self.dag, pos, with_labels=True, font_weight="bold")
-        labels = nx.get_node_attributes(self.dag, "repr")
-        nx.draw_networkx_labels(self.dag, pos, labels=labels)
-        plt.tight_layout()
-        plt.savefig(path, format="PNG")
-        plt.clf()
-        plt.close()
-
-
-class CriticalDAG(ReneDAG):
-    """DAG of instructions on the critical path, represented in Activity-on-Node form (AON), a subgraph of ReneDAG."""
-
-    def __init__(  # noqa: PLR0913
-        self,
-        schedule_type: Callable[[int, int, int], Iterable[Instruction]],
-        num_stages: int,
-        num_micro_batches: int,
-        time_costs: dict[Type[Instruction], dict[int, list[tuple]]],
-        dependency_rules: Sequence[Callable[..., bool]] = [forward_dep, backward_dep],
-        output_dir: str = "",
-        fit_method: str = "linear",
-        p2p_power: float = 0.0,
-    ) -> None:
-        """Initialize a CriticalDAG, subclass of ReneDAG.
-
-        Arguments:
-            schedule_type: A callable that returns an iterable of pipeline instructions.
-                Can also be a subclass of `rene.schedule.PipeSchedule` like `Synchronous1F1B`.
-            num_stages: The number of pipeline stages.
-            num_micro_batches: The number of micro batches in the pipeline.
-            time_costs: A dict that maps inst type to a dict of stage_id : list of (duration, cost, frequency) tuples.
-            output_dir: output directory for figures
-            dependency_rules: A list of functions that define the dependency between instructions.
-            fit_method: The method to fit the time cost data. Can be "linear" or "piecewise-linear" or "exponential".
-            p2p_power: The power consumption of p2p communication between GPUs.
-        """
-        super(CriticalDAG, self).__init__(
-            schedule_type,
-            num_stages,
-            num_micro_batches,
-            time_costs,
-            dependency_rules,
-            output_dir,
-            fit_method,
-            p2p_power,
-        )
-        logging.info("Initializing CriticalDAG...")
-        # store the original DAG as complete dag
-        self.complete_dag = self.dag
-        # store the critical DAG as the new dag
-        self.update_critical_dag()
-
-        # get a single critical path and mark all nodes on it for P2P cost reduction
-        # we only need to do it once as what is initially on the critical path will always be on the critical path
-        # critical_path = self.get_critical_path()
-        # for node in critical_path:
-        #     node.on_critical_path = True
-
     def annotate_nodes(self) -> None:
         """Annotate earliest/latest start/finish/slack times in nodes."""
         logging.info("Annotating nodes with start/finish/slack times...")
@@ -379,16 +318,16 @@ class CriticalDAG(ReneDAG):
         q.put(self.inst_id_map[repr(self.entry_node)])
 
         visited: dict[int, bool] = {}
-        for node_id in self.complete_dag.nodes:
+        for node_id in self._dag.nodes:
             visited[node_id] = False
         while not q.empty():
             node_id = q.get()
             if visited[node_id]:
                 continue
             visited[node_id] = True
-            node: Instruction = self.complete_dag.nodes[node_id]["inst"]
-            for child_id in self.complete_dag.successors(node_id):
-                child: Instruction = self.complete_dag.nodes[child_id]["inst"]
+            node: Instruction = self._dag.nodes[node_id]["inst"]
+            for child_id in self._dag.successors(node_id):
+                child: Instruction = self._dag.nodes[child_id]["inst"]
                 if child.earliest_start < node.earliest_finish:
                     visited[child_id] = False
                     child.earliest_start = node.earliest_finish
@@ -403,16 +342,16 @@ class CriticalDAG(ReneDAG):
         self.exit_node.latest_start = self.exit_node.earliest_start
         q.put(self.inst_id_map[repr(self.exit_node)])
 
-        for node_id in self.complete_dag.nodes:
+        for node_id in self._dag.nodes:
             visited[node_id] = False
         while not q.empty():
             node_id = q.get()
             if visited[node_id]:
                 continue
             visited[node_id] = True
-            node = self.complete_dag.nodes[node_id]["inst"]
-            for parent_id in self.complete_dag.predecessors(node_id):
-                parent: Instruction = self.complete_dag.nodes[parent_id]["inst"]
+            node = self._dag.nodes[node_id]["inst"]
+            for parent_id in self._dag.predecessors(node_id):
+                parent: Instruction = self._dag.nodes[parent_id]["inst"]
                 # parent.latest_start = min(
                 #     parent.latest_start, node.latest_start - parent.duration
                 # )
@@ -437,17 +376,18 @@ class CriticalDAG(ReneDAG):
             if cur_id in visited:
                 continue
             visited.append(cur_id)
-            cur_node: Instruction = self.complete_dag.nodes[cur_id]["inst"]
+            cur_node: Instruction = self._dag.nodes[cur_id]["inst"]
             cur_node.earliest_start = 0.0
             cur_node.latest_start = float("inf")
             cur_node.earliest_finish = 0.0
             cur_node.latest_finish = float("inf")
             cur_node.slack = 0.0
-            for child_id in self.complete_dag.successors(cur_id):
+            for child_id in self._dag.successors(cur_id):
                 q.put(child_id)
 
     def get_critical_path(self) -> list[Instruction]:
         """Return a single critical path of the DAG."""
+        critical_dag = self.get_critical_dag()
         critical_path: list[Instruction] = []
         q: deque[int] = deque()
         # do a DFS to get the critical path
@@ -456,59 +396,64 @@ class CriticalDAG(ReneDAG):
         while len(q) > 0:
             cur_id = q.pop()
             visited.append(cur_id)
-            critical_path.append(self.dag.nodes[cur_id]["inst"])
+            critical_path.append(critical_dag.nodes[cur_id]["inst"])
             if cur_id == self.inst_id_map[repr(self.exit_node)]:
                 break
-            for succ_id in self.dag.successors(cur_id):
+            for succ_id in critical_dag.successors(cur_id):
                 if succ_id not in visited:
                     q.append(succ_id)
 
         # Slice out entry and exit nodes
         return list(filter(lambda node: not isinstance(node, _Dummy), critical_path))
 
-    def update_critical_dag(self) -> None:
+    def get_critical_dag(self) -> nx.DiGraph:
         """Update the critical DAG, which is a subgraph of self.complete_dag."""
         # TODO: add an if changed flag?
-        self.annotate_nodes()
-        critical_dag: nx.DiGraph = nx.DiGraph(self.complete_dag)
-        # Start to construct critical path graph, in AON format
-        # This is different than get_critical_path() in ReneDAG as it allows multiple critcal paths
-        q: SimpleQueue[int] = SimpleQueue()
-        q.put(self.inst_id_map[repr(self.entry_node)])
+        if self.changed:
+            self.changed = False
+            self.clear_annotations()
+            self.annotate_nodes()
+            critical_dag: nx.DiGraph = nx.DiGraph(self._dag)
+            # Start to construct critical path graph, in AON format
+            # This is different than get_critical_path() in ReneDAG as it allows multiple critcal paths
+            q: SimpleQueue[int] = SimpleQueue()
+            q.put(self.inst_id_map[repr(self.entry_node)])
 
-        critical_ids: list[int] = []
-        visited: list[int] = []
-        logging.info("Updating critical dag...")
-        while not q.empty():
-            node_id = q.get()
-            if node_id in visited:
-                continue
-            visited.append(node_id)
-            node: Instruction = self.complete_dag.nodes[node_id]["inst"]
-            if (
-                abs(node.latest_finish - node.earliest_start - node.duration) < FP_ERROR
-                and node_id not in critical_ids
-            ):
-                critical_ids.append(node_id)
-            for child_id in self.complete_dag.successors(node_id):
-                q.put(child_id)
-        # Remove all non-critical nodes
-        for i in range(0, self.node_id):
-            if i not in critical_ids:
-                critical_dag.remove_node(i)
+            critical_ids: list[int] = []
+            visited: list[int] = []
+            logging.info("Updating critical dag...")
+            while not q.empty():
+                node_id = q.get()
+                if node_id in visited:
+                    continue
+                visited.append(node_id)
+                node: Instruction = self._dag.nodes[node_id]["inst"]
+                if (
+                    abs(node.latest_finish - node.earliest_start - node.duration) < FP_ERROR
+                    and node_id not in critical_ids
+                ):
+                    critical_ids.append(node_id)
+                for child_id in self._dag.successors(node_id):
+                    q.put(child_id)
+            # Remove all non-critical nodes
+            for i in range(0, self.node_id):
+                if i not in critical_ids:
+                    critical_dag.remove_node(i)
 
-        self._dag = critical_dag
+            self._critical_dag = critical_dag
+        return critical_dag
 
-        # let's check if the critical dag has only a single path
-        # q: SimpleQueue[int] = SimpleQueue()
-        # q.put(self.inst_id_map[repr(self.entry_node)])
-        # visited: list[int] = []
-        # while not q.empty():
-        #     node_id = q.get()
-        #     if node_id in visited:
-        #         continue
-        #     visited.append(node_id)
-        #     # if len(list(self._dag.successors(node_id))) > 1:
-        #     #     raise Exception("Critical DAG has multiple paths!")
-        #     for child_id in self._dag.successors(node_id):
-        #         q.put(child_id)
+    def draw_aon_graph(self, path: str) -> None:
+        """Draw the graph in Activity-on-Node form (AON).
+
+        Arguments:
+            path: Path to save the graph.
+        """
+        pos = nx.spring_layout(self.dag)
+        nx.draw(self.dag, pos, with_labels=True, font_weight="bold")
+        labels = nx.get_node_attributes(self.dag, "repr")
+        nx.draw_networkx_labels(self.dag, pos, labels=labels)
+        plt.tight_layout()
+        plt.savefig(path, format="PNG")
+        plt.clf()
+        plt.close()
