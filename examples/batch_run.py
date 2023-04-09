@@ -54,9 +54,9 @@ def main():
         for fit_method in ["linear", "piecewise-linear", "exponential"]:
             task_args = base_args.copy()
             task_args["fit_method"] = fit_method
-            task_name = base_name + f"+{fit_method}"
-            task_args["task_name"] = task_name
-            task_output_dir = str(output_dir / task_name)
+            # task_name = base_name + f"+{fit_method}"
+            task_args["task_name"] = base_name
+            task_output_dir = str(output_dir / fit_method / base_name)
             task_args["output_dir"] = task_output_dir
             tasks.append(task_args)
 

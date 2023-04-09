@@ -40,10 +40,10 @@ def main():
     # so we filter frequencies that are below that and take the average so that we're as accurate as possible.
     p_p2p = p2p_block_df.query("freq >= 800").power.mean().item()
 
-    time_stamp = datetime.datetime.fromtimestamp(
-        time.time()).strftime('%m%d_%H%M%S')
-    output_dir = Path(output_dir) / time_stamp
-    # output_dir = Path(output_dir)
+    # time_stamp = datetime.datetime.fromtimestamp(
+    #     time.time()).strftime('%m%d_%H%M%S')
+    # output_dir = Path(output_dir) / time_stamp
+    output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=False)
     log_path = output_dir / "job.log"
 

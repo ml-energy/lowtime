@@ -408,7 +408,6 @@ class ReneDAG:
 
     def get_critical_dag(self) -> nx.DiGraph:
         """Update the critical DAG, which is a subgraph of self.complete_dag."""
-        # TODO: add an if changed flag?
         if self.changed:
             self.changed = False
             self.clear_annotations()
@@ -441,7 +440,7 @@ class ReneDAG:
                     critical_dag.remove_node(i)
 
             self._critical_dag = critical_dag
-        return critical_dag
+        return self._critical_dag
 
     def draw_aon_graph(self, path: str) -> None:
         """Draw the graph in Activity-on-Node form (AON).

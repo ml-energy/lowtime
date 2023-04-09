@@ -7,7 +7,7 @@ from rene.constants import (
     DEFAULT_LINE_ARGS,
 )
 from rene.instruction import Instruction, Forward, Backward
-from rene.dag import forward_dep, backward_dep, ReneDAG, CriticalDAG
+from rene.dag import forward_dep, backward_dep, ReneDAG
 from rene.pd import PDSolver
 from rene.schedule import PipelineSchedule, Synchronous1F1B
 from rene.visualizer import PipelineVisualizer
@@ -23,7 +23,6 @@ __all__ = [
     "forward_dep",
     "backward_dep",
     "ReneDAG",
-    "CriticalDAG",
     "PDSolver",
     "PipelineSchedule",
     "Synchronous1F1B",
