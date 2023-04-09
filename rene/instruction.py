@@ -145,9 +145,11 @@ class Instruction(metaclass=InstructionType):
         self.fit_method = fit_method
         time_list = []
         cost_list = []
+        cost_list_unrefined = []
         for t, e, _f in self.time_costs:
             time_list.append(t)
-            cost_list.append(e)
+            cost_list_unrefined.append(e)
+            cost_list.append(e - self.p2p_power * t)
 
         if fit_method == "linear":
             # Linear interpolation
@@ -187,28 +189,41 @@ class Instruction(metaclass=InstructionType):
             self.fit_coeffs = convex_points
             # Now, convex_points contains the points that form a convex piecewise linear function
         elif fit_method == "exponential":
+            # poly_coeffs = np.polyfit(time_list, np.log(cost_list), 1, w=np.sqrt(cost_list))
             self.fit_coeffs, _ = curve_fit(
                 lambda t, a, b, c: a * np.exp(b * t) + c,
                 time_list,
                 cost_list,
-                maxfev=10000,
+                # p0=[poly_coeffs[1], poly_coeffs[0], 0],
+                maxfev=100000,
             )
+            unrefined_fit_coeffs, _ = curve_fit(
+                lambda t, a, b, c: a * np.exp(b * t) + c,
+                time_list,
+                cost_list_unrefined,
+                # p0=[poly_coeffs[1], poly_coeffs[0], 0],
+                maxfev=100000,
+            )
+            # self.fit_coeffs = np.array([np.exp(poly_coeffs[1]), poly_coeffs[0]])
         else:
             raise NotImplementedError(f"Unknown fit method: {fit_method}")
 
         fig, ax = plt.subplots(figsize=(8, 8), tight_layout=True)
         ax.plot(time_list, cost_list, "o")
+        ax.plot(time_list, cost_list_unrefined, "x")
         # generate a list with step size 0.1
         x = np.arange(min(time_list), max(time_list), 0.0001)
         # ax.plot(x, np.polyval(self.fit_coeffs, x), 'r-')
         y = []
         for i in x:
             y.append(self.get_cost(i))
-        refined_y = []
-        for i in x:
-            refined_y.append(self.get_p2p_refined_cost(i))
+        a, b, c = unrefined_fit_coeffs
+        unrefined_y = a * np.exp(b * x) + c
+        # refined_y = []
+        # for i in x:
+        #     refined_y.append(self.get_p2p_refined_cost(i))
         ax.plot(x, y, "r-")
-        ax.plot(x, refined_y, "b-")
+        ax.plot(x, unrefined_y, "b-")
         if fit_method == "piecewise-linear":
             for x, y in convex_points:
                 ax.annotate(f"({x:.6f}, {y:.6f})", (x, y))
@@ -236,6 +251,7 @@ class Instruction(metaclass=InstructionType):
             return self.binary_search_piecewise_linear(time)
         elif self.fit_method == "exponential":
             a, b, c = self.fit_coeffs
+            # a, b = self.fit_coeffs
             return a * np.exp(b * time) + c
         else:
             raise ValueError(f"Unknown fit method {self.fit_method}")
@@ -304,8 +320,8 @@ class Instruction(metaclass=InstructionType):
         """
         return abs(
             (
-                self.get_p2p_refined_cost(time_left)
-                - self.get_p2p_refined_cost(time_right)
+                self.get_cost(time_left)
+                - self.get_cost(time_right)
             )
             / (time_left - time_right)
         )
