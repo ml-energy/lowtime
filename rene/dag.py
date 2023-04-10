@@ -53,6 +53,7 @@ class ReneDAG:
         output_dir: str = "",
         fit_method: str = "linear",
         p2p_power: float = 0.0,
+        initial_guess: dict[Type[Instruction], dict[int, list[float]]] = {}
     ) -> None:
         """Instantiate instructions and construct the DAG.
 
@@ -102,8 +103,9 @@ class ReneDAG:
         self._critical_dag: nx.DiGraph = nx.DiGraph()
         self.changed = True
 
-        # For interpolation caching
+        # For interpolation
         self.coeffs_dict: dict[Type[Instruction], dict[int, np.ndarray]] = {}
+        self.initial_guess: dict[Type[Instruction], dict[int, list[float]]] = initial_guess
 
         # For p2p energy reduction
         self.p2p_power = p2p_power
@@ -216,11 +218,16 @@ class ReneDAG:
                 inst.p2p_power = self.p2p_power
 
                 # Do interpolation here
+
+                # check if initial_guess is an empty dict, if not, use the initial guess
+                if self.initial_guess:
+                    inst.initial_guess = self.initial_guess[type(inst)][inst.stage_id]
+
                 if type(inst) not in self.coeffs_dict:
                     self.coeffs_dict[type(inst)] = {}
                 if inst.stage_id not in self.coeffs_dict[type(inst)]:
                     self.coeffs_dict[type(inst)][inst.stage_id] = inst.interpolate(
-                        self.fit_method
+                        self.fit_method, 
                     )
 
                 else:

@@ -12,6 +12,8 @@ from rene import (
     ReneDAG,
     Synchronous1F1B,
     PDSolver,
+    Forward,
+    Backward,
 )
 
 
@@ -39,7 +41,7 @@ def main():
     # In the absolute majority of the times we don't go below 800MHz,
     # so we filter frequencies that are below that and take the average so that we're as accurate as possible.
     p_p2p = p2p_block_df.query("freq >= 800").power.mean().item()
-
+    # print(p_p2p)
     # time_stamp = datetime.datetime.fromtimestamp(
     #     time.time()).strftime('%m%d_%H%M%S')
     # output_dir = Path(output_dir) / time_stamp
@@ -62,6 +64,16 @@ def main():
     unit_time = args.unit_time
     fit_method = args.fit_method
     time_costs = preprocess_time_costs(time_costs, unit_time)
+    if args.initial_guess:
+        with open(args.initial_guess, "r") as f:
+            raw_initial_guess = eval(f.read())
+            initial_guess = {
+                Forward: raw_initial_guess["Forward"],
+                Backward: raw_initial_guess["Backward"],
+            }
+    else:
+        initial_guess = {}
+
     # Instantiate the Instruction DAG.
     dag = ReneDAG(
         schedule_type=Synchronous1F1B,
@@ -71,6 +83,7 @@ def main():
         output_dir=str(output_dir),
         fit_method=fit_method,
         p2p_power=p_p2p,
+        initial_guess=initial_guess,
     )
     pd_solver = PDSolver(dag, output_dir.__str__(), interval, unit_time)
     pd_solver.run_pd_algorithm()

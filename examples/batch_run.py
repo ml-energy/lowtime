@@ -8,7 +8,13 @@ import pandas as pd
 
 def run_task(task: dict):
     # run the driver script
-    subprocess.run(["python", task["driver_path"], "--inst_profile", task["inst_profile"], "--p2p_profile", task["p2p_profile"], "--num_mbs", str(task["num_mbs"]), "--interval", str(task["interval"]), "--unit_time", str(task["unit_time"]), "--fit_method", task["fit_method"], "--output_dir", task["output_dir"]], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    arg_list = []
+    for key, value in task.items():
+        if key == "task_name" or key == "driver_path":
+            continue
+        arg_list.append(f"--{key}")
+        arg_list.append(str(value))
+    subprocess.run(["python", task["driver_path"]] + arg_list, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     return task["task_name"]
 
 def main():
@@ -53,6 +59,11 @@ def main():
         base_args["unit_time"] = 0.001
         for fit_method in ["linear", "piecewise-linear", "exponential"]:
             task_args = base_args.copy()
+            if fit_method == "exponential":
+                initial_guess = base_name + "+exponential.py"
+                initial_guess = Path(args.data_path) / initial_guess
+                if initial_guess.exists():
+                    task_args["initial_guess"] = initial_guess
             task_args["fit_method"] = fit_method
             # task_name = base_name + f"+{fit_method}"
             task_args["task_name"] = base_name

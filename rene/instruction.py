@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
+import logging
 import os
 import numpy as np  # type: ignore
 import matplotlib.pyplot as plt  # type: ignore
@@ -74,6 +75,7 @@ class Instruction(metaclass=InstructionType):
     # For time-cost Pareto frontier model fitting
     fit_method: str = "linear"
     fit_coeffs: np.ndarray = field(default_factory=lambda: np.array([]))
+    initial_guess: list[float] = field(default_factory=list)
 
     # For frequency assignment
     time_costs: list[tuple] = field(default_factory=list)
@@ -143,12 +145,14 @@ class Instruction(metaclass=InstructionType):
         """
         # Get the slope from two endpoints
         self.fit_method = fit_method
+        # Sort the time-costs meta-data by reverse time duration
+        self.time_costs.sort(key=lambda x: x[0], reverse=True)
         time_list = []
         cost_list = []
-        cost_list_unrefined = []
+        # cost_list_unrefined = []
         for t, e, _f in self.time_costs:
             time_list.append(t)
-            cost_list_unrefined.append(e)
+            # cost_list_unrefined.append(e)
             cost_list.append(e - self.p2p_power * t)
 
         if fit_method == "linear":
@@ -190,40 +194,60 @@ class Instruction(metaclass=InstructionType):
             # Now, convex_points contains the points that form a convex piecewise linear function
         elif fit_method == "exponential":
             # poly_coeffs = np.polyfit(time_list, np.log(cost_list), 1, w=np.sqrt(cost_list))
-            self.fit_coeffs, _ = curve_fit(
-                lambda t, a, b, c: a * np.exp(b * t) + c,
-                time_list,
-                cost_list,
-                # p0=[poly_coeffs[1], poly_coeffs[0], 0],
-                maxfev=100000,
-            )
-            unrefined_fit_coeffs, _ = curve_fit(
-                lambda t, a, b, c: a * np.exp(b * t) + c,
-                time_list,
-                cost_list_unrefined,
-                # p0=[poly_coeffs[1], poly_coeffs[0], 0],
-                maxfev=100000,
-            )
+            # unrefined_poly_coeffs = np.polyfit(time_list, np.log(cost_list_unrefined), 1, w=np.sqrt(cost_list_unrefined))
+
+            # if initial guess is not an empty list
+            if self.initial_guess:
+                self.fit_coeffs, _ = curve_fit(
+                    lambda t, a, b, c: a * np.exp(b * t) + c,
+                    time_list,
+                    cost_list,
+                    p0=self.initial_guess,
+                    maxfev=10000,
+                )
+                logging.info(f"{repr(self)} Initial guess: {self.initial_guess}")
+            else:
+                self.fit_coeffs, _ = curve_fit(
+                    lambda t, a, b, c: a * np.exp(b * t) + c,
+                    time_list,
+                    cost_list,
+                    maxfev=10000,
+                )
+                logging.info(f"{repr(self)} No initial guess")
+            # p0_unrefined = [cost_list_unrefined[-1] - cost_list_unrefined[0], -np.log(cost_list_unrefined[0] / cost_list_unrefined[-1]) / (time_list[0] - time_list[-1]), cost_list_unrefined[0]]
+            # self.unrefined_fit_coeffs, _ = curve_fit(
+            #     lambda t, a, b, c: a * np.exp(b * t) + c,
+            #     time_list,
+            #     cost_list_unrefined,
+            #     p0=p0,
+            #     maxfev=10000,
+            # )
+            logging.info(f"{repr(self)} Fit coeffs: {self.fit_coeffs}")
+            # logging.info(f"{repr(self)} Unrefined fit coeffs: {self.unrefined_fit_coeffs}")
             # self.fit_coeffs = np.array([np.exp(poly_coeffs[1]), poly_coeffs[0]])
+            # self.unrefined_fit_coeffs = np.array([np.exp(unrefined_poly_coeffs[1]), unrefined_poly_coeffs[0]])
         else:
             raise NotImplementedError(f"Unknown fit method: {fit_method}")
 
         fig, ax = plt.subplots(figsize=(8, 8), tight_layout=True)
         ax.plot(time_list, cost_list, "o")
-        ax.plot(time_list, cost_list_unrefined, "x")
+        # ax.plot(time_list, cost_list_unrefined, "x")
         # generate a list with step size 0.1
         x = np.arange(min(time_list), max(time_list), 0.0001)
         # ax.plot(x, np.polyval(self.fit_coeffs, x), 'r-')
         y = []
+        # unrefined_y = []
         for i in x:
             y.append(self.get_cost(i))
-        a, b, c = unrefined_fit_coeffs
-        unrefined_y = a * np.exp(b * x) + c
+            # unrefined_y.append(self.unrefined_fit_coeffs[0] * np.exp(self.unrefined_fit_coeffs[1] * i) + self.unrefined_fit_coeffs[2])
+        # a, b, c = unrefined_fit_coeffs
+        # unrefined_y = a * np.exp(b * x) + c
+
         # refined_y = []
         # for i in x:
         #     refined_y.append(self.get_p2p_refined_cost(i))
         ax.plot(x, y, "r-")
-        ax.plot(x, unrefined_y, "b-")
+        # ax.plot(x, unrefined_y, "b-")
         if fit_method == "piecewise-linear":
             for x, y in convex_points:
                 ax.annotate(f"({x:.6f}, {y:.6f})", (x, y))
