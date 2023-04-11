@@ -110,6 +110,9 @@ class ReneDAG:
         # For p2p energy reduction
         self.p2p_power = p2p_power
 
+        # For frequency assignment
+        self.stage_view: dict[int, list[Instruction]] = {}
+
         # Sanity check.
         if self.time_costs is not None:
             for meta_dic in self.time_costs.values():
@@ -197,6 +200,7 @@ class ReneDAG:
                 self.num_stages, self.num_micro_batches, stage_ind
             )
             prev_inst = None
+            self.stage_view[stage_ind] = []
             for inst in stage:
                 # When `durations` is `None`, it means that `inst` already has `duration` set.
                 # if self.durations is not None:
@@ -236,6 +240,7 @@ class ReneDAG:
                 # inst.unit_cost = abs(inst.k)
 
                 self._insts.append(inst)
+                self.stage_view[stage_ind].append(inst)
 
                 # add a new node
                 if repr(inst) not in self.inst_map:
@@ -291,7 +296,7 @@ class ReneDAG:
         """Return a networkx graph representation of the dag."""
         return self._dag
 
-    def schedule(self, algo: Literal["eager", "lazy", "pd"] = "eager") -> None:
+    def schedule(self, algo: Literal["eager", "lazy"] = "eager") -> None:
         """Determine the actual start/finish times of all instructions.
 
         Available algorithms:
@@ -308,8 +313,6 @@ class ReneDAG:
             for inst in self.insts:
                 inst.actual_start = inst.latest_start
                 inst.actual_finish = inst.latest_finish
-        # elif algo == "pd":
-        #     self.run_pd_algo()
         else:
             raise NotImplementedError(
                 f"Scheduling algorithm '{algo}' is not implemented"
@@ -448,6 +451,149 @@ class ReneDAG:
 
             self._critical_dag = critical_dag
         return self._critical_dag
+    
+    def get_total_cost(self) -> tuple[float, float]:
+        """Get the total cost of the current pipeline.
+
+        Returns:
+            total_cost: the total cost
+            refined_cost: the total cost refined with p2p blocking energy
+        """
+        q: SimpleQueue[int] = SimpleQueue()
+        q.put(0)
+        visited: list[str] = list()
+        total_cost: float = 0.0
+
+        while not q.empty():
+            cur_id: int = q.get()
+            cur_node: Instruction = self.dag.nodes[cur_id][
+                "inst"
+            ]
+            if repr(cur_node) in visited:
+                continue
+            visited.append(repr(cur_node))
+            if not isinstance(cur_node, _Dummy):
+                total_cost += cur_node.get_cost(cur_node.duration)
+            for child_id in self.dag.successors(cur_id):
+                q.put(child_id)
+
+        # Refine the total cost with p2p blockig energy 
+        total_time = self.get_total_time()
+        insts_time: float = 0.0
+        for inst in self.insts:
+            insts_time += inst.duration
+        refined_cost = (
+            total_cost
+            + (self.num_stages * total_time - insts_time)
+            * self.p2p_power
+        )
+
+        return (total_cost, refined_cost)
+
+    def get_total_time(self) -> float:
+        """Get the total time of the current pipeline.
+
+        Returns:
+            total_time: {float} -- the total time
+        """
+        critical_path = self.get_critical_path()
+        total_time: float = 0.0
+        for inst in critical_path:
+            total_time += inst.duration
+        return total_time
+
+    def get_freq_assignment(self) -> list[list[int]]:
+        """Assign frequency to each instruction in the pipeline based on the duration.
+
+        Returns:
+            total_freqs: {list[list[int]]} -- the frequency assignment, indexed by stage_id
+        """
+        # do binary search on inst.time_costs, list of (duration, cost, frequency) tuples, sorted by reverse duration
+
+        for stage_id, insts in self.stage_view.items():
+            for inst in insts:
+                # max/min duration should be common case
+                if abs(inst.time_costs[0][0] - inst.duration) < FP_ERROR:
+                    inst.frequency = inst.time_costs[0][2]
+                elif abs(inst.time_costs[-1][0] - inst.duration) < FP_ERROR:
+                    inst.frequency = inst.time_costs[-1][2]
+                else:
+                    inst.frequency = self.binary_search_frequency(inst)
+
+        # # if in the next iteration the duration will be smaller than min duration,
+        # # assign the highest frequency possible
+        # changed = False
+        # for stage_id, insts in stage_view.items():
+        #     insts: list[Instruction] = stage_view[stage_id]
+        #     for inst in insts:
+        #         if inst.duration - self.unit_time < inst.min_duration:
+        #             logging.info(f"{repr(inst)} will exceed min duration in the next iteration, \
+        #               assign highest frequency {inst.time_costs[-1][2]} instead of {inst.frequency}")
+        #             inst.frequency = inst.time_costs[-1][2]
+        #             inst.duration = inst.time_costs[-1][0]
+        #             changed = True
+
+        total_freqs: list[list[int]] = []
+        # logging.info(f"Iteration {self.iteration} outputing frequency assignment...")
+        # f.write("[\n")
+        for stage_id in sorted(self.stage_view.keys()):
+            # logging.info(f"Stage {stage_id} frequency assignment ")
+            insts: list[Instruction] = self.stage_view[stage_id]
+            freqs: list[int] = []
+            reprs: list[str] = []
+            for inst in insts:
+                assert inst.frequency != -1
+                freqs.append(inst.frequency)
+                reprs.append(repr(inst))
+            # logging.info(f"Freqs: {freqs}")
+            # logging.info(f"Reprs: {reprs}")
+            # Output the frequency assignment for this stage using rjust to make sure the length is 4
+            # f.write(str([int(freq) for freq in freqs])+",\n")
+            total_freqs.append(freqs)
+
+        return total_freqs
+
+    def binary_search_frequency(self, cur_node: Instruction) -> int:
+        """Binary search the frequency based on the duration.
+
+        Arguments:
+            cur_node: {Instruction} -- the instruction to search
+
+        Returns:
+            frequency: {int} -- the frequency
+        """
+        # start binary search
+        left = 0
+        right = len(cur_node.time_costs) - 1
+        frequency = -1
+
+        while left < right:
+            mid = (left + right) // 2
+            # if there is an exact match, or we are at the head/end of the list, we are done
+            if (
+                abs(cur_node.time_costs[mid][0] - cur_node.duration) < FP_ERROR
+                or mid == 0
+                or mid == len(cur_node.time_costs) - 1
+            ):
+                frequency = cur_node.time_costs[mid][2]
+                break
+            elif cur_node.time_costs[mid][0] < cur_node.duration:
+                if cur_node.time_costs[mid - 1][0] > cur_node.duration:
+                    # we are between two points, choose one with shorter duration since it is deadline problem
+                    frequency = cur_node.time_costs[mid][2]
+                    break
+                right = mid
+            elif cur_node.time_costs[mid][0] > cur_node.duration:
+                if cur_node.time_costs[mid + 1][0] < cur_node.duration:
+                    # we are between two points, choose one with shorter duration since it is deadline problem
+                    frequency = cur_node.time_costs[mid + 1][2]
+                    break
+                left = mid + 1
+
+        if frequency == -1:
+            raise Exception(f"Cannot find frequency for {repr(cur_node)}")
+        else:
+            return frequency
 
     def draw_aon_graph(self, path: str) -> None:
         """Draw the graph in Activity-on-Node form (AON).

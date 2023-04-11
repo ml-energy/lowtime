@@ -85,7 +85,6 @@ class Instruction(metaclass=InstructionType):
     # For P2P blocking cost reduction
     num_stages: int = 0
     p2p_power: float = 0.0
-    on_critical_path: bool = False
 
     output_dir: str = ""
 
@@ -123,11 +122,11 @@ class Instruction(metaclass=InstructionType):
         final_rectangle_args.update(rectangle_args[type(self)])
         if power_color is not None:
             final_rectangle_args["facecolor"] = plt.get_cmap(power_color)(
-                self.cost / self.duration / 400.0
+                self.get_cost(self.duration) / self.duration / 400.0
             )
         rectangle = Rectangle(**final_rectangle_args)
         ax.add_patch(rectangle)
-        # Annotate the micro batch number inside the rectangle
+        # Annotate the frequency inside the rectangle
         final_annotation_args = dict(
             text=str(self.frequency),
             xy=(rectangle.get_x() + rectangle.get_width() / 2, rectangle.get_y() + 0.5),  # type: ignore
@@ -137,8 +136,6 @@ class Instruction(metaclass=InstructionType):
 
     def interpolate(self, fit_method: str) -> np.ndarray:
         """Do interpolation on the given instruction and its time-costs meta-data, return the coefficients.
-
-        Assumes self.time_costs[inst] has already been sorted.
 
         Arguments:
             fit_method: {str} -- Fit method to use, currently supports "linear", "piecewise-linear" and "exponential"

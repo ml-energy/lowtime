@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import copy
 import logging
 import os
 import matplotlib.pyplot as plt  # type: ignore
@@ -12,6 +13,7 @@ from matplotlib.ticker import FormatStrFormatter  # type: ignore
 from networkx.algorithms.flow import edmonds_karp  # type: ignore
 from queue import SimpleQueue
 from collections import deque
+from collections.abc import Generator
 
 from rene.constants import (
     FP_ERROR,
@@ -100,7 +102,6 @@ class PDSolver:
             elif cur_inst is rene_dag.exit_node:
                 self.exit_id = right_id
                 
-            # logging.info(f"add edge {left_id}, {right_id}, weight {cur_inst.duration}")
             self.node_id += 2
             # Reconnect with predecessors and successors
             for pred_id in pred_ids:
@@ -136,12 +137,6 @@ class PDSolver:
             mapping[node_id] = index
             index += 1
         cap_graph = nx.relabel_nodes(cap_graph, mapping)
-        # logging.info(list(cap_graph.nodes))
-        # self.entry_id = mapping[self.entry_id]
-        # self.exit_id = mapping[self.exit_id]
-        # mapped_critical_edges = []
-        # for edge in self.critical_edges:
-        #     mapped_critical_edges.append((mapping[edge[0]], mapping[edge[1]]))
         
         # capa_dict = {}
         q: SimpleQueue[int] = SimpleQueue()
@@ -155,10 +150,6 @@ class PDSolver:
             for succ_id in list(cap_graph.successors(cur_id)):
                 q.put(succ_id)
                 cur_inst: Instruction = cap_graph[cur_id][succ_id]["inst"]
-                # if cur_id not in capa_dict:
-                #     capa_dict[cur_id] = {}
-                # if succ_id not in capa_dict[cur_id]:
-                #     capa_dict[cur_id][succ_id] = {}
                 lb = 0.0
                 ub = 0.0
                 if isinstance(cur_inst, _Dummy) or (
@@ -186,13 +177,6 @@ class PDSolver:
                     ) + FP_ERROR
                 cap_graph[cur_id][succ_id]["lb"] = lb // FP_ERROR * FP_ERROR
                 cap_graph[cur_id][succ_id]["ub"] = ub // FP_ERROR * FP_ERROR
-                # capa_dict[cur_id][succ_id] = [lb // FP_ERROR * FP_ERROR, ub // FP_ERROR * FP_ERROR]
-        # capa_output = []
-        # for edge in mapped_critical_edges:
-        #     capa_output.append(f"{edge[0]} {edge[1]} {capa_dict[edge[0]][edge[1]]}")
-        # self.capa_dict = capa_dict
-        # self.mapped_critical_edges = mapped_critical_edges
-        # logging.info(f"critical edges capacity: {capa_output}")
 
         return cap_graph, mapping[self.entry_id], mapping[self.exit_id]
 
@@ -269,64 +253,6 @@ class PDSolver:
                     q.append(child_id)
 
         return (visited, parents)
-
-    def find_max_flow(
-        self, graph: nx.DiGraph, source_id: int, sink_id: int
-    ) -> nx.DiGraph:
-        """Find max flow using DFS search, each edge in the graph has a upper bound capacity, i.e. flow is [0, weight].
-
-        Arguments:
-            graph: {nx.DiGraph} -- a DAG with annoated capacity on edges
-            source_id: {int} -- start node id
-            sink_id: {int} -- sink node id
-
-        Returns:
-            residual_graph: {nx.DiGraph} -- a residual graph annotated with flow on edges
-        """
-        residual_graph: nx.DiGraph = nx.DiGraph(graph)
-
-        while True:
-            # Step 1: get a path from entry to exit
-            visited, parents = self.search_path_dfs(residual_graph, source_id, sink_id)
-            if visited[sink_id] is False:
-                break
-            # Step 2: find min capacity along the path
-            right_ptr = sink_id
-            left_ptr = parents[sink_id]
-            path = [right_ptr, left_ptr]
-            min_capacity = residual_graph[left_ptr][right_ptr]["weight"]
-            while left_ptr != source_id:
-                right_ptr = left_ptr
-                left_ptr = parents[left_ptr]
-                path.append(left_ptr)
-                min_capacity = min(
-                    residual_graph[left_ptr][right_ptr]["weight"], min_capacity
-                )
-            # logging.info(f"path  {path}")
-
-            # Step 3: update residual graph
-            right_ptr = sink_id
-            left_ptr = parents[sink_id]
-            while True:
-                residual_graph[left_ptr][right_ptr]["weight"] -= min_capacity
-                # Create residual edge if needed
-                if residual_graph.has_edge(right_ptr, left_ptr) is False:
-                    residual_graph.add_edge(
-                        right_ptr,
-                        left_ptr,
-                        weight=min_capacity,
-                        inst=residual_graph[left_ptr][right_ptr]["inst"],
-                    )
-                else:
-                    residual_graph[right_ptr][left_ptr]["weight"] += min_capacity
-                if left_ptr == source_id:
-                    break
-                right_ptr = left_ptr
-                left_ptr = parents[left_ptr]
-
-        # logging.info(f"Iteration {self.iteration}: s_set: ",s_set)
-        # logging.info(f"Iteration {self.iteration}: t_set ", t_set)
-        return residual_graph
 
     def find_min_cut(
         self, residual_graph: nx.DiGraph, source_id: int, sink_id: int
@@ -588,8 +514,110 @@ class PDSolver:
         # logging.info(f"Critical instructions: {critical_insts}")
         # logging.info(f"Critical edges: {critical_edges}")
         return critical_dag
+    
+    def run_one_iteration(self) -> ReneDAG:
+        """Run one iteration of the PD algorithm.
 
-    def run_pd_algorithm(self) -> None:
+        Returns:
+            ReneDAG: The updated ReneDAG after one iteration of the PD algorithm.
+        """
+        # Step 1: Get critical AOA dag from Rene AOA dag
+        self.critical_aoa_dag = self.get_critical_aoa_dag(self.rene_dag_aoa, self.rene_dag.entry_node, self.rene_dag.exit_node)
+        
+        # Step 2: Do eager assignment given annotated graph
+        # for inst in self.rene_dag.insts:
+        #     inst.actual_start = inst.earliest_start
+        #     inst.actual_finish = inst.earliest_finish
+
+        # Step 3: Generate capacity graph
+        self.capacity_graph, cap_entry_id, cap_exit_id = self.generate_capacity_graph(self.critical_aoa_dag)
+
+        # Step 4: Run double side bounded max flow algorithm on capacity graph,
+        # After this the capacity graph will be annoated with the flow
+        residual_graph = self.find_max_flow_bounded(
+            self.capacity_graph, cap_entry_id, cap_exit_id
+        )
+        if residual_graph is None:
+            return None
+        # s_set, t_set = self.find_min_cut(self.capacity_graph, self.entry_id, self.exit_id, flow_dict)
+        #  Step 5: Find the min cut on the residual graph
+        s_set, t_set = self.find_min_cut(
+            residual_graph, cap_entry_id, cap_exit_id
+        )
+        # Step 6: Reduce the duration by cutting crossing edges between s_set and t_set
+        cost_change = self.reduce_duration(s_set, t_set)
+        if cost_change == float("inf") or abs(cost_change) < FP_ERROR:
+            return None
+        # the ReneDAG must be re-scheduled after the duration is reduced
+        self.rene_dag.scheduled = False
+
+        # # Step 7: Assign frequency to each instruction, solve for the total cost and the total time
+        total_cost, refined_cost = self.rene_dag.get_total_cost()
+        total_time = self.rene_dag.get_total_time()
+        # # Step 8: Refine the total cost with p2p blockig energy
+        # insts_time: float = 0.0
+        # for inst in self.rene_dag.insts:
+        #     insts_time += inst.duration
+        # refined_cost = (
+        #     total_cost
+        #     + (self.rene_dag.num_stages * total_time - insts_time)
+        #     * self.rene_dag.p2p_power
+        # )
+        # # Step 9: Draw the pipeline graph, the capacity graph and output the frequency assignment
+        # # if self.iteration >= 135:
+        # if self.iteration % self.interval == 0:
+        #     # self.draw_aoa_graph(os.path.join(self.output_dir, f"aoa_graph_{self.iteration}.png"))
+        #     # self.draw_capacity_graph(
+        #     #     os.path.join(
+        #     #         self.output_dir, f"capacity_graph_{self.iteration}.png"
+        #     #     )
+        #     # )
+        #     self.draw_pipeline_graph(
+        #         os.path.join(self.output_dir, f"pipeline_{self.iteration}.png"),
+        #         draw_time_axis=True,
+        #     )
+        # total_freqs = self.assign_frequency()
+        # with open(
+        #     os.path.join(
+        #         self.output_dir, f"freqs_pipeline_{self.iteration:05d}.py"
+        #     ),
+        #     "w",
+        # ) as f:
+        #     f.write("[\n")
+        #     for freqs in total_freqs:
+        #         f.write(str([int(freq) for freq in freqs]) + ",\n")
+        #     f.write("]\n")
+        #     f.write(
+        #         f"# Iteration {self.iteration}: cost change {cost_change} \n"
+        #     )
+        #     f.write(f"# Iteration {self.iteration}: total cost {total_cost} \n")
+        #     f.write(
+        #         f"# Iteration {self.iteration}: refined cost {refined_cost} \n"
+        #     )
+        #     f.write(
+        #         f"# Iteration {self.iteration}: total time {total_time} \n"
+        #     )
+        logging.info("Iteration %s: cost change %s", self.iteration, cost_change)
+        logging.info("Iteration %s: total cost %s", self.iteration, total_cost)
+        logging.info("Iteration %s: refined cost %s", self.iteration, refined_cost)
+        logging.info(
+            "Iteration %s: total time %s",
+            self.iteration,
+            total_time,
+        )
+        # Step 10: Clear the annotations on the critical dag and update the critical dag with the new durations,
+        # then start the next iteration
+        # self.critical_dag_aon.clear_annotations()
+        # self.node_id = self.critical_dag_aon.node_id
+        # self.critical_dag_aon.update_critical_dag()
+        self.costs.append(total_cost)
+        self.refined_costs.append(refined_cost)
+        self.times.append(total_time)
+        self.iteration += 1
+
+        return copy.deepcopy(self.rene_dag)
+
+    def run(self) -> Generator[ReneDAG, None, None]:
         """Run the PD algorithm iteratively to solve for the Pareto optimal schedule for each time breakpoint.
 
         This is the main workflow of the algorithm.
@@ -599,132 +627,18 @@ class PDSolver:
         self.rene_dag_aoa: nx.DiGraph = self.aon_to_aoa(self.rene_dag)
 
         while True:
-
-            # Step 1: Get critical AOA dag from Rene AOA dag
-            self.critical_aoa_dag = self.get_critical_aoa_dag(self.rene_dag_aoa, self.rene_dag.entry_node, self.rene_dag.exit_node)
-            
-            # Step 2: Do eager assignment given annotated graph
-            for inst in self.rene_dag.insts:
-                inst.actual_start = inst.earliest_start
-                inst.actual_finish = inst.earliest_finish
-
-            # Step 9: Draw the pipeline graph, the capacity graph and output the frequency assignment
-            # if self.iteration >= 135:
-            # total_freqs = self.assign_frequency()
-            if self.iteration % self.interval == 0:
-                # self.draw_aoa_graph(os.path.join(self.output_dir, f"aoa_graph_{self.iteration}.png"))
-                # self.draw_capacity_graph(
-                #     os.path.join(
-                #         self.output_dir, f"capacity_graph_{self.iteration}.png"
-                #     )
+            new_rene_dag = self.run_one_iteration()
+            if new_rene_dag is None:
+                # Step 11: Output final frequency assignment, final pipeline graph and Pareto frontier
+                logging.info("%%% The PD algorithm finishes, generating final pipeline and Pareto frontier... %%%")
+                # self.assign_frequency()
+                # self.draw_pipeline_graph(
+                #     os.path.join(self.output_dir, "pipeline_final.png"), draw_time_axis=True
                 # )
-                self.draw_pipeline_graph(
-                    os.path.join(self.output_dir, f"pipeline_{self.iteration}.png"),
-                    draw_time_axis=True,
-                )
-
-            # Step 3: Generate capacity graph
-            self.capacity_graph, cap_entry_id, cap_exit_id = self.generate_capacity_graph(self.critical_aoa_dag)
-
-            # if self.iteration >= 1675:
-            # # # if self.iteration % self.interval == 0:
-            # #     self.draw_aoa_graph(os.path.join(self.output_dir, f"aoa_graph_{self.iteration}.png"))
-            #     self.draw_capacity_graph(os.path.join(self.output_dir, f"capacity_graph_{self.iteration}_before.png"))
-
-            # Step 4: Run double side bounded max flow algorithm on capacity graph,
-            # After this the capacity graph will be annoated with the flow
-            residual_graph = self.find_max_flow_bounded(
-                self.capacity_graph, cap_entry_id, cap_exit_id
-            )
-            if residual_graph is None:
+                self.draw_pareto_frontier(os.path.join(self.output_dir, "Pareto_frontier.png"))
                 break
-            # s_set, t_set = self.find_min_cut(self.capacity_graph, self.entry_id, self.exit_id, flow_dict)
-
-            #  Step 5: Find the min cut on the residual graph
-            s_set, t_set = self.find_min_cut(
-                residual_graph, cap_entry_id, cap_exit_id
-            )
-
-            # Step 6: Reduce the duration by cutting crossing edges between s_set and t_set
-            cost_change = self.reduce_duration(s_set, t_set)
-            if cost_change == float("inf"):
-                break
-
-            # Step 7: Assign frequency to each instruction, solve for the total cost and the total time
-            total_cost = self.calculate_total_cost()
-            total_time = self.calculate_total_time()
-
-            # Step 8: Refine the total cost with p2p blockig energy
-            insts_time: float = 0.0
-            for inst in self.rene_dag.insts:
-                insts_time += inst.actual_duration
-            refined_cost = (
-                total_cost
-                + (self.rene_dag.num_stages * total_time - insts_time)
-                * self.rene_dag.p2p_power
-            )
-
-            # # Step 9: Draw the pipeline graph, the capacity graph and output the frequency assignment
-            # # if self.iteration >= 135:
-            if self.iteration % self.interval == 0:
-                # self.draw_aoa_graph(os.path.join(self.output_dir, f"aoa_graph_{self.iteration}.png"))
-                # self.draw_capacity_graph(
-                #     os.path.join(
-                #         self.output_dir, f"capacity_graph_{self.iteration}.png"
-                #     )
-                # )
-                self.draw_pipeline_graph(
-                    os.path.join(self.output_dir, f"pipeline_{self.iteration}.png"),
-                    draw_time_axis=True,
-                )
-            total_freqs = self.assign_frequency()
-            with open(
-                os.path.join(
-                    self.output_dir, f"freqs_pipeline_{self.iteration:05d}.py"
-                ),
-                "w",
-            ) as f:
-                f.write("[\n")
-                for freqs in total_freqs:
-                    f.write(str([int(freq) for freq in freqs]) + ",\n")
-                f.write("]\n")
-                f.write(
-                    f"# Iteration {self.iteration}: cost change {cost_change} \n"
-                )
-                f.write(f"# Iteration {self.iteration}: total cost {total_cost} \n")
-                f.write(
-                    f"# Iteration {self.iteration}: refined cost {refined_cost} \n"
-                )
-                f.write(
-                    f"# Iteration {self.iteration}: total time {total_time - self.unit_time} \n"
-                )
-
-            logging.info("Iteration %s: cost change %s", self.iteration, cost_change)
-            logging.info("Iteration %s: total cost %s", self.iteration, total_cost)
-            logging.info("Iteration %s: refined cost %s", self.iteration, refined_cost)
-            logging.info(
-                "Iteration %s: total time %s",
-                self.iteration,
-                total_time - self.unit_time,
-            )
-
-            # Step 10: Clear the annotations on the critical dag and update the critical dag with the new durations,
-            # then start the next iteration
-            # self.critical_dag_aon.clear_annotations()
-            # self.node_id = self.critical_dag_aon.node_id
-            # self.critical_dag_aon.update_critical_dag()
-
-            self.costs.append(total_cost)
-            self.refined_costs.append(refined_cost)
-            self.times.append(total_time - self.unit_time)
-            self.iteration += 1
-        # Step 11: Output final frequency assignment, final pipeline graph and Pareto frontier
-        logging.info("%%% The PD algorithm finishes, generating final pipeline and Pareto frontier... %%%")
-        self.assign_frequency()
-        self.draw_pipeline_graph(
-            os.path.join(self.output_dir, "pipeline_final.png"), draw_time_axis=True
-        )
-        self.draw_pareto_frontier(os.path.join(self.output_dir, "Pareto_frontier.png"))
+            else:
+                yield new_rene_dag
 
     def reduce_duration(self, s: set[int], t: set[int]) -> float:
         """Reduce the duration of forward edges from s to t and increase the duration of backward edges from t to s.
@@ -752,6 +666,9 @@ class PDSolver:
         logging.info("Iteration %s: increase edges %s", self.iteration, increase_edges)
         # if len(reduce_edges) > 1 or len(increase_edges) > 0:
         #     raise ValueError(f"reduce edges {reduce_edges} and increase edges {increase_edges}")
+        if len(reduce_edges) == 0:
+            return 0.0
+
         cost_change: float = 0.0
 
         increase_insts: list[str] = list()
@@ -794,179 +711,6 @@ class PDSolver:
         logging.info("Iteration %s: increase insts %s", self.iteration, increase_insts)
         self.rene_dag.changed = True
         return cost_change
-
-    def calculate_total_cost(self) -> float:
-        """Calculate the total cost of the current pipeline.
-
-        Returns:
-            total_cost: {float} -- the total cost
-        """
-        q: SimpleQueue[int] = SimpleQueue()
-        q.put(0)
-        visited: list[str] = list()
-        total_cost: float = 0.0
-
-        while not q.empty():
-            cur_id: int = q.get()
-            cur_node: Instruction = self.rene_dag.dag.nodes[cur_id][
-                "inst"
-            ]
-            if repr(cur_node) in visited:
-                continue
-            visited.append(repr(cur_node))
-            if not isinstance(cur_node, _Dummy):
-                total_cost += cur_node.get_cost(cur_node.duration)
-            for child_id in self.rene_dag.dag.successors(cur_id):
-                q.put(child_id)
-
-        return total_cost
-
-    def calculate_total_time(self) -> float:
-        """Calculate the total time of the current pipeline.
-
-        Returns:
-            total_time: {float} -- the total time
-        """
-        critical_path = self.rene_dag.get_critical_path()
-        total_time: float = 0.0
-        for inst in critical_path:
-            total_time += inst.actual_duration
-        return total_time
-
-    def assign_frequency(self) -> list[list[int]]:
-        """Assign frequency to each instruction in the pipeline based on the duration.
-
-        Returns:
-            total_freqs: {list[list[int]]} -- the frequency assignment, indexed by stage_id
-        """
-        # do binary search on inst.time_costs, list of (duration, cost, frequency) tuples, sorted by reverse duration
-        q: SimpleQueue[int] = SimpleQueue()
-        q.put(0)
-        # stage_id -> list of Instructions with that stage_id
-        stage_view: dict[int, list[Instruction]] = {}
-        visited: list[str] = list()
-        while not q.empty():
-            cur_id: int = q.get()
-            cur_node: Instruction = self.rene_dag._dag.nodes[cur_id][
-                "inst"
-            ]
-            if repr(cur_node) in visited:
-                continue
-            visited.append(repr(cur_node))
-            for child_id in self.rene_dag._dag.successors(cur_id):
-                q.put(child_id)
-            if isinstance(cur_node, _Dummy):
-                continue
-            # max/min duration should be common case
-            if abs(cur_node.time_costs[0][0] - cur_node.duration) < FP_ERROR:
-                cur_node.frequency = cur_node.time_costs[0][2]
-            elif abs(cur_node.time_costs[-1][0] - cur_node.duration) < FP_ERROR:
-                cur_node.frequency = cur_node.time_costs[-1][2]
-            else:
-                cur_node.frequency = self.binary_search_frequency(cur_node)
-
-            if cur_node.stage_id not in stage_view:
-                stage_view[cur_node.stage_id] = [cur_node]
-            else:
-                stage_view[cur_node.stage_id].append(cur_node)
-
-        # # if in the next iteration the duration will be smaller than min duration,
-        # # assign the highest frequency possible
-        # changed = False
-        # for stage_id, insts in stage_view.items():
-        #     insts: list[Instruction] = stage_view[stage_id]
-        #     for inst in insts:
-        #         if inst.duration - self.unit_time < inst.min_duration:
-        #             logging.info(f"{repr(inst)} will exceed min duration in the next iteration, \
-        #               assign highest frequency {inst.time_costs[-1][2]} instead of {inst.frequency}")
-        #             inst.frequency = inst.time_costs[-1][2]
-        #             inst.duration = inst.time_costs[-1][0]
-        #             changed = True
-
-        # # We need to update the total duration and cost if any stage changes
-        # if changed:
-        #     self.critical_dag_aon.clear_annotations()
-        #     self.critical_dag_aon.annotate_nodes()
-        #     for inst in self.critical_dag_aon.insts:
-        #         inst.actual_start = inst.earliest_start
-        #         inst.actual_finish = inst.earliest_finish
-
-        # with open(os.path.join(self.output_dir, f"freqs_pipeline_{self.iteration:04d}.py"), "w+") as f:
-        total_freqs: list[list[int]] = []
-        # logging.info(f"Iteration {self.iteration} outputing frequency assignment...")
-        # f.write("[\n")
-        for stage_id in sorted(stage_view.keys()):
-            # logging.info(f"Stage {stage_id} frequency assignment ")
-            insts: list[Instruction] = stage_view[stage_id]
-            freqs: list[int] = []
-            reprs: list[str] = []
-            for inst in insts:
-                assert inst.frequency != -1
-                freqs.append(inst.frequency)
-                reprs.append(repr(inst))
-            # logging.info(f"Freqs: {freqs}")
-            # logging.info(f"Reprs: {reprs}")
-            # Output the frequency assignment for this stage using rjust to make sure the length is 4
-            # f.write(str([int(freq) for freq in freqs])+",\n")
-            total_freqs.append(freqs)
-            # f.write("]\n")
-
-        # with open(os.path.join(self.output_dir, f"freqs_{self.iteration:04d}.py"), "w+") as f:
-        #     f.write(repr(total_freqs)+'\n')
-
-        return total_freqs
-
-    def binary_search_frequency(self, cur_node: Instruction) -> int:
-        """Binary search the frequency based on the duration.
-
-        Arguments:
-            cur_node: {Instruction} -- the instruction to search
-
-        Returns:
-            frequency: {int} -- the frequency
-        """
-        # start binary search
-        left = 0
-        right = len(cur_node.time_costs) - 1
-        frequency = -1
-
-        while left < right:
-            mid = (left + right) // 2
-            # if there is an exact match, or we are at the head/end of the list, we are done
-            if (
-                abs(cur_node.time_costs[mid][0] - cur_node.duration) < FP_ERROR
-                or mid == 0
-                or mid == len(cur_node.time_costs) - 1
-            ):
-                frequency = cur_node.time_costs[mid][2]
-                break
-            elif cur_node.time_costs[mid][0] < cur_node.duration:
-                if cur_node.time_costs[mid - 1][0] > cur_node.duration:
-                    # we are between two points, choose one with shorter duration since it is deadline problem
-                    frequency = cur_node.time_costs[mid][2]
-                    # mid_duration = (cur_node.time_costs[mid][0] + cur_node.time_costs[mid-1][0]) / 2
-                    # if mid_duration < cur_node.duration:
-                    #     cur_node.frequency = cur_node.time_costs[mid-1][2]
-                    # else:
-                    #     cur_node.frequency = cur_node.time_costs[mid][2]
-                    break
-                right = mid
-            elif cur_node.time_costs[mid][0] > cur_node.duration:
-                if cur_node.time_costs[mid + 1][0] < cur_node.duration:
-                    # we are between two points, choose one with shorter duration since it is deadline problem
-                    frequency = cur_node.time_costs[mid + 1][2]
-                    # mid_duration = (cur_node.time_costs[mid][0] + cur_node.time_costs[mid+1][0]) / 2
-                    # if mid_duration < cur_node.duration:
-                    #     cur_node.frequency = cur_node.time_costs[mid][2]
-                    # else:
-                    #     cur_node.frequency = cur_node.time_costs[mid+1][2]
-                    break
-                left = mid + 1
-
-        if frequency == -1:
-            raise Exception(f"Cannot find frequency for {repr(cur_node)}")
-        else:
-            return frequency
 
     def draw_aoa_graph(self, path: str) -> None:
         """Draw the AOA graph to the given path.
@@ -1064,63 +808,3 @@ class PDSolver:
         plt.clf()
         plt.close()
 
-    def draw_critical_path(self, ax: Axes) -> None:
-        """Draw the critical path of the DAG on the given Axes object.
-
-        Arguments:
-            ax: {Axes} -- The Axes object to draw the critical path.
-        """
-        # critical_path = self.get_critical_path()
-
-        # get all pairs of instructions in the critical path defined by self.critical_dag_aon by BFS
-        critical_aon_dag: nx.DiGraph = self.rene_dag.get_critical_dag()
-        filtered_critical_pairs = self.get_critical_pairs(critical_aon_dag, self.rene_dag.entry_id, self.rene_dag.exit_id)
-
-        for inst1, inst2 in filtered_critical_pairs:
-            ax.plot(
-                [
-                    (inst1.actual_start + inst1.actual_finish) / 2,
-                    (inst2.actual_start + inst2.actual_finish) / 2,
-                ],
-                [inst1.stage_id + 0.75, inst2.stage_id + 0.75],
-                **self.line_args,
-            )
-
-    def get_critical_pairs(self, critical_aon_dag: nx.DiGraph, entry_id: int, exit_id: int) -> list[tuple[Instruction, Instruction]]:
-        """Get all pairs of instructions that are neighbours and both critical, defined by self.critical_dag_aon.
-
-        Returns:
-            filtered_critical_pairs: {list[tuple[Instruction, Instruction]]} -- The list of critical pairs.
-        """
-        # get all pairs of instructions in the critical path defined by self.critical_dag_aon by BFS
-        critical_pairs = []
-        q: SimpleQueue[int] = SimpleQueue()
-        q.put(entry_id)
-        visited: set[int] = set()
-        while not q.empty():
-            cur_id = q.get()
-            if cur_id in visited:
-                continue
-            visited.add(cur_id)
-
-            for succ_id in critical_aon_dag.successors(cur_id):
-                q.put(succ_id)
-                if cur_id != entry_id and succ_id != exit_id:
-                    critical_pairs.append(
-                        (
-                            critical_aon_dag.nodes[cur_id]["inst"],
-                            critical_aon_dag.nodes[succ_id]["inst"],
-                        )
-                    )
-
-        # do some ad hoc filtering to remove some errornous critical pairs
-        filtered_critical_pairs = []
-        for inst1, inst2 in critical_pairs:
-            if (
-                inst1.stage_id == inst2.stage_id
-                and abs(inst1.actual_finish - inst2.actual_start) > FP_ERROR
-            ):
-                continue
-            filtered_critical_pairs.append((inst1, inst2))
-
-        return filtered_critical_pairs

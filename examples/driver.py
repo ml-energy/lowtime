@@ -1,6 +1,7 @@
 import datetime
 import logging
 import time
+import os
 from pathlib import Path
 
 import pandas as pd
@@ -14,6 +15,10 @@ from rene import (
     PDSolver,
     Forward,
     Backward,
+    PipelineVisualizer,
+    DEFAULT_ANNOTATION_ARGS,
+    DEFAULT_LINE_ARGS,
+    DEFAULT_RECTANGLE_ARGS,
 )
 
 
@@ -25,12 +30,11 @@ def main():
     p2p_profile = args.p2p_profile
     output_dir = args.output_dir
     num_mbs = args.num_mbs
+    num_stages = args.num_stages
     
     # Instruction offline profiling results.
     inst_df = pd.read_csv(inst_profile)
     time_costs = df_to_time_costs_pareto(inst_df)
-    
-    # print(time_costs)
 
     # P2P communication blocking power consumption.
     p2p_block_df = pd.read_csv(p2p_profile)
@@ -42,10 +46,10 @@ def main():
     # so we filter frequencies that are below that and take the average so that we're as accurate as possible.
     p_p2p = p2p_block_df.query("freq >= 800").power.mean().item()
     # print(p_p2p)
-    # time_stamp = datetime.datetime.fromtimestamp(
-    #     time.time()).strftime('%m%d_%H%M%S')
-    # output_dir = Path(output_dir) / time_stamp
-    output_dir = Path(output_dir)
+    time_stamp = datetime.datetime.fromtimestamp(
+        time.time()).strftime('%m%d_%H%M%S')
+    output_dir = Path(output_dir) / time_stamp
+    # output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=False)
     log_path = output_dir / "job.log"
 
@@ -64,6 +68,7 @@ def main():
     unit_time = args.unit_time
     fit_method = args.fit_method
     time_costs = preprocess_time_costs(time_costs, unit_time)
+    # print(time_costs)    
     if args.initial_guess:
         with open(args.initial_guess, "r") as f:
             raw_initial_guess = eval(f.read())
@@ -77,7 +82,7 @@ def main():
     # Instantiate the Instruction DAG.
     dag = ReneDAG(
         schedule_type=Synchronous1F1B,
-        num_stages=4,
+        num_stages=num_stages,
         num_micro_batches=num_mbs,
         time_costs=time_costs,  # NOTE: This is from inst_df, not sub_p2p_inst_df, because we want to use the original energy to determine colors.
         output_dir=str(output_dir),
@@ -85,8 +90,66 @@ def main():
         p2p_power=p_p2p,
         initial_guess=initial_guess,
     )
+
+    # Instantiate the visualizer args
+    annotation_args = DEFAULT_ANNOTATION_ARGS
+    annotation_args[Forward]["fontsize"] = 9.0
+    annotation_args[Backward]["fontsize"] = 9.0
+    # annotation_args[Backward]["color"] = "#ffffff"
+    rectangle_args = DEFAULT_RECTANGLE_ARGS
+    rectangle_args[Forward]["hatch"] = "////"
+    line_args = DEFAULT_LINE_ARGS
+    line_args["linewidth"] = 2.0
+
+    # Instantiate the PD solver.
     pd_solver = PDSolver(dag, output_dir.__str__(), interval, unit_time)
-    pd_solver.run_pd_algorithm()
+    rene_gen = pd_solver.run()
+    prev_cost: float = 0.0
+    cost_change: float = 0.0 
+    for i, rene_dag in enumerate(rene_gen):
+        rene_dag.schedule("eager")
+        total_freqs = rene_dag.get_freq_assignment()
+        total_cost, refined_cost = rene_dag.get_total_cost()
+        cost_change = total_cost - prev_cost
+        prev_cost = total_cost
+        total_time = rene_dag.get_total_time()
+        with open(
+            os.path.join(
+                output_dir, f"freqs_pipeline_{i:05d}.py"
+            ),
+            "w",
+        ) as f:
+            f.write("[\n")
+            for freqs in total_freqs:
+                f.write(str([int(freq) for freq in freqs]) + ",\n")
+            f.write("]\n")
+            f.write(
+                f"# Iteration {i}: cost change {cost_change} \n"
+            )
+            f.write(f"# Iteration {i}: total cost {total_cost} \n")
+            f.write(
+                f"# Iteration {i}: refined cost {refined_cost} \n"
+            )
+            f.write(
+                f"# Iteration {i}: total time {total_time} \n"
+            )
+        vis = PipelineVisualizer(
+        rene_dag,
+        annotation_args=annotation_args,
+        rectangle_args=rectangle_args,
+        line_args=line_args,
+        )
+        fig, ax = plt.subplots(figsize=(num_mbs * 2, num_stages), tight_layout=dict(pad=0.2, w_pad=0.2, h_pad=0.2))
+        vis.draw(ax, draw_time_axis=True, power_color="Oranges")
+        vis.draw_critical_path(ax)
+        # ax.set_xlim(0, 4.6)  # Fix xlim so that different 1F1B pipelines from different heuristics can be compared side-by-side.
+        ax.xaxis.set_label_coords(0.5, -0.07)
+        ax.set_xlabel("Time (s)", fontsize=9.0)
+        ax.tick_params(axis="x", labelsize=8.0)        
+        fig.savefig(os.path.join(output_dir, f"pipeline_{i}.png"), format="PNG")
+        plt.clf()
+        plt.close()
+
 
 if __name__ == "__main__":
     main()

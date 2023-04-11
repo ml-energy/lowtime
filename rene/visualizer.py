@@ -4,17 +4,20 @@ from __future__ import annotations
 
 from typing import Any
 
+import networkx as nx  # type: ignore
 import matplotlib.pyplot as plt  # type: ignore
 from matplotlib.axes import Axes  # type: ignore
 from matplotlib.patches import Rectangle  # type: ignore
 from matplotlib.ticker import FormatStrFormatter  # type: ignore
+from queue import SimpleQueue
 
 from rene.constants import (
+    FP_ERROR,
     DEFAULT_RECTANGLE_ARGS,
     DEFAULT_ANNOTATION_ARGS,
     DEFAULT_LINE_ARGS,
 )
-from rene.instruction import InstructionType
+from rene.instruction import InstructionType, Instruction
 from rene.dag import ReneDAG
 
 
@@ -46,6 +49,46 @@ class PipelineVisualizer:
         self.rectangle_args = rectangle_args
         self.annotation_args = annotation_args
         self.line_args = line_args
+
+    def get_critical_pairs(self, critical_aon_dag: nx.DiGraph, entry_id: int, exit_id: int) -> list[tuple[Instruction, Instruction]]:
+        """Get all pairs of instructions that are neighbours and both critical, defined by self.critical_dag_aon.
+
+        Returns:
+            filtered_critical_pairs: {list[tuple[Instruction, Instruction]]} -- The list of critical pairs.
+        """
+        # get all pairs of instructions in the critical path defined by self.critical_dag_aon by BFS
+        critical_pairs = []
+        q: SimpleQueue[int] = SimpleQueue()
+        q.put(entry_id)
+        visited: set[int] = set()
+        while not q.empty():
+            cur_id = q.get()
+            if cur_id in visited:
+                continue
+            visited.add(cur_id)
+
+            for succ_id in critical_aon_dag.successors(cur_id):
+                q.put(succ_id)
+                if cur_id != entry_id and succ_id != exit_id:
+                    critical_pairs.append(
+                        (
+                            critical_aon_dag.nodes[cur_id]["inst"],
+                            critical_aon_dag.nodes[succ_id]["inst"],
+                        )
+                    )
+
+        # do some ad hoc filtering to remove some errornous critical pairs
+        filtered_critical_pairs = []
+        for inst1, inst2 in critical_pairs:
+            if (
+                inst1.stage_id == inst2.stage_id
+                and abs(inst1.actual_finish - inst2.actual_start) > FP_ERROR
+            ):
+                continue
+            filtered_critical_pairs.append((inst1, inst2))
+
+        return filtered_critical_pairs
+
 
     def draw(
         self,
@@ -99,14 +142,20 @@ class PipelineVisualizer:
         ax.autoscale()
         ax.invert_yaxis()
 
+
     def draw_critical_path(self, ax: Axes) -> None:
         """Draw the critical path of the DAG on the given Axes object.
 
         Arguments:
             ax: {Axes} -- The Axes object to draw on.
         """
-        critical_path = self.dag.get_critical_path()
-        for inst1, inst2 in zip(critical_path, critical_path[1:]):  # noqa
+        # critical_path = self.get_critical_path()
+
+        # get all pairs of instructions in the critical path defined by self.critical_dag_aon by BFS
+        critical_aon_dag: nx.DiGraph = self.dag.get_critical_dag()
+        filtered_critical_pairs = self.get_critical_pairs(critical_aon_dag, self.dag.entry_id, self.dag.exit_id)
+
+        for inst1, inst2 in filtered_critical_pairs:
             ax.plot(
                 [
                     (inst1.actual_start + inst1.actual_finish) / 2,

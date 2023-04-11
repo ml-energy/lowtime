@@ -13,7 +13,7 @@ DEFAULT_RECTANGLE_ARGS = {
 
 # The default arguments for matplotlib.axes.Axes.annotate.
 DEFAULT_ANNOTATION_ARGS = {
-    Forward: dict(color="#2e00ff", fontsize=10.0, ha="center", va="center"),
+    Forward: dict(color="#000000", fontsize=10.0, ha="center", va="center"),
     Backward: dict(color="#000000", fontsize=10.0, ha="center", va="center"),
 }
 
