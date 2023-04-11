@@ -86,11 +86,16 @@ class Instruction(metaclass=InstructionType):
     output_dir: Path | None = None
 
     def __repr__(self) -> str:
-        """Return a concise representation of the Instruction."""
+        """Return a concise representation of the Instruction.
+
+        This method is called many times, so we cache the string in `self.repr`
+        when we construct it since it's a constant.
+        """
         if self.repr:
             return self.repr
         name = self.alias or type(self).__name__
-        return f"{name}(S{self.stage_id}B{self.micro_batch_id})"
+        self.repr = f"{name}(S{self.stage_id}B{self.micro_batch_id})"
+        return self.repr
 
     @property
     def slack(self) -> float:
@@ -176,6 +181,7 @@ class Instruction(metaclass=InstructionType):
             hull = ConvexHull(data)
 
             # Restore the original y-coordinates
+            # Points are guaranteed to be in counter-clockwise order.
             convex_points = data[hull.vertices]
             convex_points[:, 1] = -convex_points[:, 1]
             # Roll convex_points until the first point's x coordinate is the smallest on the convex hull
