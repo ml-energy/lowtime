@@ -3,9 +3,9 @@
 from __future__ import annotations
 
 import logging
-import os
+from pathlib import Path
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, ClassVar, Literal
 
 import numpy as np  # type: ignore
 import matplotlib.pyplot as plt  # type: ignore
@@ -24,9 +24,7 @@ class InstructionType(type):
     # Names of Instruction subclasses.
     subclass_names: set[str] = set()
 
-    def __new__(  # type: ignore
-        cls: InstructionType, name: str, bases: tuple[type, ...], dct: dict[str, Any]
-    ) -> type:
+    def __new__(cls, name, bases, dct):
         """Collect the names of all `Instruction` classes defined."""
         if name in cls.subclass_names:
             raise ValueError(f"Instruction class '{name}' already exists")
@@ -48,7 +46,6 @@ class Instruction(metaclass=InstructionType):
         latest_start: The latest time this instruction can start
         earliest_finish: The earliest time this instruction can finish
         latest_finish: The latest time this instruction can finish
-        slack: The max delay for this instruction without delaying latest_finish
         actual_start: The actual start time determined by the scheduling algorithm
         actual_finish: The actual finish time determined by the scheduling algorithm
     """
@@ -60,40 +57,45 @@ class Instruction(metaclass=InstructionType):
     max_duration: float = 0.0
     min_duration: float = 0.0
     repr: str = ""
+    alias: ClassVar[str] = "INST"
 
-    # Values set by critical path analysis (in `ReneDAG.__init__`)
+    # Values set by critical path analysis (in `ReneDAG.annotate_nodes`)
     earliest_start: float = 0.0
     latest_start: float = float("inf")
     earliest_finish: float = 0.0
     latest_finish: float = float("inf")
-    slack: float = 0.0
 
     # Values set by `ReneDAG.schedule`
     actual_start: float = 0.0
     actual_finish: float = 0.0
 
     # For time-cost Pareto frontier model fitting
-    fit_method: str = "linear"
+    fit_method: Literal["linear", "piecewise-linear", "exponential"] = "linear"
     fit_coeffs: np.ndarray = field(default_factory=lambda: np.array([]))
     initial_guess: list[float] = field(default_factory=list)
 
     # For frequency assignment
-    time_costs: list[tuple] = field(default_factory=list)
+    time_costs: list[tuple[float, float, int]] = field(default_factory=list)
     frequency: int = -1
-    cost: float = -1.0
+    cost: float = -1.0  # This is decoupled energy cost, not computation energy cost.
 
-    # For P2P blocking cost reduction
+    # For decoupled energy
     num_stages: int = 0
     p2p_power: float = 0.0
 
-    output_dir: str = ""
+    output_dir: Path | None = None
 
     def __repr__(self) -> str:
         """Return a concise representation of the Instruction."""
-        return (
-            self.repr
-            or f"{type(self).__name__}(S{self.stage_id}B{self.micro_batch_id})"
-        )
+        if self.repr:
+            return self.repr
+        name = self.alias or type(self).__name__
+        return f"{name}(S{self.stage_id}B{self.micro_batch_id})"
+
+    @property
+    def slack(self) -> float:
+        """Return the slack of the Instruction."""
+        return self.latest_finish - self.earliest_finish
 
     @property
     def actual_duration(self) -> float:
@@ -137,7 +139,8 @@ class Instruction(metaclass=InstructionType):
         final_annotation_args.update(annotation_args[type(self)])
         ax.annotate(**final_annotation_args)
 
-    def fit(self, fit_method: str) -> np.ndarray:
+    # ruff: noqa: PLR0912
+    def fit(self, fit_method: Literal["linear", "piecewise-linear", "exponential"]) -> np.ndarray:
         """Do interpolation on the given instruction and its time-costs meta-data, return the coefficients.
 
         Arguments:
@@ -149,9 +152,9 @@ class Instruction(metaclass=InstructionType):
         self.time_costs.sort(key=lambda x: x[0], reverse=True)
         time_list = []
         cost_list = []
-        for t, e, _f in self.time_costs:
+        for t, e, _ in self.time_costs:
             time_list.append(t)
-            cost_list.append(e - self.p2p_power * t)
+            cost_list.append(e - self.p2p_power * t)  # Decoupled instruction energy
 
         if fit_method == "linear":
             # Linear interpolation
@@ -214,22 +217,23 @@ class Instruction(metaclass=InstructionType):
         else:
             raise NotImplementedError(f"Unknown fit method: {fit_method}")
 
-        fig, ax = plt.subplots(figsize=(8, 8), tight_layout=True)
-        ax.plot(time_list, cost_list, "o")
-        # generate a list with step size 0.1
-        x = np.arange(min(time_list), max(time_list), 0.0001)
-        y = []
-        for i in x:
-            y.append(self.get_cost(i))
-        ax.plot(x, y, "r-")
-        if fit_method == "piecewise-linear":
-            for x, y in convex_points:
-                ax.annotate(f"({x:.6f}, {y:.6f})", (x, y))
-        ax.set_xlabel("time")
-        ax.set_ylabel("energy")
-        fig.savefig(os.path.join(self.output_dir, f"{repr(self)}.png"), format="PNG")
-        plt.clf()
-        plt.close()
+        if self.output_dir is not None:
+            fig, ax = plt.subplots(figsize=(8, 8), tight_layout=True)
+            ax.plot(time_list, cost_list, "o")
+            # generate a list with step size 0.1
+            x = np.arange(min(time_list), max(time_list), 0.0001)
+            y = []
+            for i in x:
+                y.append(self.get_cost(i))
+            ax.plot(x, y, "r-")
+            if fit_method == "piecewise-linear":
+                for x, y in convex_points:
+                    ax.annotate(f"({x:.6f}, {y:.6f})", (x, y))
+            ax.set_xlabel("time")
+            ax.set_ylabel("energy")
+            fig.savefig(self.output_dir / f"{repr(self)}.png")
+            plt.clf()
+            plt.close()
 
         return self.fit_coeffs
 
@@ -237,7 +241,7 @@ class Instruction(metaclass=InstructionType):
         """Get the cost of the instruction at the given time.
 
         Arguments:
-            time: {float} -- Time to get the cost at
+            time: Time to get the cost at
         """
         if len(self.fit_coeffs) == 0:
             raise ValueError("No fit coefficients have been computed yet")
@@ -247,7 +251,6 @@ class Instruction(metaclass=InstructionType):
             return self.binary_search_piecewise_linear(time)
         elif self.fit_method == "exponential":
             a, b, c = self.fit_coeffs
-            # a, b = self.fit_coeffs
             return a * np.exp(b * time) + c
         else:
             raise ValueError(f"Unknown fit method {self.fit_method}")
@@ -312,34 +315,19 @@ class Instruction(metaclass=InstructionType):
 class Forward(Instruction):
     """Forward computation for a pipeline stage."""
 
-    def __repr__(self) -> str:
-        """Return a concise representation of the Instruction."""
-        if not self.repr:
-            return f"FW(S{self.stage_id}B{self.micro_batch_id})"
-        else:
-            return self.repr
+    alias = "FW"
 
 
 class Backward(Instruction):
     """Backward computation for a pipeline stage."""
 
-    def __repr__(self) -> str:
-        """Return a concise representation of the Instruction."""
-        if not self.repr:
-            return f"BW(S{self.stage_id}B{self.micro_batch_id})"
-        else:
-            return self.repr
+    alias = "BW"
 
 
 class Recomputation(Instruction):
     """Activation recomputation (forward) for a pipeline stage."""
 
-    def __repr__(self) -> str:
-        """Return a concise representation of the Instruction."""
-        if not self.repr:
-            return f"RC(S{self.stage_id}B{self.micro_batch_id})"
-        else:
-            return self.repr
+    alias = "RC"
 
 
 class _Dummy(Instruction):

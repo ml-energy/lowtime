@@ -6,6 +6,7 @@ import inspect
 import itertools
 import logging
 import typing
+from pathlib import Path
 from typing import Iterable, Sequence, Type, Callable, Generator, Literal
 from queue import SimpleQueue
 from collections import deque
@@ -43,16 +44,15 @@ def backward_dep(inst1: Backward, inst2: Backward) -> bool:
 class ReneDAG:
     """DAG of instructions and analysis methods, represented in Activity-on-Node form (AON)."""
 
-    # pylint: disable=dangerous-default-value,too-many-branches
     def __init__(  # noqa: PLR0913
         self,
         schedule_type: Callable[[int, int, int], Iterable[Instruction]],
         num_stages: int,
         num_micro_batches: int,
-        time_costs: dict[Type[Instruction], dict[int, list[tuple]]],
+        time_costs: dict[Type[Instruction], dict[int, list[tuple[float, float, int]]]],
         dependency_rules: Sequence[Callable[..., bool]] = [forward_dep, backward_dep],
-        output_dir: str = "",
-        fit_method: str = "linear",
+        output_dir: Path | None = None,
+        fit_method: Literal['linear', 'piecewise-linear', 'exponential'] = "linear",
         p2p_power: float = 0.0,
         initial_guess: dict[Type[Instruction], dict[int, list[float]]] = None,  # type: ignore
     ) -> None:
@@ -64,10 +64,10 @@ class ReneDAG:
             num_stages: The number of pipeline stages.
             num_micro_batches: The number of micro batches in the pipeline.
             time_costs: A dict that maps inst type to a dict of stage_id: list of (duration, cost, frequency) tuples.
-            output_dir: Output directory for figures
+            output_dir: Output directory for figures. Pass `None` to disable outputs.
             dependency_rules: A list of functions that define the dependency between instructions.
             fit_method: The method to fit the time cost data. Can be "linear" or "piecewise-linear" or "exponential".
-            p2p_power: The power consumption of p2p communication between GPUs.
+            p2p_power: The power consumption of blocking on p2p communication between GPUs.
             initial_guess: A dict mapping inst type to a dict of stage_id:
                 list of initial guess for parameters of "exponential" fit.
 
@@ -98,7 +98,7 @@ class ReneDAG:
         self.fit_method = fit_method
         self.output_dir = output_dir
 
-        # For p2p energy reduction
+        # For decoupled instruction energy
         self.p2p_power = p2p_power
 
         # For graph generation
@@ -319,8 +319,8 @@ class ReneDAG:
             )
 
     def annotate_nodes(self) -> None:
-        """Annotate earliest/latest start/finish/slack times in nodes."""
-        logging.info("Annotating nodes with start/finish/slack times...")
+        """Annotate earliest/latest start/finish times in nodes."""
+        logging.info("Annotating nodes with earliest/latest start/finish times...")
         # Forward computation: Assign earliest start and finish times
         self.entry_node.earliest_start = 0.0
         self.entry_node.earliest_finish = 0.0
@@ -362,16 +362,10 @@ class ReneDAG:
             node = self._dag.nodes[node_id]["inst"]
             for parent_id in self._dag.predecessors(node_id):
                 parent: Instruction = self._dag.nodes[parent_id]["inst"]
-                # parent.latest_start = min(
-                #     parent.latest_start, node.latest_start - parent.duration
-                # )
                 if parent.latest_start > node.latest_start - parent.duration:
                     visited[parent_id] = False
                     parent.latest_start = node.latest_start - parent.duration
                 parent.latest_finish = parent.latest_start + parent.duration
-                parent.slack = (
-                    parent.latest_finish - parent.earliest_start - parent.duration
-                )
 
                 q.put(parent_id)
 
@@ -391,7 +385,6 @@ class ReneDAG:
             cur_node.latest_start = float("inf")
             cur_node.earliest_finish = 0.0
             cur_node.latest_finish = float("inf")
-            cur_node.slack = 0.0
             for child_id in self._dag.successors(cur_id):
                 q.put(child_id)
 
@@ -476,7 +469,7 @@ class ReneDAG:
             for child_id in self.dag.successors(cur_id):
                 q.put(child_id)
 
-        # Refine the total cost with p2p blockig energy
+        # Refine the total cost with p2p blocking energy
         total_time = self.get_total_time()
         insts_time: float = 0.0
         for inst in self.insts:
@@ -488,16 +481,9 @@ class ReneDAG:
         return (total_cost, refined_cost)
 
     def get_total_time(self) -> float:
-        """Get the total time of the current pipeline.
-
-        Returns:
-            total_time: The total time
-        """
+        """Compute the total execution time of the current pipeline."""
         critical_path = self.get_critical_path()
-        total_time: float = 0.0
-        for inst in critical_path:
-            total_time += inst.duration
-        return total_time
+        return sum(inst.duration for inst in critical_path)
 
     def get_freq_assignment(self) -> list[list[int]]:
         """Assign frequency to each instruction in the pipeline based on the duration.
@@ -505,9 +491,8 @@ class ReneDAG:
         Returns:
             total_freqs: The frequency assignment, indexed by stage_id
         """
-        # do binary search on inst.time_costs, list of (duration, cost, frequency) tuples, sorted by reverse duration
-
-        for _stage_id, insts in self.stage_view.items():
+        # Do binary search on inst.time_costs, list of (duration, cost, frequency) tuples, sorted by reverse duration
+        for insts in self.stage_view.values():
             for inst in insts:
                 # max/min duration should be common case
                 if abs(inst.time_costs[0][0] - inst.duration) < FP_ERROR:
@@ -516,19 +501,6 @@ class ReneDAG:
                     inst.frequency = inst.time_costs[-1][2]
                 else:
                     inst.frequency = self.binary_search_frequency(inst)
-
-        # # if in the next iteration the duration will be smaller than min duration,
-        # # assign the highest frequency possible
-        # changed = False
-        # for stage_id, insts in stage_view.items():
-        #     insts: list[Instruction] = stage_view[stage_id]
-        #     for inst in insts:
-        #         if inst.duration - self.unit_time < inst.min_duration:
-        #             logging.info(f"{repr(inst)} will exceed min duration in the next iteration, \
-        #               assign highest frequency {inst.time_costs[-1][2]} instead of {inst.frequency}")
-        #             inst.frequency = inst.time_costs[-1][2]
-        #             inst.duration = inst.time_costs[-1][0]
-        #             changed = True
 
         total_freqs: list[list[int]] = []
         for stage_id in sorted(self.stage_view.keys()):

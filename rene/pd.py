@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import copy
 import logging
-import os
+from pathlib import Path
 from queue import SimpleQueue
 from collections import deque
 from collections.abc import Generator
@@ -33,8 +33,7 @@ class PDSolver:
     def __init__(
         self,
         rene_dag: ReneDAG,
-        output_dir: str,
-        interval: int = 100,
+        output_dir: Path,
         unit_time: float = 0.01,
     ) -> None:
         """Initialize the PD solver.
@@ -42,11 +41,10 @@ class PDSolver:
         Arguments:
             rene_dag: a ReneDAG object
             output_dir: output directory for figures and frequency assignments
-            interval: number of iterations to output pipeline graph and frequency assignment
             unit_time: the single unit of duration deduction per PD iteration
         """
         self.iteration: int = 0
-        self.output_dir: str = output_dir
+        self.output_dir = output_dir
         self.rene_dag: ReneDAG = rene_dag
         # self.critical_dag_aon: CriticalDAG = critical_dag
         self.node_id: int = self.rene_dag.node_id
@@ -55,7 +53,6 @@ class PDSolver:
         self.line_args = DEFAULT_LINE_ARGS
         self.entry_id: int = 0
         self.exit_id: int = 1
-        self.interval = interval
         self.unit_time = unit_time
 
         # for Pareto frontier
@@ -464,7 +461,6 @@ class PDSolver:
             cur_inst.latest_start = float("inf")
             cur_inst.earliest_finish = 0.0
             cur_inst.latest_finish = float("inf")
-            cur_inst.slack = 0.0
 
         # Step 2: Run forward pass to get earliest start and earliest finish, note that instructions are on the edges
         for node_id in nx.topological_sort(aoa_dag):
@@ -498,9 +494,6 @@ class PDSolver:
                     )
                     parent_inst.latest_finish = (
                         parent_inst.latest_start + parent_inst.duration
-                    )
-                    parent_inst.slack = (
-                        parent_inst.latest_start - parent_inst.earliest_start
                     )
 
         # Step 4: Remove all edges that are not on the critical path, note that instructions are on the edges
@@ -588,9 +581,7 @@ class PDSolver:
                 logging.info(
                     "%%% The PD algorithm finishes, generating final pipeline and Pareto frontier... %%%"
                 )
-                self.draw_pareto_frontier(
-                    os.path.join(self.output_dir, "Pareto_frontier.png")
-                )
+                self.draw_pareto_frontier(self.output_dir / "Pareto_frontier.png")
                 break
             else:
                 yield new_rene_dag
@@ -712,7 +703,7 @@ class PDSolver:
         plt.clf()
         plt.close()
 
-    def draw_pareto_frontier(self, path: str) -> None:
+    def draw_pareto_frontier(self, path: Path) -> None:
         """Draw the pareto frontier to the given path.
 
         Arguments:

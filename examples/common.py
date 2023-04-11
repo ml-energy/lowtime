@@ -38,7 +38,7 @@ def df_to_time_costs_pareto(inst_df: pd.DataFrame) -> TIME_COST_T:
     return time_costs
 
 def preprocess_time_costs(time_costs: TIME_COST_T, unit_time: float) -> TIME_COST_T:
-    """Preprocess time costs data. Quantize the time costs and preprocess data points: remove redundant time points, break ties by lower cost value.
+    """Quantize time, remove redundant time points, and break ties by lower cost value.
     
     Arguments:
         time_costs: time costs data
