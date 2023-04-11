@@ -373,5 +373,16 @@ class Backward(Instruction):
             return self.repr
 
 
+class Recomputation(Instruction):
+    """Activation recomputation (forward) for a pipeline stage."""
+
+    def __repr__(self) -> str:
+        """Return a concise representation of the Instruction."""
+        if not self.repr:
+            return f"RC(S{self.stage_id}B{self.micro_batch_id})"
+        else:
+            return self.repr
+
+
 class _Dummy(Instruction):
     """Dummy operation for entry and exit nodes in the DAG."""

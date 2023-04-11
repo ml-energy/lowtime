@@ -5,7 +5,7 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from typing import Generator
 
-from rene.instruction import Instruction, Forward, Backward
+from rene.instruction import Instruction, Forward, Backward, Recomputation
 
 
 class PipelineSchedule(ABC):
@@ -115,3 +115,23 @@ class Synchronous1F1B(PipelineSchedule):
         base = ((step_id - 1) // 2) - self.num_stages + 1
         micro_batch_id = int(base + self.stage_id // 2)
         return micro_batch_id
+
+
+class EarlyRecomputation1F1B(Synchronous1F1B):
+    """Early recomputation 1F1B schedule from Merak."""
+
+    def __iter__(self) -> Generator[Instruction, None, None]:
+        """Return a generator that yields `Instruction`s for one stage."""
+        total_steps = 2 * (self.num_micro_batches + self.num_stages - 1)
+        for step_id in range(total_steps):
+            # Map the step of the pipeline to the micro-batch id and also whether it is a
+            # forward or backward pass step.
+            micro_batch_id, is_forward = self._step_to_micro_batch(step_id)
+
+            if self._valid_micro_batch(micro_batch_id):
+                if is_forward:
+                    yield Forward(self.stage_id, micro_batch_id)
+                else:
+                    # Recomputateion right before backward.
+                    yield Recomputation(self.stage_id, micro_batch_id)
+                    yield Backward(self.stage_id, micro_batch_id)
