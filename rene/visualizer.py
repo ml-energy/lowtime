@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from queue import SimpleQueue
 from typing import Any
 
 import networkx as nx  # type: ignore
@@ -9,7 +10,6 @@ import matplotlib.pyplot as plt  # type: ignore
 from matplotlib.axes import Axes  # type: ignore
 from matplotlib.patches import Rectangle  # type: ignore
 from matplotlib.ticker import FormatStrFormatter  # type: ignore
-from queue import SimpleQueue
 
 from rene.constants import (
     FP_ERROR,
@@ -35,12 +35,12 @@ class PipelineVisualizer:
         """Save the DAG and matplotilb arguments.
 
         Arguments:
-            dag: {ReneDAG} -- The ReneDAG. The instructions must be scheduled by calling `schedule`
-            rectangle_args: {dict[InstructionType, dict[str, Any]]} -- Arguments passed to
+            dag: The ReneDAG. The instructions must be scheduled by calling `schedule`
+            rectangle_args: Arguments passed to
                 `matplotlib.patches.Rectangle` for instructions
-            annotation_args: {dict[InstructionType, dict[str, Any]]} -- Arguments passed to
+            annotation_args: Arguments passed to
                 `matplotlib.axes.Axes.annotate` for the text inside instruction boxes
-            line_args: {dict[str, Any]} -- Arguments passed to `matplitlib.axes.Axes.plot` for the critical path
+            line_args: Arguments passed to `matplitlib.axes.Axes.plot` for the critical path
         """
         if not dag.scheduled:
             raise ValueError("The DAG must be scheduled in order to be visualized.")
@@ -50,11 +50,13 @@ class PipelineVisualizer:
         self.annotation_args = annotation_args
         self.line_args = line_args
 
-    def get_critical_pairs(self, critical_aon_dag: nx.DiGraph, entry_id: int, exit_id: int) -> list[tuple[Instruction, Instruction]]:
+    def get_critical_pairs(
+        self, critical_aon_dag: nx.DiGraph, entry_id: int, exit_id: int
+    ) -> list[tuple[Instruction, Instruction]]:
         """Get all pairs of instructions that are neighbours and both critical, defined by self.critical_dag_aon.
 
         Returns:
-            filtered_critical_pairs: {list[tuple[Instruction, Instruction]]} -- The list of critical pairs.
+            filtered_critical_pairs: The list of critical pairs.
         """
         # get all pairs of instructions in the critical path defined by self.critical_dag_aon by BFS
         critical_pairs = []
@@ -89,7 +91,6 @@ class PipelineVisualizer:
 
         return filtered_critical_pairs
 
-
     def draw(
         self,
         ax: Axes,
@@ -99,9 +100,9 @@ class PipelineVisualizer:
         """Draw the pipeline on the given Axes object.
 
         Args:
-            ax: {Axes} -- The Axes object to draw on.
-            draw_time_axis: {bool} -- Whether to draw the time axis on the bottom of the plot.
-            power_color: {str} -- If None, instruction color is determined by the instruction type.
+            ax: The Axes object to draw on.
+            draw_time_axis: Whether to draw the time axis on the bottom of the plot.
+            power_color: If None, instruction color is determined by the instruction type.
                 Otherwise, this should be a matplotlib colormap name, and the color of each
                 instruction is determined by its power consumption (= cost/duration).
         """
@@ -142,18 +143,19 @@ class PipelineVisualizer:
         ax.autoscale()
         ax.invert_yaxis()
 
-
     def draw_critical_path(self, ax: Axes) -> None:
         """Draw the critical path of the DAG on the given Axes object.
 
         Arguments:
-            ax: {Axes} -- The Axes object to draw on.
+            ax: The Axes object to draw on.
         """
         # critical_path = self.get_critical_path()
 
         # get all pairs of instructions in the critical path defined by self.critical_dag_aon by BFS
         critical_aon_dag: nx.DiGraph = self.dag.get_critical_dag()
-        filtered_critical_pairs = self.get_critical_pairs(critical_aon_dag, self.dag.entry_id, self.dag.exit_id)
+        filtered_critical_pairs = self.get_critical_pairs(
+            critical_aon_dag, self.dag.entry_id, self.dag.exit_id
+        )
 
         for inst1, inst2 in filtered_critical_pairs:
             ax.plot(

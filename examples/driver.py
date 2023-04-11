@@ -46,10 +46,10 @@ def main():
     # so we filter frequencies that are below that and take the average so that we're as accurate as possible.
     p_p2p = p2p_block_df.query("freq >= 800").power.mean().item()
     # print(p_p2p)
-    time_stamp = datetime.datetime.fromtimestamp(
-        time.time()).strftime('%m%d_%H%M%S')
-    output_dir = Path(output_dir) / time_stamp
-    # output_dir = Path(output_dir)
+    # time_stamp = datetime.datetime.fromtimestamp(
+    #     time.time()).strftime('%m%d_%H%M%S')
+    # output_dir = Path(output_dir) / time_stamp
+    output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=False)
     log_path = output_dir / "job.log"
 
@@ -105,7 +105,7 @@ def main():
     pd_solver = PDSolver(dag, output_dir.__str__(), interval, unit_time)
     rene_gen = pd_solver.run()
     prev_cost: float = 0.0
-    cost_change: float = 0.0 
+    cost_change: float = 0.0
     for i, rene_dag in enumerate(rene_gen):
         rene_dag.schedule("eager")
         total_freqs = rene_dag.get_freq_assignment()
@@ -133,22 +133,23 @@ def main():
             f.write(
                 f"# Iteration {i}: total time {total_time} \n"
             )
-        vis = PipelineVisualizer(
-        rene_dag,
-        annotation_args=annotation_args,
-        rectangle_args=rectangle_args,
-        line_args=line_args,
-        )
-        fig, ax = plt.subplots(figsize=(num_mbs * 2, num_stages), tight_layout=dict(pad=0.2, w_pad=0.2, h_pad=0.2))
-        vis.draw(ax, draw_time_axis=True, power_color="Oranges")
-        vis.draw_critical_path(ax)
-        # ax.set_xlim(0, 4.6)  # Fix xlim so that different 1F1B pipelines from different heuristics can be compared side-by-side.
-        ax.xaxis.set_label_coords(0.5, -0.07)
-        ax.set_xlabel("Time (s)", fontsize=9.0)
-        ax.tick_params(axis="x", labelsize=8.0)        
-        fig.savefig(os.path.join(output_dir, f"pipeline_{i}.png"), format="PNG")
-        plt.clf()
-        plt.close()
+        if i % 100 == 0:
+            vis = PipelineVisualizer(
+            rene_dag,
+            annotation_args=annotation_args,
+            rectangle_args=rectangle_args,
+            line_args=line_args,
+            )
+            fig, ax = plt.subplots(figsize=(num_mbs * 2, num_stages), tight_layout=dict(pad=0.2, w_pad=0.2, h_pad=0.2))
+            vis.draw(ax, draw_time_axis=True, power_color="Oranges")
+            vis.draw_critical_path(ax)
+            # ax.set_xlim(0, 4.6)  # Fix xlim so that different 1F1B pipelines from different heuristics can be compared side-by-side.
+            ax.xaxis.set_label_coords(0.5, -0.07)
+            ax.set_xlabel("Time (s)", fontsize=9.0)
+            ax.tick_params(axis="x", labelsize=8.0)        
+            fig.savefig(os.path.join(output_dir, f"pipeline_{i}.png"), format="PNG")
+            plt.clf()
+            plt.close()
 
 
 if __name__ == "__main__":

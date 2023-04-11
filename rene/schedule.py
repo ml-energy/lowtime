@@ -23,9 +23,9 @@ class PipelineSchedule(ABC):
         """Instantiate the pipeline schedule.
 
         Arguments:
-            num_stages: {int} -- The number of pipeline stages
-            num_micro_batches: {int} -- The number of micro batches in the pipeline
-            stage_id: {int} -- Zero-indexed pipeline stage for `step` to yield instructions for
+            num_stages: The number of pipeline stages
+            num_micro_batches: The number of micro batches in the pipeline
+            stage_id: Zero-indexed pipeline stage for `step` to yield instructions for
         """
         self.num_micro_batches = num_micro_batches
         self.num_stages = num_stages

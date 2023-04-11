@@ -2,11 +2,11 @@
 
 from __future__ import annotations
 
+import logging
+import os
 from dataclasses import dataclass, field
 from typing import Any
 
-import logging
-import os
 import numpy as np  # type: ignore
 import matplotlib.pyplot as plt  # type: ignore
 from matplotlib.axes import Axes  # type: ignore
@@ -24,7 +24,7 @@ class InstructionType(type):
     # Names of Instruction subclasses.
     subclass_names: set[str] = set()
 
-    def __new__(
+    def __new__(  # type: ignore
         cls: InstructionType, name: str, bases: tuple[type, ...], dct: dict[str, Any]
     ) -> type:
         """Collect the names of all `Instruction` classes defined."""
@@ -32,7 +32,7 @@ class InstructionType(type):
             raise ValueError(f"Instruction class '{name}' already exists")
         if name != "_Dummy":
             cls.subclass_names.add(name)
-        return super().__new__(cls, name, bases, dct)
+        return super().__new__(cls, name, bases, dct)  # type: ignore
 
 
 @dataclass(repr=False)
@@ -40,17 +40,17 @@ class Instruction(metaclass=InstructionType):
     """A chunk of operation in one pipeline stage.
 
     Attributes:
-        stage_id: {int} -- Zero-indexed pipeline stage
-        micro_batch_id: {int} -- Zero-indexed micro batch number
-        duration: {float} -- Duration of this instruction
-        unit_cost: {float} -- Projected unit energy cost when changing a single unit of duration
-        earliest_start: {float} -- The earliest time this instruction can start
-        latest_start: {float} -- The latest time this instruction can start
-        earliest_finish: {float} -- The earliest time this instruction can finish
-        latest_finish: {float} -- The latest time this instruction can finish
-        slack: {float} -- The max delay for this instruction without delaying latest_finish
-        actual_start: {float} -- The actual start time determined by the scheduling algorithm
-        actual_finish: {float} -- The actual finish time determined by the scheduling algorithm
+        stage_id: Zero-indexed pipeline stage
+        micro_batch_id: Zero-indexed micro batch number
+        duration: Duration of this instruction
+        unit_cost: Projected unit energy cost when changing a single unit of duration
+        earliest_start: The earliest time this instruction can start
+        latest_start: The latest time this instruction can start
+        earliest_finish: The earliest time this instruction can finish
+        latest_finish: The latest time this instruction can finish
+        slack: The max delay for this instruction without delaying latest_finish
+        actual_start: The actual start time determined by the scheduling algorithm
+        actual_finish: The actual finish time determined by the scheduling algorithm
     """
 
     stage_id: int
@@ -90,7 +90,10 @@ class Instruction(metaclass=InstructionType):
 
     def __repr__(self) -> str:
         """Return a concise representation of the Instruction."""
-        return self.repr or f"{type(self).__name__}(S{self.stage_id}B{self.micro_batch_id})"
+        return (
+            self.repr
+            or f"{type(self).__name__}(S{self.stage_id}B{self.micro_batch_id})"
+        )
 
     @property
     def actual_duration(self) -> float:
@@ -109,10 +112,10 @@ class Instruction(metaclass=InstructionType):
         Override this method to change how instructions are drawn.
 
         Arguments:
-            ax: {Axes} -- Axes object to draw on
-            rectangle_args: {dict[InstructionType, dict[str, Any]]} -- Arguments to pass to `Rectangle`
-            annotation_args: {dict[InstructionType, dict[str, Any]]} -- Arguments to pass to `ax.annotate`
-            power_color: {str | None} -- Color map to use for power coloring (default: {"Oranges"})
+            ax: Axes object to draw on
+            rectangle_args: Arguments to pass to `Rectangle`
+            annotation_args: Arguments to pass to `ax.annotate`
+            power_color: Color map to use for power coloring (default: {"Oranges"})
         """
         final_rectangle_args = dict(
             xy=(self.actual_start, self.stage_id),
@@ -134,11 +137,11 @@ class Instruction(metaclass=InstructionType):
         final_annotation_args.update(annotation_args[type(self)])
         ax.annotate(**final_annotation_args)
 
-    def interpolate(self, fit_method: str) -> np.ndarray:
+    def fit(self, fit_method: str) -> np.ndarray:
         """Do interpolation on the given instruction and its time-costs meta-data, return the coefficients.
 
         Arguments:
-            fit_method: {str} -- Fit method to use, currently supports "linear", "piecewise-linear" and "exponential"
+            fit_method: Fit method to use, currently supports "linear", "piecewise-linear" and "exponential"
         """
         # Get the slope from two endpoints
         self.fit_method = fit_method
@@ -146,10 +149,8 @@ class Instruction(metaclass=InstructionType):
         self.time_costs.sort(key=lambda x: x[0], reverse=True)
         time_list = []
         cost_list = []
-        # cost_list_unrefined = []
         for t, e, _f in self.time_costs:
             time_list.append(t)
-            # cost_list_unrefined.append(e)
             cost_list.append(e - self.p2p_power * t)
 
         if fit_method == "linear":
@@ -190,9 +191,6 @@ class Instruction(metaclass=InstructionType):
             self.fit_coeffs = convex_points
             # Now, convex_points contains the points that form a convex piecewise linear function
         elif fit_method == "exponential":
-            # poly_coeffs = np.polyfit(time_list, np.log(cost_list), 1, w=np.sqrt(cost_list))
-            # unrefined_poly_coeffs = np.polyfit(time_list, np.log(cost_list_unrefined), 1, w=np.sqrt(cost_list_unrefined))
-
             # if initial guess is not an empty list
             if self.initial_guess:
                 self.fit_coeffs, _ = curve_fit(
@@ -202,7 +200,7 @@ class Instruction(metaclass=InstructionType):
                     p0=self.initial_guess,
                     maxfev=10000,
                 )
-                logging.info(f"{repr(self)} Initial guess: {self.initial_guess}")
+                logging.info("%s Initial guess: %s", repr(self), self.initial_guess)
             else:
                 self.fit_coeffs, _ = curve_fit(
                     lambda t, a, b, c: a * np.exp(b * t) + c,
@@ -210,49 +208,26 @@ class Instruction(metaclass=InstructionType):
                     cost_list,
                     maxfev=10000,
                 )
-                logging.info(f"{repr(self)} No initial guess")
-            # p0_unrefined = [cost_list_unrefined[-1] - cost_list_unrefined[0], -np.log(cost_list_unrefined[0] / cost_list_unrefined[-1]) / (time_list[0] - time_list[-1]), cost_list_unrefined[0]]
-            # self.unrefined_fit_coeffs, _ = curve_fit(
-            #     lambda t, a, b, c: a * np.exp(b * t) + c,
-            #     time_list,
-            #     cost_list_unrefined,
-            #     p0=p0,
-            #     maxfev=10000,
-            # )
-            logging.info(f"{repr(self)} Fit coeffs: {self.fit_coeffs}")
-            # logging.info(f"{repr(self)} Unrefined fit coeffs: {self.unrefined_fit_coeffs}")
-            # self.fit_coeffs = np.array([np.exp(poly_coeffs[1]), poly_coeffs[0]])
-            # self.unrefined_fit_coeffs = np.array([np.exp(unrefined_poly_coeffs[1]), unrefined_poly_coeffs[0]])
+                logging.info("%s No initial guess", repr(self))
+
+            logging.info("%s Fit coeffs: %s", repr(self), self.fit_coeffs)
         else:
             raise NotImplementedError(f"Unknown fit method: {fit_method}")
 
         fig, ax = plt.subplots(figsize=(8, 8), tight_layout=True)
         ax.plot(time_list, cost_list, "o")
-        # ax.plot(time_list, cost_list_unrefined, "x")
         # generate a list with step size 0.1
         x = np.arange(min(time_list), max(time_list), 0.0001)
-        # ax.plot(x, np.polyval(self.fit_coeffs, x), 'r-')
         y = []
-        # unrefined_y = []
         for i in x:
             y.append(self.get_cost(i))
-            # unrefined_y.append(self.unrefined_fit_coeffs[0] * np.exp(self.unrefined_fit_coeffs[1] * i) + self.unrefined_fit_coeffs[2])
-        # a, b, c = unrefined_fit_coeffs
-        # unrefined_y = a * np.exp(b * x) + c
-
-        # refined_y = []
-        # for i in x:
-        #     refined_y.append(self.get_p2p_refined_cost(i))
         ax.plot(x, y, "r-")
-        # ax.plot(x, unrefined_y, "b-")
         if fit_method == "piecewise-linear":
             for x, y in convex_points:
                 ax.annotate(f"({x:.6f}, {y:.6f})", (x, y))
         ax.set_xlabel("time")
         ax.set_ylabel("energy")
-        fig.savefig(
-            os.path.join(self.output_dir, f"{repr(self)}_HULL.png"), format="PNG"
-        )
+        fig.savefig(os.path.join(self.output_dir, f"{repr(self)}.png"), format="PNG")
         plt.clf()
         plt.close()
 
@@ -267,7 +242,7 @@ class Instruction(metaclass=InstructionType):
         if len(self.fit_coeffs) == 0:
             raise ValueError("No fit coefficients have been computed yet")
         if self.fit_method == "linear":
-            return np.polyval(self.fit_coeffs, time)
+            return np.polyval(self.fit_coeffs, time)[0]
         elif self.fit_method == "piecewise-linear":
             return self.binary_search_piecewise_linear(time)
         elif self.fit_method == "exponential":
@@ -277,14 +252,14 @@ class Instruction(metaclass=InstructionType):
         else:
             raise ValueError(f"Unknown fit method {self.fit_method}")
 
-    def binary_search_piecewise_linear(self, time: float) -> int:
+    def binary_search_piecewise_linear(self, time: float) -> float:
         """Perform a binary search on the piecewise linear function to find the cost at the given time.
 
         Arguments:
-            time: {float} -- Time to search for
+            time: Time to search for
 
         Returns:
-            {int} -- Cost of the instruction at the given time
+            Cost of the instruction at the given time
         """
         if time < self.fit_coeffs[0, 0]:
             # TODO: return inf here?
@@ -318,32 +293,18 @@ class Instruction(metaclass=InstructionType):
                 return y1 + t * (y2 - y1)
         raise ValueError(f"time = {time} is out of the range of the breakpoints")
 
-    def get_p2p_refined_cost(self, time: float) -> float:
-        """Get the cost of the instruction at the given time using p2p refinement.
-
-        Arguments:
-            time: {float} -- Time to get the cost at
-        """
-        cost = self.get_cost(time)
-        refined_cost = cost - self.p2p_power * time
-        assert refined_cost >= 0
-        return refined_cost
-
     def get_derivative(self, time_left: float, time_right: float) -> float:
         """Get the derivative/slope between two time points time_left and time_right.
 
         Arguments:
-            time_left: {float} -- Start time points to get the derivative at
-            time_right: {float} -- End time points to get the derivative at
+            time_left: Start time points to get the derivative at
+            time_right: End time points to get the derivative at
 
         Returns:
-            {float} -- The derivative between the two time points
+            The derivative between the two time points
         """
         return abs(
-            (
-                self.get_cost(time_left)
-                - self.get_cost(time_right)
-            )
+            (self.get_cost(time_left) - self.get_cost(time_right))
             / (time_left - time_right)
         )
 

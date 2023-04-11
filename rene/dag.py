@@ -5,13 +5,14 @@ from __future__ import annotations
 import inspect
 import itertools
 import logging
-import matplotlib.pyplot as plt  # type: ignore
-import networkx as nx  # type: ignore
-import numpy as np
+import typing
 from typing import Iterable, Sequence, Type, Callable, Generator, Literal
 from queue import SimpleQueue
 from collections import deque
-import typing
+
+import matplotlib.pyplot as plt  # type: ignore
+import networkx as nx  # type: ignore
+import numpy as np
 
 from rene.constants import FP_ERROR
 from rene.instruction import Instruction, InstructionType, Forward, Backward, _Dummy
@@ -53,7 +54,7 @@ class ReneDAG:
         output_dir: str = "",
         fit_method: str = "linear",
         p2p_power: float = 0.0,
-        initial_guess: dict[Type[Instruction], dict[int, list[float]]] = {}
+        initial_guess: dict[Type[Instruction], dict[int, list[float]]] = None,  # type: ignore
     ) -> None:
         """Instantiate instructions and construct the DAG.
 
@@ -67,7 +68,9 @@ class ReneDAG:
             dependency_rules: A list of functions that define the dependency between instructions.
             fit_method: The method to fit the time cost data. Can be "linear" or "piecewise-linear" or "exponential".
             p2p_power: The power consumption of p2p communication between GPUs.
-            
+            initial_guess: A dict mapping inst type to a dict of stage_id:
+                list of initial guess for parameters of "exponential" fit.
+
         ## Dependency rules
 
         ```python
@@ -95,20 +98,23 @@ class ReneDAG:
         self.fit_method = fit_method
         self.output_dir = output_dir
 
+        # For p2p energy reduction
+        self.p2p_power = p2p_power
+
         # For graph generation
         self.node_id: int = 0
         self.inst_map: dict[str, Instruction] = {}
         self.inst_id_map: dict[str, int] = {}
         self._dag: nx.DiGraph = nx.DiGraph()
         self._critical_dag: nx.DiGraph = nx.DiGraph()
+        self._insts: list[Instruction] = []
         self.changed = True
 
         # For interpolation
         self.coeffs_dict: dict[Type[Instruction], dict[int, np.ndarray]] = {}
-        self.initial_guess: dict[Type[Instruction], dict[int, list[float]]] = initial_guess
-
-        # For p2p energy reduction
-        self.p2p_power = p2p_power
+        self.initial_guess: dict[
+            Type[Instruction], dict[int, list[float]]
+        ] = initial_guess
 
         # For frequency assignment
         self.stage_view: dict[int, list[Instruction]] = {}
@@ -175,7 +181,7 @@ class ReneDAG:
                     return True
         return False
 
-    def init_dag(self) -> None:
+    def init_dag(self) -> None:  # noqa: PLR0912
         """Initialize the DAG."""
         # Introduce dummy entry and exit nodes for analysis convenience.
         # Assign node_id 0 to entry_node and node_id 1 to exit_node
@@ -184,17 +190,15 @@ class ReneDAG:
         self._dag.add_node(self.node_id, inst=self.entry_node)
         self.inst_map[repr(self.entry_node)] = self.entry_node
         self.inst_id_map[repr(self.entry_node)] = self.node_id
-        self.node_id += 1
         self.exit_node = _Dummy(-1, -1, duration=0.0, repr="Exit")
-        self.exit_id = self.node_id
-        self._dag.add_node(self.node_id, inst=self.exit_node)
+        self.exit_id = self.node_id + 1
+        self._dag.add_node(self.exit_id, inst=self.exit_node)
         self.inst_map[repr(self.exit_node)] = self.exit_node
-        self.inst_id_map[repr(self.exit_node)] = self.node_id
-        self.node_id += 1
+        self.inst_id_map[repr(self.exit_node)] = self.exit_id
+        self.node_id += 2
 
         # Generate instructions from `PipelineSchedule` and pipeline configurations.
         logging.info("Generate instructions and creating the DAG...")
-        self._insts: list[Instruction] = []
         for stage_ind in range(self.num_stages):
             stage = self.schedule_type(
                 self.num_stages, self.num_micro_batches, stage_ind
@@ -202,10 +206,7 @@ class ReneDAG:
             prev_inst = None
             self.stage_view[stage_ind] = []
             for inst in stage:
-                # When `durations` is `None`, it means that `inst` already has `duration` set.
-                # if self.durations is not None:
-                #     inst.duration = self.durations[type(inst)][inst.stage_id]
-
+                # Get the time cost for this instruction
                 inst.time_costs = self.time_costs[type(inst)][stage_ind]
 
                 # Pick longest duration by default, as default schedule policy is "eager"
@@ -230,8 +231,8 @@ class ReneDAG:
                 if type(inst) not in self.coeffs_dict:
                     self.coeffs_dict[type(inst)] = {}
                 if inst.stage_id not in self.coeffs_dict[type(inst)]:
-                    self.coeffs_dict[type(inst)][inst.stage_id] = inst.interpolate(
-                        self.fit_method, 
+                    self.coeffs_dict[type(inst)][inst.stage_id] = inst.fit(
+                        self.fit_method,
                     )
 
                 else:
@@ -302,7 +303,6 @@ class ReneDAG:
         Available algorithms:
             eager: Whenever I can execute, I immediately execute.
             lazy: I postpone execution as much as possible.
-            pd: Linearly optimal schedule for minimum energy cost
         """
         self.scheduled = True
         if algo == "eager":
@@ -438,7 +438,8 @@ class ReneDAG:
                 visited.append(node_id)
                 node: Instruction = self._dag.nodes[node_id]["inst"]
                 if (
-                    abs(node.latest_finish - node.earliest_start - node.duration) < FP_ERROR
+                    abs(node.latest_finish - node.earliest_start - node.duration)
+                    < FP_ERROR
                     and node_id not in critical_ids
                 ):
                     critical_ids.append(node_id)
@@ -451,13 +452,13 @@ class ReneDAG:
 
             self._critical_dag = critical_dag
         return self._critical_dag
-    
+
     def get_total_cost(self) -> tuple[float, float]:
         """Get the total cost of the current pipeline.
 
         Returns:
-            total_cost: the total cost
-            refined_cost: the total cost refined with p2p blocking energy
+            total_cost: The total cost
+            refined_cost: The total cost refined with p2p blocking energy
         """
         q: SimpleQueue[int] = SimpleQueue()
         q.put(0)
@@ -466,9 +467,7 @@ class ReneDAG:
 
         while not q.empty():
             cur_id: int = q.get()
-            cur_node: Instruction = self.dag.nodes[cur_id][
-                "inst"
-            ]
+            cur_node: Instruction = self.dag.nodes[cur_id]["inst"]
             if repr(cur_node) in visited:
                 continue
             visited.append(repr(cur_node))
@@ -477,15 +476,13 @@ class ReneDAG:
             for child_id in self.dag.successors(cur_id):
                 q.put(child_id)
 
-        # Refine the total cost with p2p blockig energy 
+        # Refine the total cost with p2p blockig energy
         total_time = self.get_total_time()
         insts_time: float = 0.0
         for inst in self.insts:
             insts_time += inst.duration
         refined_cost = (
-            total_cost
-            + (self.num_stages * total_time - insts_time)
-            * self.p2p_power
+            total_cost + (self.num_stages * total_time - insts_time) * self.p2p_power
         )
 
         return (total_cost, refined_cost)
@@ -494,7 +491,7 @@ class ReneDAG:
         """Get the total time of the current pipeline.
 
         Returns:
-            total_time: {float} -- the total time
+            total_time: The total time
         """
         critical_path = self.get_critical_path()
         total_time: float = 0.0
@@ -506,11 +503,11 @@ class ReneDAG:
         """Assign frequency to each instruction in the pipeline based on the duration.
 
         Returns:
-            total_freqs: {list[list[int]]} -- the frequency assignment, indexed by stage_id
+            total_freqs: The frequency assignment, indexed by stage_id
         """
         # do binary search on inst.time_costs, list of (duration, cost, frequency) tuples, sorted by reverse duration
 
-        for stage_id, insts in self.stage_view.items():
+        for _stage_id, insts in self.stage_view.items():
             for inst in insts:
                 # max/min duration should be common case
                 if abs(inst.time_costs[0][0] - inst.duration) < FP_ERROR:
@@ -534,21 +531,14 @@ class ReneDAG:
         #             changed = True
 
         total_freqs: list[list[int]] = []
-        # logging.info(f"Iteration {self.iteration} outputing frequency assignment...")
-        # f.write("[\n")
         for stage_id in sorted(self.stage_view.keys()):
-            # logging.info(f"Stage {stage_id} frequency assignment ")
-            insts: list[Instruction] = self.stage_view[stage_id]
+            insts = self.stage_view[stage_id]
             freqs: list[int] = []
             reprs: list[str] = []
             for inst in insts:
                 assert inst.frequency != -1
                 freqs.append(inst.frequency)
                 reprs.append(repr(inst))
-            # logging.info(f"Freqs: {freqs}")
-            # logging.info(f"Reprs: {reprs}")
-            # Output the frequency assignment for this stage using rjust to make sure the length is 4
-            # f.write(str([int(freq) for freq in freqs])+",\n")
             total_freqs.append(freqs)
 
         return total_freqs
@@ -557,10 +547,10 @@ class ReneDAG:
         """Binary search the frequency based on the duration.
 
         Arguments:
-            cur_node: {Instruction} -- the instruction to search
+            cur_node: The instruction to search
 
         Returns:
-            frequency: {int} -- the frequency
+            frequency: The frequency
         """
         # start binary search
         left = 0

@@ -9,6 +9,8 @@ René is a visualizer for pipeline parallel training schedules like 1F1B.
 
 ## Architecture
 
+**Please note this architecture is outdated and will be updated soon.**
+
 ```
               instantiate   ┌───────────────┐    visualize
           ┌────────────────►│  Instruction  │◄────────────────┐

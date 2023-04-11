@@ -18,4 +18,4 @@ DEFAULT_ANNOTATION_ARGS = {
 }
 
 # The default arguments for matplotlib.axes.Axes.plot.
-DEFAULT_LINE_ARGS = dict(color="#ff9900", linewidth=4.0)
+DEFAULT_LINE_ARGS = dict(color="#00a6ff", linewidth=4.0)
