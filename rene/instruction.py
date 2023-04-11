@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 from pathlib import Path
 from dataclasses import dataclass, field
-from typing import Any, ClassVar, Literal
+from typing import Any, ClassVar
 
 import numpy as np  # type: ignore
 import matplotlib.pyplot as plt  # type: ignore
@@ -70,7 +70,7 @@ class Instruction(metaclass=InstructionType):
     actual_finish: float = 0.0
 
     # For time-cost Pareto frontier model fitting
-    fit_method: Literal["linear", "piecewise-linear", "exponential"] = "linear"
+    fit_method: str = "linear"
     fit_coeffs: np.ndarray = field(default_factory=lambda: np.array([]))
     initial_guess: list[float] = field(default_factory=list)
 
@@ -140,7 +140,7 @@ class Instruction(metaclass=InstructionType):
         ax.annotate(**final_annotation_args)
 
     # ruff: noqa: PLR0912
-    def fit(self, fit_method: Literal["linear", "piecewise-linear", "exponential"]) -> np.ndarray:
+    def fit(self, fit_method: str) -> np.ndarray:
         """Do interpolation on the given instruction and its time-costs meta-data, return the coefficients.
 
         Arguments:

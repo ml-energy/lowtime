@@ -52,7 +52,7 @@ class ReneDAG:
         time_costs: dict[Type[Instruction], dict[int, list[tuple[float, float, int]]]],
         dependency_rules: Sequence[Callable[..., bool]] = [forward_dep, backward_dep],
         output_dir: Path | None = None,
-        fit_method: Literal['linear', 'piecewise-linear', 'exponential'] = "linear",
+        fit_method: Literal["linear", "piecewise-linear", "exponential"] = "linear",
         p2p_power: float = 0.0,
         initial_guess: dict[Type[Instruction], dict[int, list[float]]] = None,  # type: ignore
     ) -> None:
@@ -232,9 +232,8 @@ class ReneDAG:
                     self.coeffs_dict[type(inst)] = {}
                 if inst.stage_id not in self.coeffs_dict[type(inst)]:
                     self.coeffs_dict[type(inst)][inst.stage_id] = inst.fit(
-                        self.fit_method,
+                        self.fit_method
                     )
-
                 else:
                     inst.fit_coeffs = self.coeffs_dict[type(inst)][inst.stage_id]
                     inst.fit_method = self.fit_method
@@ -470,12 +469,8 @@ class ReneDAG:
                 q.put(child_id)
 
         # Refine the total cost with p2p blocking energy
-        total_time = self.get_total_time()
-        insts_time: float = 0.0
-        for inst in self.insts:
-            insts_time += inst.duration
         refined_cost = (
-            total_cost + (self.num_stages * total_time - insts_time) * self.p2p_power
+            total_cost + self.num_stages * self.get_total_time() * self.p2p_power
         )
 
         return (total_cost, refined_cost)
