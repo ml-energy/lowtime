@@ -43,7 +43,7 @@ def main():
     for index, row in df.iterrows():
         base_args = {}
         # first locate the inst profile
-        base_name = f"{framework}+{row['model']}+{row['partition_method']}+dp{row['dp']}+pp{row['pp']}+tp{row['tp']}+mbs{row['microbatch_size']}"
+        base_name = f"{framework}+{row['model']}+{row['partition_method']}+dp{row['dp']}+pp{row['pp']}+tp{row['tp']}+mbs{row['microbatch_size']}+nmb{row['num_microbatches']}"
         inst_profile = base_name + ".csv"
         inst_profile = Path(args.data_path) / inst_profile
         print(inst_profile)
