@@ -57,7 +57,7 @@ class Instruction(metaclass=InstructionType):
     max_duration: float = 0.0
     min_duration: float = 0.0
     repr: str = ""
-    alias: ClassVar[str] = "INST"
+    alias: ClassVar[str] = ""
 
     # Values set by critical path analysis (in `ReneDAG.annotate_nodes`)
     earliest_start: float = 0.0
