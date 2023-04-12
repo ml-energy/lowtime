@@ -30,14 +30,18 @@ def main():
     time_costs = df_to_time_costs_pareto(inst_df)
 
     # P2P communication blocking power consumption.
-    p2p_block_df = pd.read_csv(args.p2p_profile)
-    p2p_block_df = p2p_block_df.loc[p2p_block_df.time_ms == 100]
-    p2p_block_df["power"] = p2p_block_df.energy_mj / p2p_block_df.time_ms / 100
+    if args.p2p_power is None:
+        p2p_block_df = pd.read_csv(args.p2p_profile)
+        p2p_block_df = p2p_block_df.loc[p2p_block_df.time_ms == 100]
+        p2p_block_df["power"] = p2p_block_df.energy_mj / p2p_block_df.time_ms / 100
 
-    # Compute the average power consumption of blocking on P2P communication.
-    # In the absolute majority of the times we don't go below 800MHz,
-    # so we filter frequencies that are below that and take the average so that we're as accurate as possible.
-    p_p2p = p2p_block_df.query("freq >= 800").power.mean().item()
+        # Compute the average power consumption of blocking on P2P communication.
+        # In the absolute majority of the times we don't go below 800MHz,
+        # so we filter frequencies that are below that and take the average so that we're as accurate as possible.
+        p_p2p = p2p_block_df.query("freq >= 800").power.mean().item()
+    else:
+        p_p2p = args.p2p_power
+        assert isinstance(p_p2p, float)
 
     output_dir = Path(args.output_dir)
     output_dir.mkdir(parents=True, exist_ok=False)

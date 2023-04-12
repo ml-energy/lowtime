@@ -67,7 +67,8 @@ def parse_args() -> argparse.Namespace:
     """Parse command line arguments."""
     parser = argparse.ArgumentParser()
     parser.add_argument("--inst_profile", type=str, required=True, help="Path for instruction profile results")
-    parser.add_argument("--p2p_profile", type=str, required=True, help="Path for p2p profile results")
+    parser.add_argument("--p2p_profile", type=str, help="Path for p2p profile results")
+    parser.add_argument("--p2p_power", type=float, help="Raw P2P blocking power consumption value to use")
     parser.add_argument("--output_dir", type=str, required=True, help="Path for output results")
     parser.add_argument("--num_mbs", type=int, default=3, help="Number of microbatchs")
     parser.add_argument("--num_stages", type=int, default=4, help="Number of stages")
