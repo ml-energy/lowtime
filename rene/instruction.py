@@ -157,9 +157,11 @@ class Instruction(metaclass=InstructionType):
         self.time_costs.sort(key=lambda x: x[0], reverse=True)
         time_list = []
         cost_list = []
-        for t, e, _ in self.time_costs:
+        freq_list = []
+        for t, e, _f in self.time_costs:
             time_list.append(t)
-            cost_list.append(e - self.p2p_power * t)  # Decoupled instruction energy
+            cost_list.append(e - self.p2p_power * t)
+            freq_list.append(_f)
 
         if fit_method == "linear":
             # Linear interpolation
@@ -226,6 +228,8 @@ class Instruction(metaclass=InstructionType):
         if self.output_dir is not None:
             fig, ax = plt.subplots(figsize=(8, 8), tight_layout=True)
             ax.plot(time_list, cost_list, "o")
+            for i in range(len(time_list)):
+                ax.annotate(f"({time_list[i]:.6f}, {cost_list[i]:.6f}, {freq_list[i]})", (time_list[i], cost_list[i]))
             # generate a list with step size 0.1
             x = np.arange(min(time_list), max(time_list), 0.0001)
             y = []
@@ -252,7 +256,7 @@ class Instruction(metaclass=InstructionType):
         if len(self.fit_coeffs) == 0:
             raise ValueError("No fit coefficients have been computed yet")
         if self.fit_method == "linear":
-            return np.polyval(self.fit_coeffs, time)[0]
+            return np.polyval(self.fit_coeffs, time).item()
         elif self.fit_method == "piecewise-linear":
             return self.binary_search_piecewise_linear(time)
         elif self.fit_method == "exponential":

@@ -55,8 +55,11 @@ def preprocess_time_costs(time_costs: TIME_COST_T, unit_time: float) -> TIME_COS
             time_cost_array = np.asarray(time_cost_list, dtype=[('time', float), ('cost', float), ('freq', float)])
             # Sort the points by their x-coordinate in ascending order, break ties by choosing the point with the smallest y-coordinate
             time_cost_array = time_cost_array[time_cost_array.argsort(order=["time", "cost"])]
+            # Flip the array along the first axis, so that the points are sorted by their x-coordinate in descending order, 
+            # break ties by choosing the point with the largest y-coordinate
+            time_cost_array = np.flip(time_cost_array, axis=0)
             time_cost_array = time_cost_array.view((float, 3))
-            # Remove duplicate points by x-coordinate, break ties by choosing the point with the smallest y-coordinate
+            # Remove duplicate points by x-coordinate, break ties by choosing the point with the largest y-coordinate
             time_cost_array = time_cost_array[np.unique(time_cost_array[:, 0], return_index=True)[1]]
             # Retrive the new time_cost_list
             time_cost_list = list(zip(time_cost_array[:, 0], time_cost_array[:, 1], time_cost_array[:, 2].astype(int)))

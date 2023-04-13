@@ -217,9 +217,9 @@ class ReneDAG:
                 inst.time_costs = self.time_costs[type(inst)][stage_ind]
 
                 # Pick longest duration by default, as default schedule policy is "eager"
-                inst.duration = self.time_costs[type(inst)][stage_ind][0][0]
+                inst.duration = self.time_costs[type(inst)][stage_ind][0][0] + FP_ERROR
                 # Set min/max duration for each instruction
-                inst.max_duration = self.time_costs[type(inst)][stage_ind][0][0]
+                inst.max_duration = self.time_costs[type(inst)][stage_ind][0][0] + FP_ERROR
                 inst.min_duration = self.time_costs[type(inst)][stage_ind][-1][0]
 
                 # Set the output directory for each instruction
