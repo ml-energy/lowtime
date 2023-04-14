@@ -34,10 +34,14 @@ setup(
     keywords=["deep-learning", "mlsys", "visualization"],
     packages=find_packages("."),
     install_requires=[
-        "matplotlib",
+        "matplotlib==3.6.2",
+        "networkx==3.0",
+        "numpy==1.23.4",
+        "scipy==1.10.1",
+        "pandas==1.5.3",
     ],
     python_requires=">=3.9",
     extras_require={
-        "dev": ["pylint==2.14.5", "black==22.10.0", "pydocstyle==6.1.1", "mypy==0.991"],
+        "dev": ["ruff", "black==22.10.0", "mypy==1.1.1"],
     }
 )

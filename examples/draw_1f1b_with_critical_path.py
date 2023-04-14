@@ -1,10 +1,10 @@
 import matplotlib.pyplot as plt
 
-from rene import InstructionDAG, Synchronous1F1B, Forward, Backward, PipelineVisualizer
+from rene import ReneDAG, Synchronous1F1B, Forward, Backward, PipelineVisualizer
 
 
 # Instantiate the Instruction DAG.
-dag = InstructionDAG(
+dag = ReneDAG(
     schedule_type=Synchronous1F1B,
     num_stages=5,
     num_micro_batches=5,
@@ -18,7 +18,7 @@ dag.schedule("eager")
 # Refer to the constructor for matplotlib customization.
 vis = PipelineVisualizer(dag)
 
-# Instantitate a matplotlib subplot and draw the pipeline and critical path.
+# Instantiate a matplotlib subplot and draw the pipeline and critical path.
 fig, ax = plt.subplots(figsize=(12, 4), tight_layout=True)
 vis.draw(ax, draw_time_axis=True)
 vis.draw_critical_path(ax)

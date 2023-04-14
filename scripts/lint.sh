@@ -8,6 +8,5 @@ else
   black --check rene
 fi
 
-pydocstyle rene
-pylint -j 0 rene
+ruff rene
 mypy rene
