@@ -23,6 +23,7 @@ def main():
     parser.add_argument("--data_path", type=str, required=True, help="Path for directory containing instruction profile results")
     parser.add_argument("--p2p_profile", type=str, help="Path for p2p profile results")
     parser.add_argument("--p2p_power", type=float, help="Raw P2P blocking power consumption value to use")
+    parser.add_argument("--unit_time", type=float, help="The unit time for PD algorithm")
     parser.add_argument("--output_dir", type=str, required=True, help="Path for output results, this will contain the results of each task")
     parser.add_argument("--driver_path", type=str, required=True, help="Path for driver script")
     args = parser.parse_args()
@@ -44,7 +45,7 @@ def main():
     for index, row in df.iterrows():
         base_args = {}
         # first locate the inst profile
-        base_name = f"{framework}+{row['model']}+{row['partition_method']}+dp{row['dp']}+pp{row['pp']}+tp{row['tp']}+mbs{row['microbatch_size']}+nmb{row['num_microbatches']}"
+        base_name = f"{framework}+{row['model']}+{row['partition_method']}+dp{row['dp']}+pp{row['pp']}+tp{row['tp']}+mbs{row['microbatch_size']}"
         inst_profile = base_name + ".csv"
         inst_profile = Path(args.data_path) / inst_profile
         print(inst_profile)
@@ -56,8 +57,8 @@ def main():
         base_args["p2p_profile"] = args.p2p_profile
         base_args["num_mbs"] = row["num_microbatches"]
         # use default values for interval and unit_time
-        base_args["interval"] = 100
-        base_args["unit_time"] = 0.001
+        base_args["interval"] = 500
+        base_args["unit_time"] = args.unit_time
         for fit_method in ["linear", "piecewise-linear", "exponential"]:
             task_args = base_args.copy()
             if fit_method == "exponential":
@@ -68,7 +69,7 @@ def main():
             task_args["fit_method"] = fit_method
             # task_name = base_name + f"+{fit_method}"
             task_args["task_name"] = base_name
-            task_output_dir = str(output_dir / fit_method / base_name)
+            task_output_dir = str(output_dir / fit_method / base_name) + f"+nmb{row['num_microbatches']}"
             task_args["output_dir"] = task_output_dir
             tasks.append(task_args)
 

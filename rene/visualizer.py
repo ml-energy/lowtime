@@ -111,7 +111,7 @@ class PipelineVisualizer:
             bg_color = plt.get_cmap(power_color)(75.5 / 400.0)
             background = Rectangle(
                 xy=(0, 0),
-                width=self.dag.total_execution_time,
+                width=self.dag.get_total_time(),
                 height=self.dag.num_stages,
                 facecolor=bg_color,
                 edgecolor=bg_color,
@@ -126,7 +126,7 @@ class PipelineVisualizer:
             ax.yaxis.set_visible(False)
             ax.grid(visible=False)
 
-            total_time = self.dag.total_execution_time
+            total_time = self.dag.get_total_time()
             ax.set_xlabel("Time (s)")
             ax.xaxis.set_major_formatter(FormatStrFormatter("%.2f"))
             xticks = [float(t * 5) for t in range(int(total_time) // 5)] + [total_time]
@@ -160,8 +160,8 @@ class PipelineVisualizer:
         for inst1, inst2 in filtered_critical_pairs:
             ax.plot(
                 [
-                    (inst1.actual_start + inst1.actual_finish) / 2,
-                    (inst2.actual_start + inst2.actual_finish) / 2,
+                    (inst1.actual_start + inst1.actual_finish) * inst1.unit_time / 2,
+                    (inst2.actual_start + inst2.actual_finish) * inst2.unit_time / 2,
                 ],
                 [inst1.stage_id + 0.75, inst2.stage_id + 0.75],
                 **self.line_args,

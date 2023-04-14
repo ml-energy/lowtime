@@ -83,6 +83,9 @@ class Instruction(metaclass=InstructionType):
     num_stages: int = 0
     p2p_power: float = 0.0
 
+    # For time rescaling
+    unit_time: float = 0.0
+
     output_dir: Path | None = None
 
     def __repr__(self) -> str:
@@ -125,14 +128,14 @@ class Instruction(metaclass=InstructionType):
             power_color: Color map to use for power coloring (default: {"Oranges"})
         """
         final_rectangle_args = dict(
-            xy=(self.actual_start, self.stage_id),
-            width=self.actual_duration,
+            xy=(self.actual_start * self.unit_time, self.stage_id),
+            width=self.actual_duration * self.unit_time,
             height=1.0,
         )
         final_rectangle_args.update(rectangle_args[type(self)])
         if power_color is not None:
             final_rectangle_args["facecolor"] = plt.get_cmap(power_color)(
-                self.get_cost(self.duration) / self.duration / 400.0
+                self.get_cost(self.duration) / (self.duration * self.unit_time) / 400.0
             )
         rectangle = Rectangle(**final_rectangle_args)
         ax.add_patch(rectangle)
@@ -160,7 +163,7 @@ class Instruction(metaclass=InstructionType):
         freq_list = []
         for t, e, _f in self.time_costs:
             time_list.append(t)
-            cost_list.append(e - self.p2p_power * t)
+            cost_list.append(e - self.p2p_power * t * self.unit_time)
             freq_list.append(_f)
 
         if fit_method == "linear":
@@ -229,16 +232,16 @@ class Instruction(metaclass=InstructionType):
             fig, ax = plt.subplots(figsize=(8, 8), tight_layout=True)
             ax.plot(time_list, cost_list, "o")
             for i in range(len(time_list)):
-                ax.annotate(f"({time_list[i]:.6f}, {cost_list[i]:.6f}, {freq_list[i]})", (time_list[i], cost_list[i]))
+                ax.annotate(
+                    f"({time_list[i]:.6f}, {cost_list[i]:.6f}, {freq_list[i]})",
+                    (time_list[i], cost_list[i]),
+                )
             # generate a list with step size 0.1
             x = np.arange(min(time_list), max(time_list), 0.0001)
             y = []
             for i in x:
                 y.append(self.get_cost(i))
             ax.plot(x, y, "r-")
-            if fit_method == "piecewise-linear":
-                for x, y in convex_points:
-                    ax.annotate(f"({x:.6f}, {y:.6f})", (x, y))
             ax.set_xlabel("time")
             ax.set_ylabel("energy")
             fig.savefig(self.output_dir / f"{repr(self)}.png")

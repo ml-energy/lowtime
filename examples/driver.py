@@ -83,6 +83,7 @@ def main():
         output_dir=output_dir,
         fit_method=args.fit_method,
         initial_guess=initial_guess,
+        unit_time=args.unit_time,
     )
 
     # Instantiate the visualizer args
@@ -95,7 +96,7 @@ def main():
     line_args["linewidth"] = 2.0
 
     # Instantiate the PD solver.
-    pd_solver = PDSolver(dag, output_dir, args.unit_time)
+    pd_solver = PDSolver(dag, output_dir)
     rene_gen = pd_solver.run()
     prev_cost: float = 0.0
     cost_change: float = 0.0

@@ -50,7 +50,7 @@ def preprocess_time_costs(time_costs: TIME_COST_T, unit_time: float) -> TIME_COS
     processed_time_costs: TIME_COST_T = time_costs.copy()
     for stage_to_time_costs in processed_time_costs.values():
         for stage, time_cost_list in stage_to_time_costs.items():
-            time_cost_list = [(t // unit_time * unit_time, e, f) for t, e, f in time_cost_list]
+            time_cost_list = [(int(t // unit_time), e, f) for t, e, f in time_cost_list]
             # Turn the 3-tuple list into 3D numpy array, use float for frequency as numpy array needs to have the same type
             time_cost_array = np.asarray(time_cost_list, dtype=[('time', float), ('cost', float), ('freq', float)])
             # Sort the points by their x-coordinate in ascending order, break ties by choosing the point with the smallest y-coordinate
@@ -62,7 +62,7 @@ def preprocess_time_costs(time_costs: TIME_COST_T, unit_time: float) -> TIME_COS
             # Remove duplicate points by x-coordinate, break ties by choosing the point with the largest y-coordinate
             time_cost_array = time_cost_array[np.unique(time_cost_array[:, 0], return_index=True)[1]]
             # Retrive the new time_cost_list
-            time_cost_list = list(zip(time_cost_array[:, 0], time_cost_array[:, 1], time_cost_array[:, 2].astype(int)))
+            time_cost_list = list(zip(time_cost_array[:, 0].astype(int), time_cost_array[:, 1], time_cost_array[:, 2].astype(int)))
             stage_to_time_costs[stage] = time_cost_list
     return processed_time_costs
 

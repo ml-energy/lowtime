@@ -34,14 +34,12 @@ class PDSolver:
         self,
         rene_dag: ReneDAG,
         output_dir: Path,
-        unit_time: float = 0.01,
     ) -> None:
         """Initialize the PD solver.
 
         Arguments:
             rene_dag: a ReneDAG object
             output_dir: output directory for figures and frequency assignments
-            unit_time: the single unit of duration deduction per PD iteration
         """
         self.iteration: int = 0
         self.output_dir = output_dir
@@ -53,7 +51,6 @@ class PDSolver:
         self.line_args = DEFAULT_LINE_ARGS
         self.entry_id: int = 0
         self.exit_id: int = 1
-        self.unit_time = unit_time
 
         # for Pareto frontier
         self.costs: list[float] = []
@@ -170,23 +167,23 @@ class PDSolver:
                 ):
                     lb = 0.0
                     ub = 10000.0
-                elif cur_inst.duration - self.unit_time < cur_inst.min_duration:
+                elif cur_inst.duration - 1 < cur_inst.min_duration:
                     lb = cur_inst.get_derivative(
-                        cur_inst.duration, cur_inst.duration + self.unit_time
+                        cur_inst.duration, cur_inst.duration + 1
                     )
                     ub = 10000.0
-                elif cur_inst.duration + self.unit_time > cur_inst.max_duration:
+                elif cur_inst.duration + 1 > cur_inst.max_duration:
                     lb = 0.0
                     ub = cur_inst.get_derivative(
-                        cur_inst.duration, cur_inst.duration - self.unit_time
+                        cur_inst.duration, cur_inst.duration - 1
                     )
                 else:
                     lb = cur_inst.get_derivative(
-                        cur_inst.duration, cur_inst.duration + self.unit_time
+                        cur_inst.duration, cur_inst.duration + 1
                     )
                     ub = (
                         cur_inst.get_derivative(
-                            cur_inst.duration, cur_inst.duration - self.unit_time
+                            cur_inst.duration, cur_inst.duration - 1
                         )
                         + FP_ERROR
                     )
@@ -621,15 +618,11 @@ class PDSolver:
         for u, v in reduce_edges:
             inst: Instruction = self.capacity_graph[u][v]["inst"]
             reduce_insts.append(repr(inst))
-            if inst.duration - self.unit_time < inst.min_duration or isinstance(
-                inst, _Dummy
-            ):
+            if inst.duration - 1 < inst.min_duration or isinstance(inst, _Dummy):
                 return float("inf")
-            cost_change += (
-                inst.get_derivative(inst.duration, inst.duration - self.unit_time)
-                * self.unit_time
-            )
-            inst.duration -= self.unit_time
+            cost_change += inst.get_derivative(inst.duration, inst.duration - 1) * 1
+            inst.duration -= 1
+            logging.info("Reduced duration of %s to %s", repr(inst), inst.duration)
 
         for u, v in increase_edges:
             inst = self.capacity_graph[u][v]["inst"]
@@ -637,7 +630,7 @@ class PDSolver:
             increase_insts.append(repr(inst))
             # Notice: dummy edge is always valid for increasing duration
             if isinstance(inst, _Dummy):
-                inst.duration += self.unit_time
+                inst.duration += 1
                 logging.info(
                     "Increase edge is dummy: [%s, %s] %s, duration: %s",
                     u,
@@ -645,14 +638,11 @@ class PDSolver:
                     repr(inst),
                     inst.duration,
                 )
-            elif inst.duration + self.unit_time > inst.max_duration:
+            elif inst.duration + 1 > inst.max_duration:
                 return float("inf")
             else:
-                cost_change -= (
-                    inst.get_derivative(inst.duration, inst.duration + self.unit_time)
-                    * self.unit_time
-                )
-                inst.duration += self.unit_time
+                cost_change -= inst.get_derivative(inst.duration, inst.duration + 1) * 1
+                inst.duration += 1
                 logging.info(
                     "Increase edge is non-dummy: [%s, %s] %s", u, v, repr(inst)
                 )
