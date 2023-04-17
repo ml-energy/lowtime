@@ -5,6 +5,7 @@ from pathlib import Path
 import pandas as pd
 from typing import Type
 import matplotlib.pyplot as plt
+import pickle
 
 from rene import (
     ReneDAG,
@@ -27,8 +28,9 @@ def main():
         
     # Instruction offline profiling results.
     inst_df = pd.read_csv(args.inst_profile)
+    print(inst_df)
     time_costs = df_to_time_costs_pareto(inst_df)
-
+    print(time_costs)
     # P2P communication blocking power consumption.
     if args.p2p_power is None:
         p2p_block_df = pd.read_csv(args.p2p_profile)
@@ -60,7 +62,6 @@ def main():
 
     # Quantize and preprocess the time costs.
     time_costs = preprocess_time_costs(time_costs, args.unit_time)
-
     # Load the initial guess parameters for instruction exponential curve fitting.
     initial_guess: dict[Type[Instruction], dict[int, list[float]]]
     if args.initial_guess:
@@ -91,7 +92,7 @@ def main():
     annotation_args[Forward]["fontsize"] = 9.0
     annotation_args[Backward]["fontsize"] = 9.0
     rectangle_args = DEFAULT_RECTANGLE_ARGS
-    rectangle_args[Forward]["hatch"] = "////"
+    # rectangle_args[Forward]["hatch"] = "////"
     line_args = DEFAULT_LINE_ARGS
     line_args["linewidth"] = 2.0
 
@@ -102,6 +103,10 @@ def main():
     cost_change: float = 0.0
     for i, rene_dag in enumerate(rene_gen):
         rene_dag.schedule("eager")
+        # Save the current rene dag using pickle.
+        # with open(output_dir / f"rene_dag_{i:05d}.pkl", "wb") as f:
+        #     pickle.dump(rene_dag, f)
+        
         total_freqs = rene_dag.get_freq_assignment()
         total_cost, refined_cost = rene_dag.get_total_cost()
         cost_change = total_cost - prev_cost
@@ -130,7 +135,7 @@ def main():
                 line_args=line_args,
             )
             fig, ax = plt.subplots(figsize=(args.num_mbs * 2, args.num_stages), tight_layout=dict(pad=0.2, w_pad=0.2, h_pad=0.2))
-            vis.draw(ax, draw_time_axis=True, power_color="Oranges")
+            vis.draw(ax, draw_time_axis=True, power_color="RdYlGn_r")
             vis.draw_critical_path(ax)
             # ax.set_xlim(0, 4.6)  # Fix xlim so that different 1F1B pipelines from different heuristics can be compared side-by-side.
             ax.xaxis.set_label_coords(0.5, -0.07)

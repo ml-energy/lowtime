@@ -23,12 +23,14 @@ def main():
     parser.add_argument("--data_path", type=str, required=True, help="Path for directory containing instruction profile results")
     parser.add_argument("--p2p_profile", type=str, help="Path for p2p profile results")
     parser.add_argument("--p2p_power", type=float, help="Raw P2P blocking power consumption value to use")
-    parser.add_argument("--unit_time", type=float, help="The unit time for PD algorithm")
+    parser.add_argument("--unit_time", type=float, default=0.001, help="The unit time for PD algorithm")
     parser.add_argument("--output_dir", type=str, required=True, help="Path for output results, this will contain the results of each task")
     parser.add_argument("--driver_path", type=str, required=True, help="Path for driver script")
+    parser.add_argument("--num_stages", type=int, default=4, help="Number of stages in the pipeline")
+    parser.add_argument("--interval", type=int, default=500, help="The interval (number of iterations accumulated) to report pipeline graph and frequency assignment")
     args = parser.parse_args()
     # sanity check p2p profile
-    assert(Path(args.p2p_profile).exists())
+
     assert(Path(args.driver_path).exists())
     # import csv dataframe from workload path
     df = pd.read_csv(args.workload_path)
@@ -54,11 +56,20 @@ def main():
         # create task args, use the same base for all 3 fit methods
         base_args["driver_path"] = args.driver_path
         base_args["inst_profile"] = str(inst_profile)
-        base_args["p2p_profile"] = args.p2p_profile
+        if args.p2p_profile is not None:
+            assert(Path(args.p2p_profile).exists())
+            base_args["p2p_profile"] = args.p2p_profile
+        else:
+            if args.p2p_power is not None:
+                base_args["p2p_power"] = args.p2p_power
+            else:
+                print("Either p2p_profile or p2p_power must be specified")
+                exit(1)
         base_args["num_mbs"] = row["num_microbatches"]
         # use default values for interval and unit_time
-        base_args["interval"] = 500
         base_args["unit_time"] = args.unit_time
+        base_args["num_stages"] = args.num_stages
+        base_args["interval"] = args.interval
         for fit_method in ["linear", "piecewise-linear", "exponential"]:
             task_args = base_args.copy()
             if fit_method == "exponential":
