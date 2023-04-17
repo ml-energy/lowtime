@@ -3,3 +3,4 @@ results
 *.egg-info
 **/__pycache__
 **/*.png
+.DS_Store

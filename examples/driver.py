@@ -28,9 +28,8 @@ def main():
         
     # Instruction offline profiling results.
     inst_df = pd.read_csv(args.inst_profile)
-    print(inst_df)
     time_costs = df_to_time_costs_pareto(inst_df)
-    print(time_costs)
+
     # P2P communication blocking power consumption.
     if args.p2p_power is None:
         p2p_block_df = pd.read_csv(args.p2p_profile)
@@ -62,6 +61,10 @@ def main():
 
     # Quantize and preprocess the time costs.
     time_costs = preprocess_time_costs(time_costs, args.unit_time)
+<<<<<<< HEAD
+=======
+
+>>>>>>> master
     # Load the initial guess parameters for instruction exponential curve fitting.
     initial_guess: dict[Type[Instruction], dict[int, list[float]]]
     if args.initial_guess:
