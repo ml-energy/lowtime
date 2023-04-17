@@ -1,7 +1,7 @@
-from typing import Type
 import argparse
+from typing import Type
+
 import pandas as pd
-import matplotlib.pyplot as plt
 import numpy as np
 
 from rene import (
@@ -11,6 +11,40 @@ from rene import (
 )
 
 TIME_COST_T = dict[Type[Instruction], dict[int, list[tuple[float, float, int]]]]
+
+def offline_df_to_recomputation_df(df: pd.DataFrame) -> pd.DataFrame:
+    """Translate an offline profile df to a recomputation profile df.
+
+    An offline profile dataframe contains two instructions, forward and backward.
+    That backward measurement results (time and energy) were actually one pure
+    forward and one pure backward. This function subtracts forward measurements
+    from backward measurements to only leave the pure backward measurements and
+    labels that as the new backward measurement results. Forward measurements are
+    left as is.
+
+    This assumes that the input dataframe is 'full', in that all |F| many frequencies
+    for all stages and both forward and backward instructions are present.
+    """
+    # Check whetehr the dataframe is 'full'.
+    num_stages = df.stage.max() + 1
+    assert len(df) % 8 == 0
+    num_freqs = len(df) // 8
+    for stage in range(num_stages):
+        for instruction in ["forward", "backward"]:
+            assert len(df[(df.stage == stage) & (df.instruction == instruction)]) == num_freqs
+
+    # Copy the dataframe
+    new_df = df.copy()
+
+    # Calculate the differences in 'time' and 'energy' for rows with 'instruction' == 'backward'
+    new_df.loc[new_df['instruction'] == 'backward', 'time'] = df.loc[df.instruction == "backward", 'time'].values - df.loc[df.instruction == "forward", 'time'].values
+    new_df.loc[new_df['instruction'] == 'backward', 'energy'] = df.loc[df.instruction == "backward", 'energy'].values - df.loc[df.instruction == "forward", 'energy'].values
+
+    # Check whether the 'time' and 'energy' values are positive
+    assert (new_df.loc[new_df['instruction'] == 'backward', 'time'] > 0).all()
+    
+    return new_df
+
 
 def df_to_time_costs_pareto(inst_df: pd.DataFrame) -> TIME_COST_T:
     """Filter a raw Instruction dataframe profile into a new dataframe containing only entries on the Pareto frontier"""
