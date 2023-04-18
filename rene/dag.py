@@ -16,7 +16,14 @@ import networkx as nx  # type: ignore
 import numpy as np
 
 from rene.constants import FP_ERROR
-from rene.instruction import Instruction, InstructionType, Forward, Backward, _Dummy, Recomputation
+from rene.instruction import (
+    Instruction,
+    InstructionType,
+    Forward,
+    Backward,
+    _Dummy,
+    Recomputation,
+)
 
 
 def forward_dep(inst1: Forward, inst2: Forward) -> bool:
@@ -219,10 +226,9 @@ class ReneDAG:
             self.stage_view[stage_ind] = []
             for inst in stage:
                 # Treat recomputation as a special case of forward.
-                if isinstance(inst, Recomputation):
-                    inst_type = Forward
-                else:
-                    inst_type = type(inst)
+                inst_type: Type[Instruction] = (
+                    Forward if isinstance(inst, Recomputation) else type(inst)  # type: ignore
+                )
                 # Get the time cost for this instruction
                 inst.time_costs = self.time_costs[inst_type][stage_ind]
 

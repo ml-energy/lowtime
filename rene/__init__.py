@@ -26,6 +26,6 @@ __all__ = [
     "PDSolver",
     "PipelineSchedule",
     "Synchronous1F1B",
-    "EarlyRecomputation1F1B"
+    "EarlyRecomputation1F1B",
     "PipelineVisualizer",
 ]
