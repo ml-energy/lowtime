@@ -16,7 +16,7 @@ import networkx as nx  # type: ignore
 import numpy as np
 
 from rene.constants import FP_ERROR
-from rene.instruction import Instruction, InstructionType, Forward, Backward, _Dummy
+from rene.instruction import Instruction, InstructionType, Forward, Backward, _Dummy, Recomputation
 
 
 def forward_dep(inst1: Forward, inst2: Forward) -> bool:
@@ -218,14 +218,19 @@ class ReneDAG:
             prev_inst = None
             self.stage_view[stage_ind] = []
             for inst in stage:
+                # Treat recomputation as a special case of forward.
+                if isinstance(inst, Recomputation):
+                    inst_type = Forward
+                else:
+                    inst_type = type(inst)
                 # Get the time cost for this instruction
-                inst.time_costs = self.time_costs[type(inst)][stage_ind]
+                inst.time_costs = self.time_costs[inst_type][stage_ind]
 
                 # Pick longest duration by default, as default schedule policy is "eager"
-                inst.duration = self.time_costs[type(inst)][stage_ind][0][0]
+                inst.duration = self.time_costs[inst_type][stage_ind][0][0]
                 # Set min/max duration for each instruction
-                inst.max_duration = self.time_costs[type(inst)][stage_ind][0][0]
-                inst.min_duration = self.time_costs[type(inst)][stage_ind][-1][0]
+                inst.max_duration = self.time_costs[inst_type][stage_ind][0][0]
+                inst.min_duration = self.time_costs[inst_type][stage_ind][-1][0]
 
                 # Set the output directory for each instruction
                 inst.output_dir = self.output_dir
@@ -241,16 +246,16 @@ class ReneDAG:
 
                 # check if initial_guess is an empty dict, if not, use the initial guess
                 if self.initial_guess:
-                    inst.initial_guess = self.initial_guess[type(inst)][inst.stage_id]
+                    inst.initial_guess = self.initial_guess[inst_type][inst.stage_id]
 
-                if type(inst) not in self.coeffs_dict:
-                    self.coeffs_dict[type(inst)] = {}
-                if inst.stage_id not in self.coeffs_dict[type(inst)]:
-                    self.coeffs_dict[type(inst)][inst.stage_id] = inst.fit(
+                if inst_type not in self.coeffs_dict:
+                    self.coeffs_dict[inst_type] = {}
+                if inst.stage_id not in self.coeffs_dict[inst_type]:
+                    self.coeffs_dict[inst_type][inst.stage_id] = inst.fit(
                         self.fit_method
                     )
                 else:
-                    inst.fit_coeffs = self.coeffs_dict[type(inst)][inst.stage_id]
+                    inst.fit_coeffs = self.coeffs_dict[inst_type][inst.stage_id]
                     inst.fit_method = self.fit_method
                 # inst.unit_cost = abs(inst.k)
 

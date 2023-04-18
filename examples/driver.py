@@ -10,6 +10,7 @@ import pickle
 from rene import (
     ReneDAG,
     Synchronous1F1B,
+    EarlyRecomputation1F1B,
     PDSolver,
     Forward,
     Backward,
@@ -40,6 +41,7 @@ def main():
         # In the absolute majority of the times we don't go below 800MHz,
         # so we filter frequencies that are below that and take the average so that we're as accurate as possible.
         p_p2p = p2p_block_df.query("freq >= 800").power.mean().item()
+        print(f"Average P2P blocking power consumption: {p_p2p:.2f}W")
     else:
         p_p2p = args.p2p_power
         assert isinstance(p_p2p, float)
@@ -61,10 +63,6 @@ def main():
 
     # Quantize and preprocess the time costs.
     time_costs = preprocess_time_costs(time_costs, args.unit_time)
-<<<<<<< HEAD
-=======
-
->>>>>>> master
     # Load the initial guess parameters for instruction exponential curve fitting.
     initial_guess: dict[Type[Instruction], dict[int, list[float]]]
     if args.initial_guess:
@@ -79,7 +77,7 @@ def main():
 
     # Instantiate the initial ReneDAG.
     dag = ReneDAG(
-        schedule_type=Synchronous1F1B,
+        schedule_type=EarlyRecomputation1F1B,
         num_stages=args.num_stages,
         num_micro_batches=args.num_mbs,
         time_costs=time_costs,
@@ -106,9 +104,6 @@ def main():
     cost_change: float = 0.0
     for i, rene_dag in enumerate(rene_gen):
         rene_dag.schedule("eager")
-        # Save the current rene dag using pickle.
-        # with open(output_dir / f"rene_dag_{i:05d}.pkl", "wb") as f:
-        #     pickle.dump(rene_dag, f)
         
         total_freqs = rene_dag.get_freq_assignment()
         total_cost, refined_cost = rene_dag.get_total_cost()
@@ -131,6 +126,10 @@ def main():
                 f"# Iteration {i}: total time {total_time} \n"
             )
         if i % args.interval == 0:
+            # Save the current rene dag using pickle.
+            with open(output_dir / f"rene_dag_{i:05d}.pkl", "wb") as f:
+                pickle.dump(rene_dag, f)
+
             vis = PipelineVisualizer(
                 rene_dag,
                 annotation_args=annotation_args,
@@ -147,6 +146,24 @@ def main():
             fig.savefig(os.path.join(output_dir, f"pipeline_{i}.png"), format="PNG")
             plt.clf()
             plt.close()
+        final_rene_dag = rene_dag
+
+    vis = PipelineVisualizer(
+        final_rene_dag,
+        annotation_args=annotation_args,
+        rectangle_args=rectangle_args,
+        line_args=line_args,
+    )
+    fig, ax = plt.subplots(figsize=(args.num_mbs * 2, args.num_stages), tight_layout=dict(pad=0.2, w_pad=0.2, h_pad=0.2))
+    vis.draw(ax, draw_time_axis=True, power_color="RdYlGn_r")
+    vis.draw_critical_path(ax)
+    # ax.set_xlim(0, 4.6)  # Fix xlim so that different 1F1B pipelines from different heuristics can be compared side-by-side.
+    ax.xaxis.set_label_coords(0.5, -0.07)
+    ax.set_xlabel("Time (s)", fontsize=9.0)
+    ax.tick_params(axis="x", labelsize=8.0)        
+    fig.savefig(os.path.join(output_dir, f"pipeline_final.png"), format="PNG")
+    plt.clf()
+    plt.close()        
 
 
 if __name__ == "__main__":

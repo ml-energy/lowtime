@@ -9,7 +9,7 @@ from rene.constants import (
 from rene.instruction import Instruction, Forward, Backward
 from rene.dag import forward_dep, backward_dep, ReneDAG
 from rene.pd import PDSolver
-from rene.schedule import PipelineSchedule, Synchronous1F1B
+from rene.schedule import PipelineSchedule, Synchronous1F1B, EarlyRecomputation1F1B
 from rene.visualizer import PipelineVisualizer
 
 __all__ = [
@@ -26,5 +26,6 @@ __all__ = [
     "PDSolver",
     "PipelineSchedule",
     "Synchronous1F1B",
+    "EarlyRecomputation1F1B"
     "PipelineVisualizer",
 ]
