@@ -29,6 +29,14 @@ def main():
         
     # Instruction offline profiling results.
     inst_df = pd.read_csv(args.inst_profile)
+
+    if args.replace_time is not None:
+        new_time_df = pd.read_csv(args.replace_time)
+        inst_df = inst_df.merge(new_time_df, on=["stage", "instruction", "frequency"], how="left", suffixes=('_x', '_y'))
+        inst_df["time_x"] = inst_df["time_y"]
+        inst_df = inst_df.drop(columns=["time_y"])
+        inst_df = inst_df.rename(columns={"time_x": "time"})
+
     time_costs = df_to_time_costs_pareto(inst_df)
 
     # P2P communication blocking power consumption.
@@ -77,7 +85,7 @@ def main():
 
     # Instantiate the initial ReneDAG.
     dag = ReneDAG(
-        schedule_type=EarlyRecomputation1F1B,
+        schedule_type=Synchronous1F1B,
         num_stages=args.num_stages,
         num_micro_batches=args.num_mbs,
         time_costs=time_costs,
@@ -113,7 +121,9 @@ def main():
         with open(output_dir / f"freqs_pipeline_{i:05d}.py", "w") as f:
             f.write("[\n")
             for freqs in total_freqs:
-                f.write(str([int(freq) for freq in freqs]) + ",\n")
+                freq_str = str([int(freq) for freq in freqs]) + ",\n"
+                # for j in range(4): # for 3D parallelism
+                f.write(freq_str)
             f.write("]\n")
             f.write(
                 f"# Iteration {i}: cost change {cost_change} \n"

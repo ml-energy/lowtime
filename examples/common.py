@@ -113,4 +113,5 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--unit_time", type=float, default=0.001, help="The unit of reduction for each iteration, the smaller the value, the more iterations it takes to converge and the finer graunularity for the Pareto frontier")
     parser.add_argument("--fit_method", type=str, default="exponential", choices=["linear", "piecewise-linear", "exponential"], help="Methods to fit the time costs")
     parser.add_argument("--initial_guess", type=str, default="", help="Path for a initial guess of exponential fit parameters")
+    parser.add_argument("--replace_time", type=str, help="Path for a file containing the time data to replace the original time in time costs")
     return parser.parse_args()

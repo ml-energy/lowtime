@@ -15,9 +15,16 @@ parser.add_argument("--inst_profile", type=str, required=True, help="Path for in
 parser.add_argument("--unit_time", type=float, default=0.001, help="The unit of reduction for each iteration, the smaller the value, the more iterations it takes to converge and the finer graunularity for the Pareto frontier")
 parser.add_argument("--p2p_power", type=float, help="Raw P2P blocking power consumption value to use")
 parser.add_argument("--num_stages", type=int, default=4, help="Number of stages in the pipeline")
+parser.add_argument("--replace_time", type=str, help="Path for a file containing the time data to replace the original time in time costs")
 args = parser.parse_args()
 
 inst_df = pd.read_csv(args.inst_profile)
+if args.replace_time is not None:
+    new_time_df = pd.read_csv(args.replace_time)
+    inst_df = inst_df.merge(new_time_df, on=["stage", "instruction", "frequency"], how="left", suffixes=('_x', '_y'))
+    inst_df["time_x"] = inst_df["time_y"]
+    inst_df = inst_df.drop(columns=["time_y"])
+    inst_df = inst_df.rename(columns={"time_x": "time"})
 total_time_costs = df_to_time_costs_pareto(inst_df)
 total_time_costs = preprocess_time_costs(total_time_costs, args.unit_time)
 print(total_time_costs)
@@ -33,7 +40,7 @@ output_dir.mkdir(parents=True, exist_ok=False)
 
 cands_a = [1e+1, 1e+2, 1e+3]
 cands_b = np.array([-0.01, -0.02, -0.03, -0.04, -0.05, -0.1])
-cands_b /= (args.unit_time / 0.001)  
+cands_b *= (args.unit_time / 0.001)  
 cands_b = list(cands_b)
 cands_c = [1e+1, 1e+2, 1e+3]
 

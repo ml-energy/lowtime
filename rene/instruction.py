@@ -212,7 +212,7 @@ class Instruction(metaclass=InstructionType):
                     time_list,
                     cost_list,
                     p0=self.initial_guess,
-                    maxfev=10000,
+                    maxfev=50000,
                 )
                 logging.info("%s Initial guess: %s", repr(self), self.initial_guess)
             else:
@@ -220,7 +220,7 @@ class Instruction(metaclass=InstructionType):
                     lambda t, a, b, c: a * np.exp(b * t) + c,
                     time_list,
                     cost_list,
-                    maxfev=10000,
+                    maxfev=50000,
                 )
                 logging.info("%s No initial guess", repr(self))
 
