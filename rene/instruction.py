@@ -337,6 +337,12 @@ class Backward(Instruction):
     alias = "BW"
 
 
+class ForwardBackward(Instruction):
+    """ForwardBackward computation for a pipeline stage."""
+
+    alias = "FB"
+
+
 class Recomputation(Instruction):
     """Activation recomputation (forward) for a pipeline stage."""
 
