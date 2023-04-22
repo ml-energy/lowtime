@@ -21,6 +21,7 @@ from rene import (
     DEFAULT_RECTANGLE_ARGS,
 )
 from examples.common import df_to_time_costs_pareto, preprocess_time_costs, parse_args
+from rene.dag import backward_dep, forward_dep, forwardbackward_backward_dep, forwardbackward_dep
 
 
 def main():
@@ -76,17 +77,31 @@ def main():
         initial_guess = {}
 
     # Instantiate the initial ReneDAG.
-    dag = ReneDAG(
-        schedule_type=EarlyRecomputation1F1B,
-        num_stages=args.num_stages,
-        num_micro_batches=args.num_mbs,
-        time_costs=time_costs,
-        p2p_power=p_p2p,
-        output_dir=output_dir,
-        fit_method=args.fit_method,
-        initial_guess=initial_guess,
-        unit_time=args.unit_time,
-    )
+    if args.train_scheduel == "1f1b":
+        dag = ReneDAG(
+            schedule_type=Synchronous1F1B,
+            num_stages=args.num_stages,
+            num_micro_batches=args.num_mbs,
+            time_costs=time_costs,
+            p2p_power=p_p2p,
+            output_dir=output_dir,
+            fit_method=args.fit_method,
+            initial_guess=initial_guess,
+            unit_time=args.unit_time,
+        )
+    elif args.train_schedule == "early_recomputation_1f1b":
+        dag = ReneDAG(
+            schedule_type=EarlyRecomputation1F1B,
+            dependency_rules=[forward_dep, backward_dep, forwardbackward_dep, forwardbackward_backward_dep],
+            num_stages=args.num_stages,
+            num_micro_batches=args.num_mbs,
+            time_costs=time_costs,
+            p2p_power=p_p2p,
+            output_dir=output_dir,
+            fit_method=args.fit_method,
+            initial_guess=initial_guess,
+            unit_time=args.unit_time,
+        )
 
     # Instantiate the visualizer args
     annotation_args = DEFAULT_ANNOTATION_ARGS
