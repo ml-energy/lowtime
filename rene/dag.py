@@ -17,6 +17,7 @@ import numpy as np
 
 from rene.constants import FP_ERROR
 from rene.instruction import (
+    ForwardBackward,
     Instruction,
     InstructionType,
     Forward,
@@ -41,6 +42,28 @@ def backward_dep(inst1: Backward, inst2: Backward) -> bool:
     """Dependency rule between Backward instructions.
 
     Backward(stage i+1, microbatch j) -> Backward(stage i, microbatch j)
+    """
+    return (
+        inst1.micro_batch_id == inst2.micro_batch_id
+        and inst1.stage_id == inst2.stage_id + 1
+    )
+
+
+def forwardbackward_dep(inst1: ForwardBackward, inst2: ForwardBackward) -> bool:
+    """Dependency rule between ForwardBackward instructions.
+
+    ForwardBackward(stage i+1, microbatch j) -> ForwardBackward(stage i, microbatch j)
+    """
+    return (
+        inst1.micro_batch_id == inst2.micro_batch_id
+        and inst1.stage_id == inst2.stage_id + 1
+    )
+
+
+def forwardbackward_backward_dep(inst1: ForwardBackward, inst2: Backward) -> bool:
+    """Dependency rule between ForwardBackward and Backward.
+
+    ForwardBackward(stage i+1, microbatch j) -> Backward(stage i, microbatch j)
     """
     return (
         inst1.micro_batch_id == inst2.micro_batch_id

@@ -114,4 +114,5 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--fit_method", type=str, default="exponential", choices=["linear", "piecewise-linear", "exponential"], help="Methods to fit the time costs")
     parser.add_argument("--initial_guess", type=str, default="", help="Path for a initial guess of exponential fit parameters")
     parser.add_argument("--replace_time", type=str, help="Path for a file containing the time data to replace the original time in time costs")
+    parser.add_argument("--train_schedule", type=str, choices=["1f1b", "early_recomputation_1f1b"], default="1f1b", help="Pipeline schedule.")
     return parser.parse_args()

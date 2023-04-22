@@ -5,7 +5,7 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from typing import Generator
 
-from rene.instruction import Instruction, Forward, Backward, Recomputation
+from rene.instruction import Instruction, Forward, Backward, Recomputation, ForwardBackward
 
 
 class PipelineSchedule(ABC):
@@ -65,7 +65,10 @@ class Synchronous1F1B(PipelineSchedule):
                 else:
                     yield Backward(self.stage_id, micro_batch_id)
 
-    def _valid_micro_batch(self, micro_batch_id):
+    def _valid_stage(self, stage_id) -> bool:
+        return 0 <= stage_id < self.num_stages
+
+    def _valid_micro_batch(self, micro_batch_id) -> bool:
         return 0 <= micro_batch_id < self.num_micro_batches
 
     def _step_to_micro_batch(self, step_id):
@@ -122,16 +125,34 @@ class EarlyRecomputation1F1B(Synchronous1F1B):
 
     def __iter__(self) -> Generator[Instruction, None, None]:
         """Return a generator that yields `Instruction`s for one stage."""
+        prev_micro_batch_id = -1
         total_steps = 2 * (self.num_micro_batches + self.num_stages - 1)
         for step_id in range(total_steps):
             # Map the step of the pipeline to the micro-batch id and also whether it is a
             # forward or backward pass step.
             micro_batch_id, is_forward = self._step_to_micro_batch(step_id)
 
+            cmds = []
+
+            # Recomputation right before Backwards.
+            if not is_forward:
+                if not self._valid_micro_batch(prev_micro_batch_id) and self._valid_micro_batch(micro_batch_id) and self._valid_stage(self.next_stage):
+                    cmds.append(Recomputation(self.stage_id, micro_batch_id))
+
+            # Computation
             if self._valid_micro_batch(micro_batch_id):
                 if is_forward:
-                    yield Forward(self.stage_id, micro_batch_id)
+                    if self.num_micro_batches - micro_batch_id + self.stage_id < self.num_stages:
+                        # Used to be PreCheckpointForward
+                        cmds.append(Forward(self.stage_id, micro_batch_id))
+                    else:
+                        cmds.append(Forward(self.stage_id, micro_batch_id))
                 else:
-                    # Recomputateion right before backward.
-                    yield Recomputation(self.stage_id, micro_batch_id)
-                    yield Backward(self.stage_id, micro_batch_id)
+                    if micro_batch_id <= self.num_micro_batches - self.num_stages + self.stage_id:
+                        cmds.append(ForwardBackward(self.stage_id, micro_batch_id))
+                    else:
+                        cmds.append(Backward(self.stage_id, micro_batch_id))
+
+            # Prepare state for next time
+            prev_micro_batch_id = micro_batch_id
+            yield from cmds
