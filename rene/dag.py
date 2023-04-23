@@ -229,12 +229,14 @@ class ReneDAG:
         # Assign node_id 0 to entry_node and node_id 1 to exit_node
         self.entry_node = _Dummy(-1, -1, duration=0.0, repr="Entry")
         self.entry_id = self.node_id
-        self._dag.add_node(self.node_id, inst=self.entry_node)
+        self._dag.add_node(
+            self.node_id, inst=self.entry_node, repr=repr(self.entry_node)
+        )
         self.inst_map[repr(self.entry_node)] = self.entry_node
         self.inst_id_map[repr(self.entry_node)] = self.node_id
         self.exit_node = _Dummy(-1, -1, duration=0.0, repr="Exit")
         self.exit_id = self.node_id + 1
-        self._dag.add_node(self.exit_id, inst=self.exit_node)
+        self._dag.add_node(self.exit_id, inst=self.exit_node, repr=repr(self.exit_node))
         self.inst_map[repr(self.exit_node)] = self.exit_node
         self.inst_id_map[repr(self.exit_node)] = self.exit_id
         self.node_id += 2
@@ -252,6 +254,12 @@ class ReneDAG:
                 inst_type: Type[Instruction] = (
                     Forward if isinstance(inst, Recomputation) else type(inst)  # type: ignore
                 )
+
+                # Sort time_costs by reverse duration
+                self.time_costs[inst_type][stage_ind].sort(
+                    key=lambda x: x[0], reverse=True
+                )
+
                 # Get the time cost for this instruction
                 inst.time_costs = self.time_costs[inst_type][stage_ind]
 
@@ -293,7 +301,7 @@ class ReneDAG:
 
                 # add a new node
                 if repr(inst) not in self.inst_map:
-                    self._dag.add_node(self.node_id, inst=inst)
+                    self._dag.add_node(self.node_id, inst=inst, repr=repr(inst))
                     self.inst_map[repr(inst)] = inst
                     self.inst_id_map[repr(inst)] = self.node_id
                     self.node_id += 1

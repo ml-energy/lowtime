@@ -681,11 +681,12 @@ class PDSolver:
 
         # set the attribute of edge as a combination of lb and ub, and round lb and ub to 2 decimal places
         for edge in self.capacity_graph.edges:
-            self.capacity_graph.edges[edge][
-                "label"
-            ] = f"{repr(self.capacity_graph.edges[edge]['inst'])}:({round(self.capacity_graph.edges[edge]['lb'], 2)}, \
-                {round(self.capacity_graph.edges[edge]['ub'], 2)}), \
-                {round(self.capacity_graph.edges[edge]['weight'], 2)}"
+            if type(self.capacity_graph.edges[edge]["inst"]) != _Dummy:
+                self.capacity_graph.edges[edge][
+                    "label"
+                ] = f"{repr(self.capacity_graph.edges[edge]['inst'])}: \
+                    ({round(self.capacity_graph.edges[edge]['lb'], 2)}, \
+                    {round(self.capacity_graph.edges[edge]['ub'], 2)})"
 
         edge_labels = nx.get_edge_attributes(self.capacity_graph, "label")
         nx.draw_networkx_edge_labels(self.capacity_graph, pos, edge_labels=edge_labels)

@@ -5,7 +5,13 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from typing import Generator
 
-from rene.instruction import Instruction, Forward, Backward, Recomputation, ForwardBackward
+from rene.instruction import (
+    Instruction,
+    Forward,
+    Backward,
+    Recomputation,
+    ForwardBackward,
+)
 
 
 class PipelineSchedule(ABC):
@@ -132,23 +138,32 @@ class EarlyRecomputation1F1B(Synchronous1F1B):
             # forward or backward pass step.
             micro_batch_id, is_forward = self._step_to_micro_batch(step_id)
 
-            cmds = []
+            cmds: list[Instruction] = []
 
             # Recomputation right before Backwards.
-            if not is_forward:
-                if not self._valid_micro_batch(prev_micro_batch_id) and self._valid_micro_batch(micro_batch_id) and self._valid_stage(self.next_stage):
-                    cmds.append(Recomputation(self.stage_id, micro_batch_id))
+            if not is_forward and (
+                not self._valid_micro_batch(prev_micro_batch_id)
+                and self._valid_micro_batch(micro_batch_id)
+                and self._valid_stage(self.next_stage)
+            ):
+                cmds.append(Recomputation(self.stage_id, micro_batch_id))
 
             # Computation
             if self._valid_micro_batch(micro_batch_id):
                 if is_forward:
-                    if self.num_micro_batches - micro_batch_id + self.stage_id < self.num_stages:
+                    if (
+                        self.num_micro_batches - micro_batch_id + self.stage_id
+                        < self.num_stages
+                    ):
                         # Used to be PreCheckpointForward
                         cmds.append(Forward(self.stage_id, micro_batch_id))
                     else:
                         cmds.append(Forward(self.stage_id, micro_batch_id))
                 else:
-                    if micro_batch_id <= self.num_micro_batches - self.num_stages + self.stage_id:
+                    if (  # noqa: PLR5501
+                        micro_batch_id
+                        <= self.num_micro_batches - self.num_stages + self.stage_id
+                    ):
                         cmds.append(ForwardBackward(self.stage_id, micro_batch_id))
                     else:
                         cmds.append(Backward(self.stage_id, micro_batch_id))

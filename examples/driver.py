@@ -14,13 +14,14 @@ from rene import (
     PDSolver,
     Forward,
     Backward,
+    ForwardBackward,
     PipelineVisualizer,
     Instruction,
     DEFAULT_ANNOTATION_ARGS,
     DEFAULT_LINE_ARGS,
     DEFAULT_RECTANGLE_ARGS,
 )
-from examples.common import df_to_time_costs_pareto, preprocess_time_costs, parse_args
+from examples.common import df_to_time_costs_pareto, preprocess_time_costs, parse_args, offline_df_to_recomputation_df
 from rene.dag import backward_dep, forward_dep, forwardbackward_backward_dep, forwardbackward_dep
 
 
@@ -70,23 +71,23 @@ def main():
     
     logging.info("Arguments: %s", args)
 
-    # Quantize and preprocess the time costs.
-    time_costs = preprocess_time_costs(time_costs, args.unit_time)
-    # Load the initial guess parameters for instruction exponential curve fitting.
-    initial_guess: dict[Type[Instruction], dict[int, list[float]]]
-    if args.initial_guess:
-        with open(args.initial_guess, "r") as f:
-            raw_initial_guess: dict[str, dict[int, list[float]]] = eval(f.read())
-            initial_guess = {
-                Forward: raw_initial_guess["Forward"],
-                Backward: raw_initial_guess["Backward"],
-            }
-    else:
-        initial_guess = {}
-
     # Instantiate the initial ReneDAG.
-    if args.train_scheduel == "1f1b":
-        dag = ReneDAG(
+    if args.train_schedule == "1f1b":
+        # Quantize and preprocess the time costs.
+        time_costs = preprocess_time_costs(time_costs, args.unit_time)
+        # Load the initial guess parameters for instruction exponential curve fitting.
+        initial_guess: dict[Type[Instruction], dict[int, list[float]]]
+        if args.initial_guess:
+            with open(args.initial_guess, "r") as f:
+                raw_initial_guess: dict[str, dict[int, list[float]]] = eval(f.read())
+                initial_guess = {
+                    Forward: raw_initial_guess["Forward"],
+                    Backward: raw_initial_guess["Backward"],
+                }
+        else:
+            initial_guess = {}
+
+        dag = ReneDAGs(
             schedule_type=Synchronous1F1B,
             num_stages=args.num_stages,
             num_micro_batches=args.num_mbs,
@@ -98,12 +99,35 @@ def main():
             unit_time=args.unit_time,
         )
     elif args.train_schedule == "early_recomputation_1f1b":
+        # copy the original time_cost
+        # ForwardBackward time cost is the same as Backward from the original time cost
+        # Backward time cost is the Backward minus Forward from the original time cost
+        augmented_time_costs = time_costs.copy()
+        augmented_time_costs[ForwardBackward] = time_costs[Backward]
+        new_df = offline_df_to_recomputation_df(inst_df)
+        augmented_time_costs[Backward] = df_to_time_costs_pareto(new_df)[Backward]
+        # Quantize and preprocess the time costs.
+        augmented_time_costs = preprocess_time_costs(augmented_time_costs, args.unit_time)
+
+        # Load the initial guess parameters for instruction exponential curve fitting.
+        initial_guess: dict[Type[Instruction], dict[int, list[float]]]
+        if args.initial_guess:
+            with open(args.initial_guess, "r") as f:
+                raw_initial_guess: dict[str, dict[int, list[float]]] = eval(f.read())
+                initial_guess = {
+                    Forward: raw_initial_guess["Forward"],
+                    Backward: raw_initial_guess["Backward"],
+                    ForwardBackward: raw_initial_guess["ForwardBackward"],
+                }
+        else:
+            initial_guess = {}
+
         dag = ReneDAG(
             schedule_type=EarlyRecomputation1F1B,
             dependency_rules=[forward_dep, backward_dep, forwardbackward_dep, forwardbackward_backward_dep],
             num_stages=args.num_stages,
             num_micro_batches=args.num_mbs,
-            time_costs=time_costs,
+            time_costs=augmented_time_costs,
             p2p_power=p_p2p,
             output_dir=output_dir,
             fit_method=args.fit_method,

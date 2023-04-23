@@ -6,7 +6,7 @@ from rene.constants import (
     DEFAULT_ANNOTATION_ARGS,
     DEFAULT_LINE_ARGS,
 )
-from rene.instruction import Instruction, Forward, Backward
+from rene.instruction import Instruction, Forward, Backward, ForwardBackward
 from rene.dag import forward_dep, backward_dep, ReneDAG
 from rene.pd import PDSolver
 from rene.schedule import PipelineSchedule, Synchronous1F1B, EarlyRecomputation1F1B
@@ -20,6 +20,7 @@ __all__ = [
     "Instruction",
     "Forward",
     "Backward",
+    "ForwardBackward",
     "forward_dep",
     "backward_dep",
     "ReneDAG",

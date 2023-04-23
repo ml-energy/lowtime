@@ -27,6 +27,7 @@ def main():
     parser.add_argument("--driver_path", type=str, required=True, help="Path for driver script")
     parser.add_argument("--num_stages", type=int, default=4, help="Number of stages in the pipeline")
     parser.add_argument("--replace_time", type=str, help="Path for a file containing the time data to replace the original time in time costs")
+    parser.add_argument("--train_schedule", type=str, choices=["1f1b", "early_recomputation_1f1b"], default="1f1b", help="Pipeline schedule.")
     args = parser.parse_args()
     # sanity check input path
     if args.profile_list is None and args.workload_path is None and args.data_path is None or (args.workload_path is not None and args.data_path is None) or (args.workload_path is None and args.data_path is not None):
@@ -58,6 +59,7 @@ def main():
             base_args["p2p_power"] = args.p2p_power
             base_args["task_name"] = base_name
             base_args["num_stages"] = args.num_stages
+            base_args["train_schedule"] = args.train_schedule
             if args.replace_time is not None:
                 assert(Path(args.replace_time).exists())
                 base_args["replace_time"] = args.replace_time
@@ -74,6 +76,7 @@ def main():
                 base_args["p2p_power"] = args.p2p_power
                 base_args["task_name"] = Path(inst_profile).stem
                 base_args["num_stages"] = args.num_stages
+                base_args["train_schedule"] = args.train_schedule
                 if args.replace_time is not None:
                     assert(Path(args.replace_time).exists())
                     base_args["replace_time"] = args.replace_time
