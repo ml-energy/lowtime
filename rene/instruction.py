@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 from pathlib import Path
 from dataclasses import dataclass, field
-from typing import Any, ClassVar
+from typing import Any, ClassVar, Callable
 
 import numpy as np  # type: ignore
 import matplotlib.pyplot as plt  # type: ignore
@@ -115,7 +115,9 @@ class Instruction(metaclass=InstructionType):
         ax: Axes,
         rectangle_args: dict[InstructionType, dict[str, Any]],
         annotation_args: dict[InstructionType, dict[str, Any]],
+        annotation_hook: Callable[[Instruction], str] | None = None,
         power_color: str | None = "Oranges",
+        max_power: float = 400.0,
     ) -> None:
         """Draw the instruction on the Axes object.
 
@@ -125,8 +127,17 @@ class Instruction(metaclass=InstructionType):
             ax: Axes object to draw on
             rectangle_args: Arguments to pass to `Rectangle`
             annotation_args: Arguments to pass to `ax.annotate`
-            power_color: Color map to use for power coloring (default: {"Oranges"})
+            annotation_hook: If not None, this is called with the instruction and the string
+                returned will be annotated inside the instruction box.
+            power_color: Color map to use for power coloring (default: "Oranges")
+            max_power: Maximum power to use for power coloring (default: 400.0)
         """
+        annotation = (
+            annotation_hook(self)
+            if annotation_hook is not None
+            else str(self.frequency)
+        )
+
         final_rectangle_args = dict(
             xy=(self.actual_start * self.unit_time, self.stage_id),
             width=self.actual_duration * self.unit_time,
@@ -135,13 +146,16 @@ class Instruction(metaclass=InstructionType):
         final_rectangle_args.update(rectangle_args[type(self)])
         if power_color is not None:
             final_rectangle_args["facecolor"] = plt.get_cmap(power_color)(
-                self.get_cost(self.duration) / (self.duration * self.unit_time) / 400.0
+                self.get_cost(self.duration)
+                / (self.duration * self.unit_time)
+                / max_power
             )
         rectangle = Rectangle(**final_rectangle_args)
         ax.add_patch(rectangle)
         # Annotate the frequency inside the rectangle
         final_annotation_args = dict(
-            text=str(self.frequency),
+            text=annotation,
+            # text=str(self.micro_batch_id),
             xy=(rectangle.get_x() + rectangle.get_width() / 2, rectangle.get_y() + 0.5),  # type: ignore
         )
         final_annotation_args.update(annotation_args[type(self)])

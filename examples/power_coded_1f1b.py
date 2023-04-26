@@ -55,7 +55,7 @@ def df_to_time_costs_pareto(inst_df: pd.DataFrame) -> TIME_COST_T:
 
 
 # Instruction offline profiling results.
-inst_df = pd.read_csv("../perseus-analysis/data/merak_offline_profiler/merak+gpt3-large+uniform_transformer+dp1+tp1+pp4+mbs4.csv")
+inst_df = pd.read_csv("../perseus-analysis/data/merak_offline_profiler/A40/merak+gpt3-large+uniform_transformer+dp1+pp4+tp1+mbs4.csv")
 time_costs = df_to_time_costs_pareto(inst_df)
 
 # P2P communication blocking power consumption.
@@ -82,12 +82,14 @@ dag = ReneDAG(
     num_stages=4,
     num_micro_batches=8,
     time_costs=time_costs,  # NOTE: This is from inst_df, not sub_p2p_inst_df, because we want to use the original energy to determine colors.
+    unit_time=1.0,
 )
 
 # Set instruction frequencies
 name = args.name
-cmap = "Oranges"
+cmap = "RdBu_r"
 bottleneck_stage = 3
+max_power = 400
 
 # 1) Max frequency for all instructions
 if name == "maxfreq":
@@ -173,9 +175,10 @@ dag.schedule("eager")
 annotation_args = DEFAULT_ANNOTATION_ARGS
 annotation_args[Forward]["fontsize"] = 9.0
 annotation_args[Backward]["fontsize"] = 9.0
-annotation_args[Backward]["color"] = "#ffffff"
+annotation_args[Forward]["color"] = "black"
+annotation_args[Backward]["color"] = "black"
 rectangle_args = DEFAULT_RECTANGLE_ARGS
-rectangle_args[Forward]["hatch"] = "////"
+# rectangle_args[Forward]["hatch"] = "////"
 line_args = DEFAULT_LINE_ARGS
 line_args["linewidth"] = 2.0
 vis = PipelineVisualizer(
@@ -185,13 +188,16 @@ vis = PipelineVisualizer(
     line_args=line_args,
 )
 
+def annotation_hook(inst: Instruction) -> str:
+    return f"{'F' if isinstance(inst, Forward) else 'B'}\n{inst.micro_batch_id}"
+
 # Instantitate a matplotlib subplot and draw the pipeline and critical path.
-if args.name == "maxfreq":
-    figsize = (4, 1.95)
-else:
-    figsize = (4, 2.1)
+# if args.name == "maxfreq":
+#     figsize = (4.5, 1.95)
+# else:
+figsize = (4.5, 2.1)
 fig, ax = plt.subplots(figsize=figsize, tight_layout=dict(pad=0.2, w_pad=0.2, h_pad=0.2))
-vis.draw(ax, draw_time_axis=True, power_color=cmap)
+vis.draw(ax, draw_time_axis=True, annotation_hook=annotation_hook, power_color=cmap, max_power=max_power)
 # vis.draw_critical_path(ax)
 # ax.set_xlim(0, 4.6)  # Fix xlim so that different 1F1B pipelines from different heuristics can be compared side-by-side.
 ax.xaxis.set_label_coords(0.5, -0.07)
@@ -199,22 +205,22 @@ ax.set_xlabel("Time (s)", fontsize=9.0)
 ax.tick_params(axis="x", labelsize=8.0)
 
 # Legend: Hatched boxes are forward, solid boxes are backward.
-if args.name == "maxfreq":
-    legend_elements = [
-        # plt.Line2D([0], [0], color="black", lw=2, label="Critical path"),
-        Patch(facecolor="white", edgecolor="black", hatch="////", label="Forward"),
-        Patch(facecolor="white", edgecolor="black", label="Backward"),
-    ]
-    ax.legend(handles=legend_elements, loc="upper center", bbox_to_anchor=(0.5, 1.2), ncol=2, fontsize=8.0, frameon=False)
+# if args.name == "maxfreq":
+#     legend_elements = [
+#         # plt.Line2D([0], [0], color="black", lw=2, label="Critical path"),
+#         Patch(facecolor="white", edgecolor="black", hatch="////", label="Forward"),
+#         Patch(facecolor="white", edgecolor="black", label="Backward"),
+#     ]
+#     ax.legend(handles=legend_elements, loc="upper center", bbox_to_anchor=(0.5, 1.2), ncol=2, fontsize=8.0, frameon=False)
 
 # Below the legend, draw a colorbar for power consumption.
-if args.name != "maxfreq":
-    norm = Normalize(vmin=0, vmax=400.0)
-    sm = plt.cm.ScalarMappable(cmap=cmap, norm=norm)
-    cbar = fig.colorbar(sm, ax=ax, orientation="horizontal", location="top", aspect=50, ticks=[0, 100, 200, 300], fraction=0.044)
-    # cbar.ax.set_title("Power (W)", fontsize=9.0)
-    cbar.ax.set_xlim(0, 300)
-    cbar.ax.set_xticklabels(["0W", "100W", "200W", "300W"], fontsize=9.0)
+# if args.name != "maxfreq":
+norm = Normalize(vmin=0, vmax=max_power)
+sm = plt.cm.ScalarMappable(cmap=cmap, norm=norm)
+cbar = fig.colorbar(sm, ax=ax, orientation="horizontal", location="top", aspect=50, ticks=[0, 100, 200, 300], fraction=0.044)
+# cbar.ax.set_title("Power (W)", fontsize=9.0)
+cbar.ax.set_xlim(0, 300)
+cbar.ax.set_xticklabels(["0W", "100W", "200W", "300W"], fontsize=9.0)
 
 prefix = f"figures/power_pipeline_draft+{name}+merak+gpt3-large+uniform_transformer+dp1+tp1+pp4+mbs4"
 fig.savefig(f"{prefix}.png")
@@ -223,7 +229,7 @@ fig.savefig(f"{prefix}.pdf", metadata={"CreationDate": None})
 shutil.copyfile(f"{prefix}.pdf", f"../perseus-paper/{prefix}.pdf")
 
 
-total_time = dag.total_execution_time
+total_time = dag.get_total_time()
 stage_times = [0.0 for _ in range(dag.num_stages)]
 stage_inst_costs = [0.0 for _ in range(dag.num_stages)]
 p2p_power = 75.5

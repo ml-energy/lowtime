@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from queue import SimpleQueue
-from typing import Any
+from typing import Any, Callable
 
 import networkx as nx  # type: ignore
 import matplotlib.pyplot as plt  # type: ignore
@@ -95,20 +95,27 @@ class PipelineVisualizer:
         self,
         ax: Axes,
         draw_time_axis: bool = False,
+        annotation_hook: Callable[[Instruction], str] | None = None,
         power_color: str | None = "Oranges",
+        p2p_power: float = 75.5,
+        max_power: float = 400.0,
     ) -> None:
         """Draw the pipeline on the given Axes object.
 
         Args:
             ax: The Axes object to draw on.
             draw_time_axis: Whether to draw the time axis on the bottom of the plot.
+            annotation_hook: A function that takes an instruction and returns a string to be
+                displayed inside the instruction box. If None, the instruction's frequency is used.
             power_color: If None, instruction color is determined by the instruction type.
                 Otherwise, this should be a matplotlib colormap name, and the color of each
                 instruction is determined by its power consumption (= cost/duration).
+            p2p_power: The power consumption during P2P communication.
+            max_power: The maximum power consumption of any instruction in the DAG.
         """
         # Fill in the background as a Rectangle
         if power_color is not None:
-            bg_color = plt.get_cmap(power_color)(75.5 / 400.0)
+            bg_color = plt.get_cmap(power_color)(p2p_power / max_power)
             background = Rectangle(
                 xy=(0, 0),
                 width=self.dag.get_total_time(),
@@ -120,7 +127,14 @@ class PipelineVisualizer:
 
         # Draw instruction Rectangles
         for inst in self.dag.insts:
-            inst.draw(ax, self.rectangle_args, self.annotation_args, power_color)
+            inst.draw(
+                ax,
+                self.rectangle_args,
+                self.annotation_args,
+                annotation_hook,
+                power_color,
+                max_power,
+            )
 
         if draw_time_axis:
             ax.yaxis.set_visible(False)
