@@ -55,7 +55,7 @@ def df_to_time_costs_pareto(inst_df: pd.DataFrame) -> TIME_COST_T:
 
 
 # Instruction offline profiling results.
-inst_df = pd.read_csv("../perseus-analysis/data/merak_offline_profiler/A40/merak+gpt3-large+uniform_transformer+dp1+pp4+tp1+mbs4.csv")
+inst_df = pd.read_csv("../perseus-analysis/data/merak_offline_profiler/A40/dp1+pp4+tp1/merak+gpt3-large+uniform_transformer+dp1+pp4+tp1+mbs4.csv")
 time_costs = df_to_time_costs_pareto(inst_df)
 
 # P2P communication blocking power consumption.
@@ -69,9 +69,10 @@ def subtract_p2p(inst_df, p2p_df):
         freq: _df.loc[_df.freq == freq].power.to_list()
         for freq in _df.freq.unique()
     }
-    p2p_power = {freq: sum(power) / len(power) for freq, power in p2p_power.items()}
+    # p2p_power = {freq: sum(power) / len(power) for freq, power in p2p_power.items()}
+    p2p_power = 75.5
     def subtract_p2p(row):
-        row.energy -= row.time * p2p_power[row.frequency]
+        row.energy -= row.time * p2p_power  #[row.frequency]
         return row
     return inst_df.apply(subtract_p2p, axis=1)
 sub_p2p_inst_df = subtract_p2p(inst_df, p2p_block_df)
@@ -89,7 +90,7 @@ dag = ReneDAG(
 name = args.name
 cmap = "RdBu_r"
 bottleneck_stage = 3
-max_power = 400
+norm = Normalize(vmin=-150, vmax=500)
 
 # 1) Max frequency for all instructions
 if name == "maxfreq":
@@ -189,7 +190,7 @@ vis = PipelineVisualizer(
 )
 
 def annotation_hook(inst: Instruction) -> str:
-    return f"{'F' if isinstance(inst, Forward) else 'B'}\n{inst.micro_batch_id}"
+    return f"{'F' if isinstance(inst, Forward) else 'B'}\n{inst.micro_batch_id + 1}"
 
 # Instantitate a matplotlib subplot and draw the pipeline and critical path.
 # if args.name == "maxfreq":
@@ -197,7 +198,7 @@ def annotation_hook(inst: Instruction) -> str:
 # else:
 figsize = (4.5, 2.1)
 fig, ax = plt.subplots(figsize=figsize, tight_layout=dict(pad=0.2, w_pad=0.2, h_pad=0.2))
-vis.draw(ax, draw_time_axis=True, annotation_hook=annotation_hook, power_color=cmap, max_power=max_power)
+vis.draw(ax, draw_time_axis=True, annotation_hook=annotation_hook, power_color=cmap, normalizer=norm)
 # vis.draw_critical_path(ax)
 # ax.set_xlim(0, 4.6)  # Fix xlim so that different 1F1B pipelines from different heuristics can be compared side-by-side.
 ax.xaxis.set_label_coords(0.5, -0.07)
@@ -215,12 +216,16 @@ ax.tick_params(axis="x", labelsize=8.0)
 
 # Below the legend, draw a colorbar for power consumption.
 # if args.name != "maxfreq":
-norm = Normalize(vmin=0, vmax=max_power)
+# norm = Normalize(vmin=0, vmax=max_power)
 sm = plt.cm.ScalarMappable(cmap=cmap, norm=norm)
-cbar = fig.colorbar(sm, ax=ax, orientation="horizontal", location="top", aspect=50, ticks=[0, 100, 200, 300], fraction=0.044)
+cbar = fig.colorbar(sm, ax=ax, orientation="horizontal", location="top", aspect=50, ticks=[0, 75.5, 150, 300], fraction=0.044)
 # cbar.ax.set_title("Power (W)", fontsize=9.0)
 cbar.ax.set_xlim(0, 300)
-cbar.ax.set_xticklabels(["0W", "100W", "200W", "300W"], fontsize=9.0)
+cbar.ax.set_xticklabels(["0W", "75.5W ($P_{\mathrm{P2P}}$)", "150W", "300W"], fontsize=9.0)
+
+# Add text annotations for the stages along the y axis.
+for stage in range(4):
+    ax.text(-0.1, stage + 0.5, f"S{stage+1}", fontsize=9.0, ha="right", va="center")
 
 prefix = f"figures/power_pipeline_draft+{name}+merak+gpt3-large+uniform_transformer+dp1+tp1+pp4+mbs4"
 fig.savefig(f"{prefix}.png")

@@ -10,6 +10,7 @@ import matplotlib.pyplot as plt  # type: ignore
 from matplotlib.axes import Axes  # type: ignore
 from matplotlib.patches import Rectangle  # type: ignore
 from matplotlib.ticker import FormatStrFormatter  # type: ignore
+from matplotlib.colors import Normalize  # type: ignore
 
 from rene.constants import (
     FP_ERROR,
@@ -98,7 +99,7 @@ class PipelineVisualizer:
         annotation_hook: Callable[[Instruction], str] | None = None,
         power_color: str | None = "Oranges",
         p2p_power: float = 75.5,
-        max_power: float = 400.0,
+        normalizer: Normalize = Normalize(vmin=0, vmax=400),
     ) -> None:
         """Draw the pipeline on the given Axes object.
 
@@ -111,11 +112,12 @@ class PipelineVisualizer:
                 Otherwise, this should be a matplotlib colormap name, and the color of each
                 instruction is determined by its power consumption (= cost/duration).
             p2p_power: The power consumption during P2P communication.
-            max_power: The maximum power consumption of any instruction in the DAG.
+            normalizer: A matplotlib Normalize object to normalize the power consumption.
+                By default, power consumption is normalized to [0, 400] W.
         """
         # Fill in the background as a Rectangle
         if power_color is not None:
-            bg_color = plt.get_cmap(power_color)(p2p_power / max_power)
+            bg_color = plt.get_cmap(power_color)(normalizer(p2p_power))
             background = Rectangle(
                 xy=(0, 0),
                 width=self.dag.get_total_time(),
@@ -133,7 +135,7 @@ class PipelineVisualizer:
                 self.annotation_args,
                 annotation_hook,
                 power_color,
-                max_power,
+                normalizer,
             )
 
         if draw_time_axis:

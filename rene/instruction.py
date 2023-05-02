@@ -10,6 +10,7 @@ from typing import Any, ClassVar, Callable
 import numpy as np  # type: ignore
 import matplotlib.pyplot as plt  # type: ignore
 from matplotlib.axes import Axes  # type: ignore
+from matplotlib.colors import Normalize  # type: ignore
 from matplotlib.patches import Rectangle  # type: ignore
 from scipy.optimize import curve_fit  # type: ignore
 from scipy.spatial import ConvexHull  # type: ignore
@@ -117,7 +118,7 @@ class Instruction(metaclass=InstructionType):
         annotation_args: dict[InstructionType, dict[str, Any]],
         annotation_hook: Callable[[Instruction], str] | None = None,
         power_color: str | None = "Oranges",
-        max_power: float = 400.0,
+        normalizer: Normalize = Normalize(vmin=0, vmax=400),
     ) -> None:
         """Draw the instruction on the Axes object.
 
@@ -130,7 +131,7 @@ class Instruction(metaclass=InstructionType):
             annotation_hook: If not None, this is called with the instruction and the string
                 returned will be annotated inside the instruction box.
             power_color: Color map to use for power coloring (default: "Oranges")
-            max_power: Maximum power to use for power coloring (default: 400.0)
+            normalizer: Normalizer to use for power coloring (default: Normalize(vmin=0, vmax=400))
         """
         annotation = (
             annotation_hook(self)
@@ -145,10 +146,10 @@ class Instruction(metaclass=InstructionType):
         )
         final_rectangle_args.update(rectangle_args[type(self)])
         if power_color is not None:
+            # HACK: We want the original computation cost here.
+            cost = self.cost if self.cost != -1.0 else (self.get_cost(self.duration) + self.p2p_power * self.duration * self.unit_time)
             final_rectangle_args["facecolor"] = plt.get_cmap(power_color)(
-                self.get_cost(self.duration)
-                / (self.duration * self.unit_time)
-                / max_power
+                normalizer(cost / (self.duration * self.unit_time))
             )
         rectangle = Rectangle(**final_rectangle_args)
         ax.add_patch(rectangle)
@@ -266,6 +267,8 @@ class Instruction(metaclass=InstructionType):
 
     def get_cost(self, time: float) -> float:
         """Get the cost of the instruction at the given time.
+
+        XXX: This returns the refined cost (whatever that was fit by the model), not the original cost.
 
         Arguments:
             time: Time to get the cost at

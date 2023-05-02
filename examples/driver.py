@@ -87,7 +87,7 @@ def main():
         else:
             initial_guess = {}
 
-        dag = ReneDAGs(
+        dag = ReneDAG(
             schedule_type=Synchronous1F1B,
             num_stages=args.num_stages,
             num_micro_batches=args.num_mbs,
