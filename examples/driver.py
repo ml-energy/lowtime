@@ -34,6 +34,9 @@ def main():
 
     if args.replace_time is not None:
         new_time_df = pd.read_csv(args.replace_time)
+        # get smallest freq in new_time_df, this will be the cutoff for the inst_df
+        min_freq = new_time_df.frequency.min()
+        inst_df = inst_df[inst_df.frequency >= min_freq]
         inst_df = inst_df.merge(new_time_df, on=["stage", "instruction", "frequency"], how="left", suffixes=('_x', '_y'))
         inst_df["time_x"] = inst_df["time_y"]
         inst_df = inst_df.drop(columns=["time_y"])
