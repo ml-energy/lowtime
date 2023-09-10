@@ -19,7 +19,7 @@ from rene.constants import (
     DEFAULT_LINE_ARGS,
 )
 from rene.instruction import InstructionType, Instruction
-from rene.dag import ReneDAG
+from rene.dag import ReneDAGOld
 
 
 class PipelineVisualizer:
@@ -28,7 +28,7 @@ class PipelineVisualizer:
     # pylint: disable=dangerous-default-value
     def __init__(
         self,
-        dag: ReneDAG,
+        dag: ReneDAGOld,
         rectangle_args: dict[InstructionType, dict[str, Any]] = DEFAULT_RECTANGLE_ARGS,  # type: ignore
         annotation_args: dict[InstructionType, dict[str, Any]] = DEFAULT_ANNOTATION_ARGS,  # type: ignore
         line_args: dict[str, Any] = DEFAULT_LINE_ARGS,

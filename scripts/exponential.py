@@ -41,7 +41,7 @@ p2p_power = args.p2p_power
 time_stamp = datetime.datetime.fromtimestamp(
         time.time()).strftime('%m%d_%H%M%S')
 profile_path = Path(args.inst_profile)
-output_dir = Path("/users/yilegu/exponential") / profile_path.name / time_stamp
+output_dir = Path("./results/exponential") / profile_path.name / time_stamp
 # output_dir = Path(output_dir)
 output_dir.mkdir(parents=True, exist_ok=False)
 
@@ -70,23 +70,31 @@ for inst_type in types:
             for j, cand_b in enumerate(cands_b):
                 for k, cand_c in enumerate(cands_c):
                     p0 = [cand_a, cand_b, cand_c]
-                    fit_coeffs, _ = curve_fit(
+                    fit_coeffs, pcov = curve_fit(
                         lambda t, a, b, c: a * np.exp(b * t) + c,
                         time_list,
                         cost_list,
                         p0=p0,
                         maxfev=10000,
                     ) 
+
+                    if np.inf in pcov:
+                        l2_err = np.inf
+                    else:
+                        a, b, c = fit_coeffs
+                        preds = [a * np.exp(b * t) + c for t in time_list]
+                        l2_err = np.mean(np.square(np.array(preds) - np.array(cost_list)))
+
                     fig, ax = plt.subplots(figsize=(8, 8), tight_layout=True)
                     ax.plot(time_list, cost_list, "o")
                     for i in range(len(time_list)):
                         ax.annotate(
-                            f"({time_list[i]:.6f}, {cost_list[i]:.6f}, {freq_list[i]})",
+                            f"({time_list[i]:d}, {cost_list[i]:.6f}, {freq_list[i]})",
                             (time_list[i], cost_list[i]),
                         )
                     # ax.plot(time_list, cost_list_unrefined, "x")
                     # generate a list with step size 0.1
-                    x = np.arange(min(time_list), max(time_list), 0.0001)
+                    x = np.arange(min(time_list), max(time_list), 0.01)
                     # ax.plot(x, np.polyval(self.fit_coeffs, x), 'r-')
                     y = []
                     for m in x:
@@ -100,7 +108,7 @@ for inst_type in types:
                     ax.set_xlabel("time")
                     ax.set_ylabel("energy")
                     fig.savefig(
-                        os.path.join(str(output_dir), f"exopnential_{inst_type}_{stage_id}_{p0}.png"), format="PNG"
+                        os.path.join(str(output_dir), f"exopnential_{inst_type.__name__}_{stage_id}_{p0}_{fit_coeffs}_{l2_err}.png"), format="PNG"
                     )
                     plt.clf()
                     plt.close()

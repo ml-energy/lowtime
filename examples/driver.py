@@ -8,7 +8,7 @@ import matplotlib.pyplot as plt
 import pickle
 
 from rene import (
-    ReneDAG,
+    ReneDAGOld,
     Synchronous1F1B,
     EarlyRecomputation1F1B,
     PDSolver,
@@ -57,7 +57,6 @@ def main():
         print(f"Average P2P blocking power consumption: {p_p2p:.2f}W")
     else:
         p_p2p = args.p2p_power
-        assert isinstance(p_p2p, float)
 
     output_dir = Path(args.output_dir)
     output_dir.mkdir(parents=True, exist_ok=False)
@@ -90,7 +89,7 @@ def main():
         else:
             initial_guess = {}
 
-        dag = ReneDAG(
+        dag = ReneDAGOld(
             schedule_type=Synchronous1F1B,
             num_stages=args.num_stages,
             num_micro_batches=args.num_mbs,
@@ -125,7 +124,7 @@ def main():
         else:
             initial_guess = {}
 
-        dag = ReneDAG(
+        dag = ReneDAGOld(
             schedule_type=EarlyRecomputation1F1B,
             dependency_rules=[forward_dep, backward_dep, forwardbackward_dep, forwardbackward_backward_dep],
             num_stages=args.num_stages,

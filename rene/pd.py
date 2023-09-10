@@ -20,7 +20,7 @@ from rene.constants import (
     DEFAULT_ANNOTATION_ARGS,
     DEFAULT_LINE_ARGS,
 )
-from rene.dag import ReneDAG
+from rene.dag import ReneDAGOld
 from rene.instruction import Instruction, _Dummy
 
 
@@ -32,7 +32,7 @@ class PDSolver:
 
     def __init__(
         self,
-        rene_dag: ReneDAG,
+        rene_dag: ReneDAGOld,
         output_dir: Path,
     ) -> None:
         """Initialize the PD solver.
@@ -43,7 +43,7 @@ class PDSolver:
         """
         self.iteration: int = 0
         self.output_dir = output_dir
-        self.rene_dag: ReneDAG = rene_dag
+        self.rene_dag: ReneDAGOld = rene_dag
         # self.critical_dag_aon: CriticalDAG = critical_dag
         self.node_id: int = self.rene_dag.node_id
         self.annotation_args = DEFAULT_ANNOTATION_ARGS
@@ -57,7 +57,7 @@ class PDSolver:
         self.refined_costs: list[float] = []
         self.times: list[float] = []
 
-    def aon_to_aoa(self, rene_dag: ReneDAG) -> nx.DiGraph:
+    def aon_to_aoa(self, rene_dag: ReneDAGOld) -> nx.DiGraph:
         """Convert the ReneDAG.dag in Activity-on-Node (AON) form to a dag in Activity-on-Arc (AOA) form.
 
         Arguments:
@@ -408,7 +408,7 @@ class PDSolver:
         for u, v, capacity, inst in edge_pending:
             residual_graph.add_edge(u, v, capacity=capacity, inst=inst)
 
-        # Step 9: Find min cut on the original graph
+        # Step 9: Refine the feasible flow found to the maximum flow
         try:
             # cut_value, partition = nx.minimum_cut(residual_graph, self.entry_id, self.exit_id, capacity="capacity")
             flow_value, flow_dict = nx.maximum_flow(
@@ -420,11 +420,13 @@ class PDSolver:
             )
 
             # Add additional flow we get to the original graph
+            # XXX(JW): I think we can directly use edmonds_karp to skip following lines
+            #          and directly get the residual graph.
             for u, v in graph.edges:
                 graph[u][v]["weight"] += flow_dict[u][v]
                 graph[u][v]["weight"] -= flow_dict[v][u]
 
-            # Do a minimum cut on the residual graph of the original graph
+            # Construct the new residual graph.
             new_residual = nx.DiGraph(graph)
             add_candidates = []
             for u, v in new_residual.edges:
@@ -507,7 +509,7 @@ class PDSolver:
 
         return critical_dag
 
-    def run_one_iteration(self) -> ReneDAG | None:
+    def run_one_iteration(self) -> ReneDAGOld | None:
         """Run one iteration of the PD algorithm.
 
         Returns:
@@ -560,7 +562,7 @@ class PDSolver:
 
         return copy.deepcopy(self.rene_dag)
 
-    def run(self) -> Generator[ReneDAG, None, None]:
+    def run(self) -> Generator[ReneDAGOld, None, None]:
         """Run the PD algorithm iteratively to solve for the Pareto optimal schedule for each time breakpoint.
 
         This is the main workflow of the algorithm.
