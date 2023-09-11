@@ -3,21 +3,24 @@ from __future__ import annotations
 import logging
 import itertools
 from abc import ABC, abstractmethod
-from dataclasses import dataclass
-from typing import Iterator, Literal, Protocol, TypeVar, Generic
 from functools import cached_property
+import sys
+from typing import Literal, TypeVar, Generic
+from attr import field
+import attr
 
 import numpy as np
-from scipy.optimize import curve_fit
+from attrs import define
+from attrs.setters import frozen
 import matplotlib.pyplot as plt
+from scipy.optimize import curve_fit
 
 logger = logging.getLogger(__name__)
-
 
 KnobT = TypeVar("KnobT")
 
 
-@dataclass(repr=False)
+@define(repr=False, slots=False)
 class ExecutionOption(Generic[KnobT]):
     """One option for executing an operation.
 
@@ -49,7 +52,7 @@ class ExecutionOption(Generic[KnobT]):
         )
 
 
-@dataclass
+@define
 class CandidateExecutionOptions(Generic[KnobT]):
     """A list of selected candidate execution options for an operation.
 
@@ -66,7 +69,7 @@ class CandidateExecutionOptions(Generic[KnobT]):
 
     options: list[ExecutionOption[KnobT]]
 
-    def __post_init__(self) -> None:
+    def __attrs_post_init__(self) -> None:
         """Return a new `ExecutionOptions` object with only Pareto-optimal options."""
         # Find and only leave Pareto-optimal options.
         orig_options = sorted(self.options, key=lambda x: x.real_time, reverse=True)
@@ -95,9 +98,6 @@ class CandidateExecutionOptions(Generic[KnobT]):
         self.options = filtered_options
         self.options.sort(key=lambda x: x.quant_time, reverse=True)
 
-    def __iter__(self) -> Iterator[ExecutionOption[KnobT]]:
-        return iter(self.options)
-
 
 class CostModel(ABC):
     """A continuous cost model fit from Pareto-optimal execution options."""
@@ -119,12 +119,12 @@ class CostModel(ABC):
             options: `quant_time` is taken as the x axis and `cost` will be drawn
                 separately as the target (ground truth) cost plot.
         """
-        quant_times = [option.quant_time for option in options]
-        target_costs = [option.cost for option in options]
+        quant_times = [option.quant_time for option in options.options]
+        target_costs = [option.cost for option in options.options]
 
         # Plot the ground truth costs.
         ax.plot(quant_times, target_costs, "o")
-        for option in options:
+        for option in options.options:
             ax.annotate(
                 f"({option.quant_time}, {option.cost}, {option.knob})",
                 (option.quant_time, option.cost),
@@ -168,8 +168,8 @@ class ExponentialModel(CostModel):
         """
         self.fn = lambda t, a, b, c: a * np.exp(b * t) + c
 
-        quant_times = np.array([option.quant_time for option in options])
-        target_costs = np.array([option.cost for option in options])
+        quant_times = np.array([option.quant_time for option in options.options])
+        target_costs = np.array([option.cost for option in options.options])
 
         def l2_error(coefficients: tuple[float, float, float]) -> float:
             preds = np.array([self.fn(t, *coefficients) for t in quant_times])
@@ -224,8 +224,8 @@ class ExponentialModel(CostModel):
         search_strategy: Literal["best", "first"],
     ) -> tuple[float, float, float] | None:
         """Run a grid search on the initial guesses."""
-        quant_times = np.array([option.quant_time for option in options])
-        target_costs = np.array([option.cost for option in options])
+        quant_times = np.array([option.quant_time for option in options.options])
+        target_costs = np.array([option.cost for option in options.options])
 
         def l2_error(coefficients: tuple[float, float, float]) -> float:
             preds = np.array([self.fn(t, *coefficients) for t in quant_times])
@@ -289,7 +289,7 @@ class ExponentialModel(CostModel):
         return self.fn(quant_time, *self.coefficients)
 
 
-@dataclass
+@define
 class OperationSpec(Generic[KnobT]):
     """An operation spec with multiple Pareto-optimal (time, cost) execution options.
 
@@ -307,7 +307,48 @@ class OperationSpec(Generic[KnobT]):
     cost_model: CostModel
 
 
-class Operation(ABC, Generic[KnobT]):
-    """Base class for operations (nodes) on the computation DAG."""
+@define(slots=False)
+class Operation(Generic[KnobT]):
+    """Base class for operations on the computation DAG.
+    
+    Attributes:
+        spec: The operation spec of this operation.
+        is_dummy: Whether this operation is a dummy operation. See `DummyOperation`.
+        duration: The current planned duration, in quanitzed time.
+        earliest_start: The earliest time this operation can start, in quantized time.
+        latest_start: The latest time this operation can start, in quantized time.
+        earliest_finish: The earliest time this operation can finish, in quantized time.
+        latest_finish: The latest time this operation can finish, in quantized time.
+        max_duration: The maximum duration of this operation, in quantized time.
+        min_duration: The minimum duration of this operation, in quantized time.
+    """
 
-    spec: OperationSpec[KnobT]
+    spec: OperationSpec[KnobT] = field(on_setattr=frozen)
+    is_dummy: bool = field(default=False, init=False, on_setattr=frozen)
+    
+    duration: int = field(init=False)
+    max_duration: int = field(init=False)
+    min_duration: int = field(init=False)
+
+    earliest_start: int = 0
+    latest_start: int = sys.maxsize
+    earliest_finish: int = 0
+    latest_finish: int = sys.maxsize
+
+    def __attrs_post_init__(self) -> None:
+        """Compute derived attributes."""
+        quant_times = [o.quant_time for o in self.spec.options.options]
+        self.max_duration = max(quant_times)
+        self.min_duration = min(quant_times)
+        self.duration = self.min_duration
+
+
+@define(slots=False)
+class DummyOperation(Operation):
+    """A dummy operation that does nothing.
+    
+    An `AttributeError` is raised when you try to access `spec`.
+    """
+
+    spec: OperationSpec = field(init=False, on_setattr=frozen)
+    is_dummy: bool = field(default=True, init=False, on_setattr=frozen)

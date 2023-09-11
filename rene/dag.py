@@ -7,71 +7,131 @@ import itertools
 import logging
 import typing
 from pathlib import Path
-from typing import Iterable, Sequence, Type, Callable, Generator, Literal
+from typing import (
+    Generic,
+    Iterable,
+    Sequence,
+    Type,
+    Callable,
+    Generator,
+    Literal,
+    TypeVar,
+    get_type_hints,
+)
 from queue import SimpleQueue
-from collections import deque
+from collections import defaultdict, deque
 
 import matplotlib.pyplot as plt  # type: ignore
 import networkx as nx  # type: ignore
 import numpy as np
+from pydantic import BaseModel
 
 from rene.constants import FP_ERROR
-from rene.instruction import (
+from rene.perseus.instruction import (
     ForwardBackward,
     Instruction,
-    InstructionType,
     Forward,
     Backward,
-    _Dummy,
     Recomputation,
 )
 
 
-def forward_dep(inst1: Forward, inst2: Forward) -> bool:
-    """Dependency rule between Forward instructions.
+NA = TypeVar("NA")
+EA = TypeVar("EA")
 
-    Forward(stage i, microbatch j) -> Forward(stage i+1, microbatch j)
+
+class ReneDAG(Generic[NA, EA]):
+    """DAG of nodes with typed attributes.
+
+    This class is essentially a wrapper around a nx.DiGraph.
+    In general, the graph structure managed by the nx.DiGraph object and
+    node/edge attributes are managed by the `node_attrs` and `edge_attrs`.
+
+    Graph algorithms usually run directly on nx.DiGraph, adding or removing
+    node/edge attributes directly on the graph as needed. For instance, to
+    run max flow, "capacity" attributes will be added directly to the graph.
+    These are all considered implementation details of the graph algorithm
+    and intended to be hidden from the user.
     """
-    return (
-        inst1.micro_batch_id == inst2.micro_batch_id
-        and inst1.stage_id + 1 == inst2.stage_id
-    )
+
+    def __init__(self) -> None:
+        """Initialize the DAG."""
+        self.g = nx.DiGraph()
+        self.node_attrs: dict[int, NA] = {}
+        self.edge_attrs: dict[int, dict[int, EA]] = defaultdict(dict)
+
+    def add_node(self, node_id: int, attr: NA) -> None:
+        """Add a node to the DAG."""
+        if node_id in self.node_attrs:
+            raise ValueError(f"Node {node_id} already exists.")
+        self.g.add_node(node_id)
+        self.node_attrs[node_id] = attr
+
+    def add_edge(self, src_id: int, dst_id: int, attr: EA) -> None:
+        """Add an edge between two existing nodes to the DAG."""
+        if src_id in self.edge_attrs and dst_id in self.edge_attrs[src_id]:
+            raise ValueError(f"Edge {src_id} -> {dst_id} already exists.")
+        self.g.add_edge(src_id, dst_id)
+        self.edge_attrs[src_id][dst_id] = attr
 
 
-def backward_dep(inst1: Backward, inst2: Backward) -> bool:
-    """Dependency rule between Backward instructions.
+class DependencyResolver:
+    """Finds whether two operations are dependent.
 
-    Backward(stage i+1, microbatch j) -> Backward(stage i, microbatch j)
+    Given a sequence of dependency rules, this class checks whether two
+    operations should have a dependency edge between them in the DAG.
+    Dependency rules are functions that take two operations and return
+    a boolean, True if there is a dependency and False otherwise.
     """
-    return (
-        inst1.micro_batch_id == inst2.micro_batch_id
-        and inst1.stage_id == inst2.stage_id + 1
-    )
+
+    def __init__(
+        self, dependency_rules: Sequence[Callable[..., bool]], node_type: Type
+    ) -> None:
+        """Initialize the dependency manager with dependency rules.
+
+        Args:
+            dependency_rules: Sequence of dependency rules. Each rule is a type-annotated
+                function that takes two operations and returns a boolean.
+            node_type: The base type of nodes in the DAG.
+        """
+        arg_types = []
+        for rule in dependency_rules:
+            type_hints = get_type_hints(rule)
+
+            # We'll forgive missing return types.
+            if "return" in type_hints:
+                type_hints.pop("return")
+
+            # Exactly two input arguments.
+            if len(type_hints) != 2:
+                raise ValueError("Dependency rules must have exactly two arguments.")
+
+            # Cache type hints.
+            op1_t, op2_t = type_hints.values()
+            arg_types.append((op1_t, op2_t))
+
+            # Both input argumens must be Instructions.
+            if not issubclass(op1_t, node_type):
+                raise ValueError("First argument is not a subclass of Instruction.")
+            if not issubclass(op2_t, node_type):
+                raise ValueError("Second argument is not a subclass of Instruction.")
+
+        self.rules = dependency_rules
+        self.arg_types = arg_types
+
+    def is_dependent(self, op1: Instruction, op2: Instruction) -> bool:
+        """Check if there is a dependency from `op1` and `op2`."""
+        for rule, (op1_t, op2_t) in zip(self.rules, self.arg_types):
+            if isinstance(op1, op1_t) and isinstance(op2, op2_t):
+                result = rule(op1, op2)
+                if not isinstance(result, bool):
+                    raise RuntimeError("Dependency rule returned a non-boolean value.")
+                if result:
+                    return True
+        return False
 
 
-def forwardbackward_dep(inst1: ForwardBackward, inst2: ForwardBackward) -> bool:
-    """Dependency rule between ForwardBackward instructions.
-
-    ForwardBackward(stage i+1, microbatch j) -> ForwardBackward(stage i, microbatch j)
-    """
-    return (
-        inst1.micro_batch_id == inst2.micro_batch_id
-        and inst1.stage_id == inst2.stage_id + 1
-    )
-
-
-def forwardbackward_backward_dep(inst1: ForwardBackward, inst2: Backward) -> bool:
-    """Dependency rule between ForwardBackward and Backward.
-
-    ForwardBackward(stage i+1, microbatch j) -> Backward(stage i, microbatch j)
-    """
-    return (
-        inst1.micro_batch_id == inst2.micro_batch_id
-        and inst1.stage_id == inst2.stage_id + 1
-    )
-
-
-class ReneDAG:
+class ReneDAGOld:
     """DAG of instructions and analysis methods, represented in Activity-on-Node form (AON)."""
 
     def __init__(  # noqa: PLR0913
@@ -81,7 +141,7 @@ class ReneDAG:
         num_micro_batches: int,
         time_costs: dict[Type[Instruction], dict[int, list[tuple[float, float, int]]]],
         unit_time: float,
-        dependency_rules: Sequence[Callable[..., bool]] = [forward_dep, backward_dep],
+        dependency_rules: Sequence[Callable[..., bool]] = [],
         output_dir: Path | None = None,
         fit_method: Literal["linear", "piecewise-linear", "exponential"] = "linear",
         p2p_power: float = 0.0,

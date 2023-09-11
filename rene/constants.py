@@ -1,6 +1,6 @@
 """Constants used throughout the package."""
 
-from rene.instruction import Forward, Backward, Recomputation, ForwardBackward
+from rene.perseus.instruction import Forward, Backward, Recomputation, ForwardBackward
 
 # The default error tolerance for floating point comparisons.
 FP_ERROR = 1e-6

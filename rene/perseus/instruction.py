@@ -4,9 +4,11 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
+from typing import Any, ClassVar, Callable, Sequence, get_type_hints
+from functools import cached_property
 from dataclasses import dataclass, field
-from typing import Any, ClassVar, Callable
 
+from attrs import define
 import numpy as np  # type: ignore
 import matplotlib.pyplot as plt  # type: ignore
 from matplotlib.axes import Axes  # type: ignore
@@ -15,27 +17,88 @@ from matplotlib.patches import Rectangle  # type: ignore
 from scipy.optimize import curve_fit  # type: ignore
 from scipy.spatial import ConvexHull  # type: ignore
 
+from rene.operation import Operation
 
-class InstructionType(type):
-    """Instruction metaclass.
 
-    Metaclass for typing and subclass name collection.
+@define(slots=False, kw_only=True)
+class Instruction(Operation):
+    """An operation on a pipeline training schedule."""
+
+    stage_id: int
+    micro_batch_id: int
+
+    @cached_property
+    def shorthand(self) -> str:
+        """Return a shorthand representation of the instruction."""
+        return f"{type(self).__name__}(S{self.stage_id}B{self.micro_batch_id})"
+
+
+@define
+class Forward(Instruction):
+    """Forward computation for a pipeline stage."""
+
+
+@define
+class Backward(Instruction):
+    """Backward computation for a pipeline stage."""
+
+
+@define
+class ForwardBackward(Instruction):
+    """ForwardBackward computation for a pipeline stage."""
+
+
+@define
+class Recomputation(Instruction):
+    """Activation recomputation (forward) for a pipeline stage."""
+
+
+def forward_dep(inst1: Forward, inst2: Forward) -> bool:
+    """Dependency rule between Forward instructions.
+
+    Forward(stage i, microbatch j) -> Forward(stage i+1, microbatch j)
     """
+    return (
+        inst1.micro_batch_id == inst2.micro_batch_id
+        and inst1.stage_id + 1 == inst2.stage_id
+    )
 
-    # Names of Instruction subclasses.
-    subclass_names: set[str] = set()
 
-    def __new__(cls, name, bases, dct):
-        """Collect the names of all `Instruction` classes defined."""
-        if name in cls.subclass_names:
-            raise ValueError(f"Instruction class '{name}' already exists")
-        if name != "_Dummy":
-            cls.subclass_names.add(name)
-        return super().__new__(cls, name, bases, dct)  # type: ignore
+def backward_dep(inst1: Backward, inst2: Backward) -> bool:
+    """Dependency rule between Backward instructions.
+
+    Backward(stage i+1, microbatch j) -> Backward(stage i, microbatch j)
+    """
+    return (
+        inst1.micro_batch_id == inst2.micro_batch_id
+        and inst1.stage_id == inst2.stage_id + 1
+    )
+
+
+def forwardbackward_dep(inst1: ForwardBackward, inst2: ForwardBackward) -> bool:
+    """Dependency rule between ForwardBackward instructions.
+
+    ForwardBackward(stage i+1, microbatch j) -> ForwardBackward(stage i, microbatch j)
+    """
+    return (
+        inst1.micro_batch_id == inst2.micro_batch_id
+        and inst1.stage_id == inst2.stage_id + 1
+    )
+
+
+def forwardbackward_backward_dep(inst1: ForwardBackward, inst2: Backward) -> bool:
+    """Dependency rule between ForwardBackward and Backward.
+
+    ForwardBackward(stage i+1, microbatch j) -> Backward(stage i, microbatch j)
+    """
+    return (
+        inst1.micro_batch_id == inst2.micro_batch_id
+        and inst1.stage_id == inst2.stage_id + 1
+    )
 
 
 @dataclass(repr=False)
-class Instruction(metaclass=InstructionType):
+class InstructionOld:
     """A chunk of operation in one pipeline stage.
 
     Attributes:
@@ -147,7 +210,14 @@ class Instruction(metaclass=InstructionType):
         final_rectangle_args.update(rectangle_args[type(self)])
         if power_color is not None:
             # HACK: We want the original computation cost here.
-            cost = self.cost if self.cost != -1.0 else (self.get_cost(self.duration) + self.p2p_power * self.duration * self.unit_time)
+            cost = (
+                self.cost
+                if self.cost != -1.0
+                else (
+                    self.get_cost(self.duration)
+                    + self.p2p_power * self.duration * self.unit_time
+                )
+            )
             final_rectangle_args["facecolor"] = plt.get_cmap(power_color)(
                 normalizer(cost / (self.duration * self.unit_time))
             )
@@ -342,29 +412,29 @@ class Instruction(metaclass=InstructionType):
         )
 
 
-class Forward(Instruction):
-    """Forward computation for a pipeline stage."""
+# class Forward(Instruction):
+#     """Forward computation for a pipeline stage."""
 
-    alias = "FW"
-
-
-class Backward(Instruction):
-    """Backward computation for a pipeline stage."""
-
-    alias = "BW"
+#     alias = "FW"
 
 
-class ForwardBackward(Instruction):
-    """ForwardBackward computation for a pipeline stage."""
+# class Backward(Instruction):
+#     """Backward computation for a pipeline stage."""
 
-    alias = "FB"
-
-
-class Recomputation(Instruction):
-    """Activation recomputation (forward) for a pipeline stage."""
-
-    alias = "RC"
+#     alias = "BW"
 
 
-class _Dummy(Instruction):
-    """Dummy operation for entry and exit nodes in the DAG."""
+# class ForwardBackward(Instruction):
+#     """ForwardBackward computation for a pipeline stage."""
+
+#     alias = "FB"
+
+
+# class Recomputation(Instruction):
+#     """Activation recomputation (forward) for a pipeline stage."""
+
+#     alias = "RC"
+
+
+# class _Dummy(Instruction):
+#     """Dummy operation for entry and exit nodes in the DAG."""

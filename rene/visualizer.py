@@ -18,7 +18,7 @@ from rene.constants import (
     DEFAULT_ANNOTATION_ARGS,
     DEFAULT_LINE_ARGS,
 )
-from rene.instruction import InstructionType, Instruction
+from rene.perseus.instruction import Instruction
 from rene.dag import ReneDAGOld
 
 

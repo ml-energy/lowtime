@@ -3,9 +3,10 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from typing import Generator
+from typing import Generator, Type
 
-from rene.instruction import (
+from rene.operation import OperationSpec
+from rene.perseus.instruction import (
     Instruction,
     Forward,
     Backward,
@@ -25,16 +26,19 @@ class PipelineSchedule(ABC):
         num_stages: int,
         num_micro_batches: int,
         stage_id: int,
+        operation_spec_map: dict[Type[Instruction], OperationSpec],
     ) -> None:
         """Instantiate the pipeline schedule.
 
         Arguments:
-            num_stages: The number of pipeline stages
-            num_micro_batches: The number of micro batches in the pipeline
-            stage_id: Zero-indexed pipeline stage for `step` to yield instructions for
+            num_stages: The number of pipeline stages.
+            num_micro_batches: The number of micro batches in the pipeline.
+            stage_id: Zero-indexed pipeline stage to yield instructions for.
+            operation_spec_map: A map from instruction type to operation spec.
         """
         self.num_micro_batches = num_micro_batches
         self.num_stages = num_stages
+        self.op_spec_map = operation_spec_map
         self.stage_id = stage_id
         self.prev_stage = self.stage_id - 1
         self.next_stage = self.stage_id + 1
@@ -59,6 +63,9 @@ class Synchronous1F1B(PipelineSchedule):
 
     def __iter__(self) -> Generator[Instruction, None, None]:
         """Return a generator that yields `Instruction`s for one stage."""
+        f_spec = self.op_spec_map[Forward]
+        b_spec = self.op_spec_map[Backward]
+
         total_steps = 2 * (self.num_micro_batches + self.num_stages - 1)
         for step_id in range(total_steps):
             # Map the step of the pipeline to the micro-batch id and also whether it is a
@@ -67,9 +74,17 @@ class Synchronous1F1B(PipelineSchedule):
 
             if self._valid_micro_batch(micro_batch_id):
                 if is_forward:
-                    yield Forward(self.stage_id, micro_batch_id)
+                    yield Forward(
+                        spec=f_spec,
+                        stage_id=self.stage_id,
+                        micro_batch_id=micro_batch_id,
+                    )
                 else:
-                    yield Backward(self.stage_id, micro_batch_id)
+                    yield Backward(
+                        spec=b_spec,
+                        stage_id=self.stage_id,
+                        micro_batch_id=micro_batch_id,
+                    )
 
     def _valid_stage(self, stage_id) -> bool:
         return 0 <= stage_id < self.num_stages
@@ -131,6 +146,11 @@ class EarlyRecomputation1F1B(Synchronous1F1B):
 
     def __iter__(self) -> Generator[Instruction, None, None]:
         """Return a generator that yields `Instruction`s for one stage."""
+        f_spec = self.op_spec_map[Forward]
+        b_spec = self.op_spec_map[Backward]
+        r_spec = self.op_spec_map[Recomputation]
+        fb_spec = self.op_spec_map[ForwardBackward]
+
         prev_micro_batch_id = -1
         total_steps = 2 * (self.num_micro_batches + self.num_stages - 1)
         for step_id in range(total_steps):
@@ -146,7 +166,13 @@ class EarlyRecomputation1F1B(Synchronous1F1B):
                 and self._valid_micro_batch(micro_batch_id)
                 and self._valid_stage(self.next_stage)
             ):
-                cmds.append(Recomputation(self.stage_id, micro_batch_id))
+                cmds.append(
+                    Recomputation(
+                        spec=r_spec,
+                        stage_id=self.stage_id,
+                        micro_batch_id=micro_batch_id,
+                    )
+                )
 
             # Computation
             if self._valid_micro_batch(micro_batch_id):
@@ -156,17 +182,41 @@ class EarlyRecomputation1F1B(Synchronous1F1B):
                         < self.num_stages
                     ):
                         # Used to be PreCheckpointForward
-                        cmds.append(Forward(self.stage_id, micro_batch_id))
+                        cmds.append(
+                            Forward(
+                                spec=f_spec,
+                                stage_id=self.stage_id,
+                                micro_batch_id=micro_batch_id,
+                            )
+                        )
                     else:
-                        cmds.append(Forward(self.stage_id, micro_batch_id))
+                        cmds.append(
+                            Forward(
+                                spec=f_spec,
+                                stage_id=self.stage_id,
+                                micro_batch_id=micro_batch_id,
+                            )
+                        )
                 else:
                     if (  # noqa: PLR5501
                         micro_batch_id
                         <= self.num_micro_batches - self.num_stages + self.stage_id
                     ):
-                        cmds.append(ForwardBackward(self.stage_id, micro_batch_id))
+                        cmds.append(
+                            ForwardBackward(
+                                spec=fb_spec,
+                                stage_id=self.stage_id,
+                                micro_batch_id=micro_batch_id,
+                            )
+                        )
                     else:
-                        cmds.append(Backward(self.stage_id, micro_batch_id))
+                        cmds.append(
+                            Backward(
+                                spec=b_spec,
+                                stage_id=self.stage_id,
+                                micro_batch_id=micro_batch_id,
+                            )
+                        )
 
             # Prepare state for next time
             prev_micro_batch_id = micro_batch_id

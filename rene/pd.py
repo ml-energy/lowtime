@@ -21,7 +21,7 @@ from rene.constants import (
     DEFAULT_LINE_ARGS,
 )
 from rene.dag import ReneDAGOld
-from rene.instruction import Instruction, _Dummy
+from rene.perseus.instruction import Instruction, _Dummy
 
 
 class PDSolver:
