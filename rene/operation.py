@@ -310,7 +310,7 @@ class OperationSpec(Generic[KnobT]):
 @define(slots=False)
 class Operation(Generic[KnobT]):
     """Base class for operations on the computation DAG.
-    
+
     Attributes:
         spec: The operation spec of this operation.
         is_dummy: Whether this operation is a dummy operation. See `DummyOperation`.
@@ -325,7 +325,7 @@ class Operation(Generic[KnobT]):
 
     spec: OperationSpec[KnobT] = field(on_setattr=frozen)
     is_dummy: bool = field(default=False, init=False, on_setattr=frozen)
-    
+
     duration: int = field(init=False)
     max_duration: int = field(init=False)
     min_duration: int = field(init=False)
@@ -346,7 +346,7 @@ class Operation(Generic[KnobT]):
 @define(slots=False)
 class DummyOperation(Operation):
     """A dummy operation that does nothing.
-    
+
     An `AttributeError` is raised when you try to access `spec`.
     """
 
