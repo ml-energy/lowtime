@@ -2,7 +2,6 @@ from __future__ import annotations
 import itertools
 
 import logging
-import argparse
 from pathlib import Path
 from typing import Literal, Optional, Union, Type
 from collections import defaultdict
@@ -15,7 +14,6 @@ from matplotlib import pyplot as plt
 
 from rene.operation import (
     CandidateExecutionOptions,
-    DummyOperation,
     OperationSpec,
     ExecutionOption,
     ExponentialModel,
@@ -30,6 +28,7 @@ from rene.perseus.instruction import (
 from rene.perseus.schedule import Synchronous1F1B
 from rene.dag import DependencyResolver
 from rene.pd import PhillipsDessouky
+from rene.graph_utils import add_source_node, add_sink_node
 
 logger = logging.getLogger()
 
@@ -192,14 +191,8 @@ def main(
             dag.add_edge(id1, id2)
 
     # Add source and sink nodes.
-    dag.add_node(0, op=DummyOperation())
-    for node_id, in_degree in dag.in_degree():
-        if in_degree == 0:
-            dag.add_edge(0, node_id)
-    dag.add_node(1, op=DummyOperation())
-    for node_id, out_degree in dag.out_degree():
-        if out_degree == 0:
-            dag.add_edge(node_id, 1)
+    add_source_node(dag, 0)
+    add_sink_node(dag, 1)
     dag.graph["source_node"] = 0
     dag.graph["sink_node"] = 1
 

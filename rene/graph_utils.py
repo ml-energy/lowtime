@@ -1,12 +1,37 @@
 from __future__ import annotations
 
 from itertools import count
-from typing import TypeVar, Generator
+from typing import Any, TypeVar, Generator
 
 import networkx as nx
 
+from rene.operation import DummyOperation
+
 
 NodeT = TypeVar("NodeT")
+
+def add_source_node(graph: nx.DiGraph, source_node: Any) -> None:
+    """Add a source node to the given graph.
+    
+    The graph may have multiple source nodes, and this function adds a new source
+    node that is connected to all existing source nodes.
+    """
+    graph.add_node(source_node, op=DummyOperation())
+    for node_id, in_degree in graph.in_degree():
+        if node_id != source_node and in_degree == 0:
+            graph.add_edge(source_node, node_id)
+
+
+def add_sink_node(graph: nx.DiGraph, sink_node: Any) -> None:
+    """Add a sink node to the given graph.
+    
+    The graph may have multiple sink nodes, and this function adds a new sink
+    node that is connected to all existing sink nodes.
+    """
+    graph.add_node(sink_node, op=DummyOperation())
+    for node_id, out_degree in graph.out_degree():
+        if node_id != sink_node and out_degree == 0:
+            graph.add_edge(node_id, sink_node)
 
 
 def bfs_nodes(graph: nx.Graph, source_node: NodeT) -> Generator[NodeT, None, None]:
@@ -27,17 +52,20 @@ def aon_dag_to_aoa_dag(
 ) -> nx.DiGraph:
     """Convert an activity-on-node DAG to an activity-on-arc DAG.
 
+    Node attributes keyed by `attr_name` are moved to edge attributes.
+
     Assumptions:
-        - The given directed graph is a strongly connected DAG.
+        - The given directed graph is a DAG.
         - The source node is annotated as "source_node" on the graph.
         - The sink node is annoated as "sink_node" on the graph.
-        - Nodes have the specified attribute name, which will be moved to edges.
 
     Returns:
         The activity-on-arc DAG with "source_node" and "sink_node" annotated as
         graph attributes.
     """
     # Fetch source and sink nodes.
+    if not nx.is_directed_acyclic_graph(aon):
+        raise ValueError("The given graph is not a DAG.")
     source_node = aon.graph["source_node"]
     sink_node = aon.graph["sink_node"]
 

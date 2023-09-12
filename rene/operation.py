@@ -357,7 +357,7 @@ class Operation(Generic[KnobT]):
         self.assigned_knob = sorted_options[i - 1].knob
 
 
-@define(slots=False)
+@define(slots=False, repr=False)
 class DummyOperation(Operation):
     """A dummy operation that does nothing.
 
@@ -372,3 +372,6 @@ class DummyOperation(Operation):
         self.max_duration = sys.maxsize
         self.min_duration = 0
         self.duration = 0
+
+    def __repr__(self) -> str:
+        return "DummyOperation()"

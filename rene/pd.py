@@ -33,17 +33,13 @@ class PhillipsDessouky:
         """Initialize the solver.
 
         Args:
-            dag: A strongly connected DAG with the source and sink node IDs annotated
-                as `dag.graph["source_node"]` and `dag.graph["sink_node"]`, respectively.
+            dag: A DAG with the source and sink node IDs annotated respectively as
+                `dag.graph["source_node"]` and `dag.graph["sink_node"]`.
         """
         # Run checks on the DAG and cache some properties.
         # Check: It's a DAG.
         if not nx.is_directed_acyclic_graph(dag):
             raise ValueError("The graph should be a Directed Acyclic Graph.")
-
-        # Check: Strongly connected.
-        if not nx.is_strongly_connected(dag):
-            raise ValueError("DAG is not strongly connected.")
 
         # Check: Only one source node that matches annotation.
         if (source_node := dag.graph.get("source_node")) is None:
