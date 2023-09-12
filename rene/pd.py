@@ -21,7 +21,104 @@ from rene.constants import (
     DEFAULT_LINE_ARGS,
 )
 from rene.dag import ReneDAGOld
-from rene.perseus.instruction import Instruction, _Dummy
+from rene.perseus.instruction import Instruction
+from rene.operation import DummyOperation
+from rene.graph_utils import aon_dag_to_aoa_dag
+
+
+class PhillipsDessouky:
+    """Implements the Phillips-Dessouky algorithm for the time-cost tradeoff problem."""
+
+    def __init__(self, dag: nx.DiGraph) -> None:
+        """Initialize the solver.
+
+        Args:
+            dag: A strongly connected DAG with the source and sink node IDs annotated
+                as `dag.graph["source_node"]` and `dag.graph["sink_node"]`, respectively.
+        """
+        # Run checks on the DAG and cache some properties.
+        # Check: It's a DAG.
+        if not nx.is_directed_acyclic_graph(dag):
+            raise ValueError("The graph should be a Directed Acyclic Graph.")
+
+        # Check: Strongly connected.
+        if not nx.is_strongly_connected(dag):
+            raise ValueError("DAG is not strongly connected.")
+
+        # Check: Only one source node that matches annotation.
+        if (source_node := dag.graph.get("source_node")) is None:
+            raise ValueError("The graph should have a `source_node` attribute.")
+        source_node_candidates = []
+        for node_id, in_degree in dag.in_degree():
+            if in_degree == 0:
+                source_node_candidates.append(node_id)
+        if len(source_node_candidates) == 0:
+            raise ValueError(
+                "Found zero nodes with in-degree 0. Cannot determine source node."
+            )
+        if len(source_node_candidates) > 1:
+            raise ValueError(
+                f"Expecting only one source node, found {source_node_candidates}."
+            )
+        if (detected_source_node := source_node_candidates[0]) != source_node:
+            raise ValueError(
+                f"Detected source node ({detected_source_node}) does not match "
+                f"the annotated source node ({source_node})."
+            )
+
+        # Check: Only one sink node that matches annotation.
+        if (sink_node := dag.graph.get("sink_node")) is None:
+            raise ValueError("The graph should have a `sink_node` attribute.")
+        sink_node_candidates = []
+        for node_id, out_degree in dag.out_degree():
+            if out_degree == 0:
+                sink_node_candidates.append(node_id)
+        if len(sink_node_candidates) == 0:
+            raise ValueError(
+                "Found zero nodes with out-degree 0. Cannot determine sink node."
+            )
+        if len(sink_node_candidates) > 1:
+            raise ValueError(
+                f"Expecting only one sink node, found {sink_node_candidates}."
+            )
+        if (detected_sink_node := sink_node_candidates[0]) != sink_node:
+            raise ValueError(
+                f"Detected sink node ({detected_sink_node}) does not match "
+                f"the annotated sink node ({sink_node})."
+            )
+
+        self.aon_dag = dag
+
+    def run(self) -> Generator[nx.DiGraph, None, None]:
+        """Run the algorithm and yield a DAG after each iteration.
+
+        The solver will not deepcopy operations on the DAG but rather in-place modify them
+        for performance reasons. The caller should deepcopy the DAG if needed before running
+        the next iteration.
+        """
+        # Convert the original activity-on-node DAG to activity-on-arc DAG form.
+        # AOA DAGs are purely internal. All public input and output of this class
+        # should be in AON form.
+        aoa_dag = aon_dag_to_aoa_dag(self.aon_dag, attr_name="op")
+
+        # Iteratively reduce the execution time of the DAG.
+        while True:
+            # TODO(JW): More than the DAG should probably be returned.
+            dag = self.run_one_iteration(aoa_dag)
+            if dag is not None:
+                # We directly modify operation attributes in the DAG, so after we
+                # ran one iteration, the AON DAG holds updated attributes.
+                yield self.aon_dag
+            else:
+                break
+
+    def run_one_iteration(self, aoa_dag: nx.DiGraph) -> nx.DiGraph | None:
+        """Reduce the execution time of the DAG by 1 while increasing cost minimally.
+        
+        Returns:
+            The new (reduced duration) DAG or None if no further reduction is possible.
+        """
+        critical_dag = self.to_critical_dag(aoa_dag)
 
 
 class PDSolver:

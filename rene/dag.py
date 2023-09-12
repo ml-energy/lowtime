@@ -43,8 +43,12 @@ EA = TypeVar("EA")
 class ReneDAG(Generic[NA, EA]):
     """DAG of nodes with typed attributes.
 
-    This class is essentially a wrapper around a nx.DiGraph.
-    In general, the graph structure managed by the nx.DiGraph object and
+    After construction, there should be one source node (node ID 0) with
+    no incoming edges and one sink node (node ID 1) with no outgoing edges.
+    Source and sink nodes have to be explicitly added to the graph, too.
+
+    This class is essentially a thin wrapper around a nx.DiGraph.
+    The graph structure is managed by the nx.DiGraph object and
     node/edge attributes are managed by the `node_attrs` and `edge_attrs`.
 
     Graph algorithms usually run directly on nx.DiGraph, adding or removing
@@ -52,13 +56,23 @@ class ReneDAG(Generic[NA, EA]):
     run max flow, "capacity" attributes will be added directly to the graph.
     These are all considered implementation details of the graph algorithm
     and intended to be hidden from the user.
+
+    Attributes:
+        g: The underlying nx.DiGraph object.
+        node_attrs: A dict that maps node ID to node attributes.
+        edge_attrs: A dict that maps source node ID to a dict that maps
+            destination node ID to edge attributes.
+        source_node_id: The node ID of the source node (Default: 0).
+        sink_node_id: The node ID of the sink node (Default: 1).
     """
 
-    def __init__(self) -> None:
+    def __init__(self, source_node_id: int = 0, sink_node_id: int = 1, dummy_class: Type[NA]) -> None:
         """Initialize the DAG."""
         self.g = nx.DiGraph()
         self.node_attrs: dict[int, NA] = {}
         self.edge_attrs: dict[int, dict[int, EA]] = defaultdict(dict)
+        self.source_node_id: int = source_node_id
+        self.sink_node_id: int = sink_node_id
 
     def add_node(self, node_id: int, attr: NA) -> None:
         """Add a node to the DAG."""
@@ -73,6 +87,11 @@ class ReneDAG(Generic[NA, EA]):
             raise ValueError(f"Edge {src_id} -> {dst_id} already exists.")
         self.g.add_edge(src_id, dst_id)
         self.edge_attrs[src_id][dst_id] = attr
+
+    def to_edge_attr_dag(self) -> ReneDAG[None, NA]:
+        """Convert the node attribute DAG to an edge attribute DAG."""
+        new_dag = nx.DiGraph()
+        nx.bfs_edges(self.g, self.source_node_id)
 
 
 class DependencyResolver:

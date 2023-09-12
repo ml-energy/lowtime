@@ -1,4 +1,4 @@
-"""A schedule describes the ordering of pipeline instructions like forward and backward."""
+"""Collection of schedules that describe the ordering of pipeline instructions."""
 
 from __future__ import annotations
 

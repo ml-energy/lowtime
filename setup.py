@@ -42,6 +42,6 @@ setup(
     ],
     python_requires=">=3.9",
     extras_require={
-        "dev": ["ruff", "black==22.10.0", "mypy==1.1.1"],
+        "dev": ["ruff", "black==22.10.0", "mypy==1.1.1", "pytest"],
     }
 )

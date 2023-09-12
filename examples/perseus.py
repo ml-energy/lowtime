@@ -10,10 +10,12 @@ from dataclasses import dataclass
 
 import tyro
 import pandas as pd
+import networkx as nx
 from matplotlib import pyplot as plt
 
 from rene.operation import (
     CandidateExecutionOptions,
+    DummyOperation,
     OperationSpec,
     ExecutionOption,
     ExponentialModel,
@@ -26,7 +28,8 @@ from rene.perseus.instruction import (
     backward_dep,
 )
 from rene.perseus.schedule import Synchronous1F1B
-from rene.dag import DependencyResolver, ReneDAG
+from rene.dag import DependencyResolver
+from rene.pd import PhillipsDessouky
 
 logger = logging.getLogger()
 
@@ -154,7 +157,8 @@ def main(
     ########################
     # ReneDAG construction #
     ########################
-    dag = ReneDAG[Instruction, None]()
+    # dag = ReneDAG[Instruction, None]()
+    dag = nx.DiGraph()
 
     # Generate and add all instructions to the DAG.
     # Reserve 0 for dummy source and 1 for dummy sink.
@@ -169,23 +173,41 @@ def main(
             stage_id=stage_id,
             operation_spec_map=op_spec_map[stage_id],
         ):
-            dag.add_node(node_id, inst)
+            dag.add_node(node_id, op=inst)
             stage_node_ids.append(node_id)
             node_id += 1
         
         # Add dependencies between adjacent instructions in the same stage.
         for node_id1, node_id2 in zip(stage_node_ids, stage_node_ids[1:]):
-            dag.add_edge(node_id1, node_id2, None)
+            dag.add_edge(node_id1, node_id2)
 
     # Add dependencies between dependent pipeline instructions.
-    insts = dag.node_attrs.items()
+    insts = dag.nodes(data=True)
     resolver = DependencyResolver(
         dependency_rules=[forward_dep, backward_dep],
         node_type=Instruction,
     )
-    for (id1, inst1), (id2, inst2) in itertools.product(insts, insts):
-        if resolver.is_dependent(inst1, inst2):
-            dag.add_edge(id1, id2, None)
+    for (id1, data1), (id2, data2) in itertools.product(insts, insts):
+        if resolver.is_dependent(data1["op"], data2["op"]):
+            dag.add_edge(id1, id2)
+
+    # Add source and sink nodes.
+    dag.add_node(0, op=DummyOperation())
+    for node_id, in_degree in dag.in_degree():
+        if in_degree == 0:
+            dag.add_edge(0, node_id)
+    dag.add_node(1, op=DummyOperation())
+    for node_id, out_degree in dag.out_degree():
+        if out_degree == 0:
+            dag.add_edge(node_id, 1)
+    dag.graph["source_node"] = 0
+    dag.graph["sink_node"] = 1
+
+
+    ###################################
+    # Time-cost tradeoff optimization #
+    ###################################
+    solver = PhillipsDessouky(dag)
 
 
 if __name__ == "__main__":

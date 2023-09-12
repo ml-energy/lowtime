@@ -1,18 +1,17 @@
 from __future__ import annotations
 
-import logging
+import bisect
 import itertools
+import logging
+import sys
 from abc import ABC, abstractmethod
 from functools import cached_property
-import sys
-from typing import Literal, TypeVar, Generic
-from attr import field
-import attr
+from typing import Generic, Literal, TypeVar
 
-import numpy as np
-from attrs import define
-from attrs.setters import frozen
 import matplotlib.pyplot as plt
+import numpy as np
+from attrs import define, field
+from attrs.setters import frozen
 from scipy.optimize import curve_fit
 
 logger = logging.getLogger(__name__)
@@ -61,7 +60,7 @@ class CandidateExecutionOptions(Generic[KnobT]):
     2. Deduplicate `quant_time` by keeping only the option with the largest `cost`.
         This is because time quantization is inherently rounding down, so the closest
         `quant_time` is the one with the largest `cost`.
-    3. Sort by `quant_time` in descending order.
+    3. Sort by `quant_time` in ascending order.
 
     Args:
         options: All candidate execution options of the operation.
@@ -96,7 +95,7 @@ class CandidateExecutionOptions(Generic[KnobT]):
 
         # Sort by `quant_time` in descending order.
         self.options = filtered_options
-        self.options.sort(key=lambda x: x.quant_time, reverse=True)
+        self.options.sort(key=lambda x: x.quant_time)
 
 
 class CostModel(ABC):
@@ -315,12 +314,13 @@ class Operation(Generic[KnobT]):
         spec: The operation spec of this operation.
         is_dummy: Whether this operation is a dummy operation. See `DummyOperation`.
         duration: The current planned duration, in quanitzed time.
+        max_duration: The maximum duration of this operation, in quantized time.
+        min_duration: The minimum duration of this operation, in quantized time.
+        assigned_knob: The knob value chosen for the value of `duration`.
         earliest_start: The earliest time this operation can start, in quantized time.
         latest_start: The latest time this operation can start, in quantized time.
         earliest_finish: The earliest time this operation can finish, in quantized time.
         latest_finish: The latest time this operation can finish, in quantized time.
-        max_duration: The maximum duration of this operation, in quantized time.
-        min_duration: The minimum duration of this operation, in quantized time.
     """
 
     spec: OperationSpec[KnobT] = field(on_setattr=frozen)
@@ -329,11 +329,12 @@ class Operation(Generic[KnobT]):
     duration: int = field(init=False)
     max_duration: int = field(init=False)
     min_duration: int = field(init=False)
+    assigned_knob: KnobT = field(init=False)
 
-    earliest_start: int = 0
-    latest_start: int = sys.maxsize
-    earliest_finish: int = 0
-    latest_finish: int = sys.maxsize
+    earliest_start: int = field(default=0, init=False)
+    latest_start: int = field(default=sys.maxsize, init=False)
+    earliest_finish: int = field(default=0, init=False)
+    latest_finish: int = field(default=sys.maxsize, init=False)
 
     def __attrs_post_init__(self) -> None:
         """Compute derived attributes."""
@@ -341,6 +342,19 @@ class Operation(Generic[KnobT]):
         self.max_duration = max(quant_times)
         self.min_duration = min(quant_times)
         self.duration = self.min_duration
+
+    def assign_knob(self) -> None:
+        """Find and assign the slowest `knob` value that still meets `duration`."""
+        if self.duration < self.min_duration or self.duration > self.max_duration:
+            raise ValueError(
+                f"Duration {self.duration} is not in range "
+                f"[{self.min_duration}, {self.max_duration}]."
+            )
+
+        # Run binary search on options.
+        sorted_options = sorted(self.spec.options.options, key=lambda x: x.quant_time)
+        i = bisect.bisect_right([o.quant_time for o in sorted_options], self.duration)
+        self.assigned_knob = sorted_options[i - 1].knob
 
 
 @define(slots=False)
@@ -352,3 +366,9 @@ class DummyOperation(Operation):
 
     spec: OperationSpec = field(init=False, on_setattr=frozen)
     is_dummy: bool = field(default=True, init=False, on_setattr=frozen)
+
+    def __attrs_post_init__(self) -> None:
+        """Compute derived attributes."""
+        self.max_duration = sys.maxsize
+        self.min_duration = 0
+        self.duration = 0
