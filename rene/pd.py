@@ -102,7 +102,8 @@ class PhillipsDessouky:
         aoa_dag = aon_dag_to_aoa_dag(self.aon_dag, attr_name="op")
 
         # Iteratively reduce the execution time of the DAG.
-        while True:
+        for iteration in range(sys.maxsize):
+            logger.info("Iteration %d", iteration)
             # TODO(JW): More than the DAG should probably be returned.
             dag = self.run_one_iteration(aoa_dag)
             if dag is not None:
@@ -119,26 +120,26 @@ class PhillipsDessouky:
             The new (reduced duration) DAG or None if no further reduction is possible.
         """
         critical_dag = self.to_critical_dag(aoa_dag)
-        print(
-            "Number of nodes:",
-            critical_dag.number_of_nodes(),
-            "Edges:",
-            critical_dag.number_of_edges(),
-        )
+        logger.debug("Number of nodes: %d", critical_dag.number_of_nodes())
+        logger.debug("Number of edges: %d", critical_dag.number_of_edges())
         non_dummy_ops = [
             attr["op"]
             for _, _, attr in critical_dag.edges(data=True)
             if not attr["op"].is_dummy
         ]
-        print("Number of non-dummy operations:", len(non_dummy_ops))
-        print("Sum of non-dummy durations:", sum(op.duration for op in non_dummy_ops))
+        logger.debug("Number of non-dummy operations: %d", len(non_dummy_ops))
+        logger.debug(
+            "Sum of non-dummy durations: %d", sum(op.duration for op in non_dummy_ops)
+        )
 
         capacity_dag = self.annotate_capacities(critical_dag)
-        print(
-            f"Total lb value: {sum([capacity_dag[u][v]['lb'] for u, v in capacity_dag.edges])}"
+        logger.debug(
+            "Total lb value: %f",
+            sum([capacity_dag[u][v]["lb"] for u, v in capacity_dag.edges]),
         )
-        print(
-            f"Total ub value: {sum([capacity_dag[u][v]['ub'] for u, v in capacity_dag.edges])}"
+        logger.debug(
+            "Total ub value: %f",
+            sum([capacity_dag[u][v]['ub'] for u, v in capacity_dag.edges]),
         )
 
         try:
@@ -150,7 +151,7 @@ class PhillipsDessouky:
 
         cost_change = self.reduce_durations(capacity_dag, s_set, t_set)
         if cost_change == float("inf") or abs(cost_change) < FP_ERROR:
-            logger.info("No further reduction possible.")
+            logger.info("No further time reduction possible.")
             logger.info("Terminating PD iteration.")
             return None
 
@@ -160,63 +161,56 @@ class PhillipsDessouky:
         self, capacity_dag: nx.DiGraph, s_set: set[int], t_set: set[int]
     ) -> float:
         """Modify operation durations to reduce the DAG execution time by 1."""
-        speed_up_edges: list[tuple[int, int, str]] = []
+        speed_up_edges: list[Operation] = []
         for node_id in s_set:
             for child_id in list(capacity_dag.successors(node_id)):
                 if child_id in t_set:
                     op: Operation = capacity_dag[node_id][child_id]["op"]
-                    speed_up_edges.append((node_id, child_id, str(op)))
+                    speed_up_edges.append(op)
 
-        slow_down_edges: list[tuple[int, int, str]] = []
+        slow_down_edges: list[Operation] = []
         for node_id in t_set:
             for child_id in list(capacity_dag.successors(node_id)):
                 if child_id in s_set:
-                    slow_down_edges.append((node_id, child_id))
-
-        logger.info("Candidate edges to speed up: %s", speed_up_edges)
-        logger.info("Candidate edges to slow down: %s", slow_down_edges)
+                    op: Operation = capacity_dag[node_id][child_id]["op"]
+                    slow_down_edges.append(op)
 
         if not speed_up_edges:
+            logger.info("No speed up candidate operations.")
             return 0.0
 
         cost_change = 0.0
-        reduce_insts: list[str] = []
-        for u, v in speed_up_edges:
-            op: Operation = capacity_dag[u][v]["op"]
-            # inst: Instruction = self.capacity_graph[u][v]["inst"]
-            reduce_insts.append(repr(inst))
-            if inst.duration - 1 < inst.min_duration or isinstance(inst, _Dummy):
-                return float("inf")
-            cost_change += inst.get_derivative(inst.duration, inst.duration - 1) * 1
-            inst.duration -= 1
-            logging.info("Reduced duration of %s to %s", repr(inst), inst.duration)
 
-        increase_insts: list[str] = []
-        for u, v in slow_down_edges:
-            inst = self.capacity_graph[u][v]["inst"]
-            logging.info("Increase edge: [%s, %s] %s", u, v, repr(inst))
-            increase_insts.append(repr(inst))
-            # Notice: dummy edge is always valid for increasing duration
-            if isinstance(inst, _Dummy):
-                inst.duration += 1
-                logging.info(
-                    "Increase edge is dummy: [%s, %s] %s, duration: %s",
-                    u,
-                    v,
-                    repr(inst),
-                    inst.duration,
-                )
-            elif inst.duration + 1 > inst.max_duration:
+        # Reduce the duration of edges (speed up) by quant_time 1.
+        for op in speed_up_edges:
+            if op.is_dummy:
+                logger.info("Cannot speed up dummy operation.")
+                return float("inf")
+            if op.duration - 1 < op.min_duration:
+                logger.info("Operation %s has reached the limit of speed up", op)
+                return float("inf")
+            cost_model = op.spec.cost_model
+            cost_change += abs(cost_model(op.duration - 1) - cost_model(op.duration))
+            logger.info("Sped up %s to %d", op, op.duration - 1)
+            op.duration -= 1
+
+        # Increase the duration of edges (slow down) by quant_time 1.
+        for op in slow_down_edges:
+            # Dummy edges can always be slowed down.
+            if op.is_dummy:
+                logger.info("Slowed down %s to %d", op, op.duration + 1)
+                op.duration += 1
+            elif op.duration + 1 > op.max_duration:
+                logger.info("Operation %s has reached the limit of slow down", op)
                 return float("inf")
             else:
-                cost_change -= inst.get_derivative(inst.duration, inst.duration + 1) * 1
-                inst.duration += 1
-                logging.info(
-                    "Increase edge is non-dummy: [%s, %s] %s", u, v, repr(inst)
+                cost_model = op.spec.cost_model
+                cost_change += abs(
+                    cost_model(op.duration) - cost_model(op.duration + 1)
                 )
-        logging.info("Iteration %s: reduce insts %s", self.iteration, reduce_insts)
-        logging.info("Iteration %s: increase insts %s", self.iteration, increase_insts)
-        self.rene_dag.changed = True
+                logger.info("Slowed down %s to %d", op, op.duration + 1)
+                op.duration += 1
+
         return cost_change
 
     def find_min_cut(self, capacity_dag: nx.DiGraph) -> tuple[set[int], set[int]]:
@@ -274,10 +268,13 @@ class PhillipsDessouky:
             # print(capacity)
             unbound_dag.add_edge(node_id, t_prime_id, capacity=capacity)
 
-        print("Unbound DAG")
-        print("Number of nodes:", unbound_dag.number_of_nodes())
-        print("Number of edges:", unbound_dag.number_of_edges())
-        print("Sum of capacities:", sum(attr["capacity"] for _, _, attr in unbound_dag.edges(data=True)))
+        logger.debug("Unbound DAG")
+        logger.debug("Number of nodes: %d", unbound_dag.number_of_nodes())
+        logger.debug("Number of edges: %d", unbound_dag.number_of_edges())
+        logger.debug(
+            "Sum of capacities: %f",
+            sum(attr["capacity"] for _, _, attr in unbound_dag.edges(data=True)),
+        )
 
         # Add an edge from t to s with infinite weight.
         unbound_dag.add_edge(
@@ -299,14 +296,12 @@ class PhillipsDessouky:
         except nx.NetworkXUnbounded:
             raise ReneFlowError("ERROR: Infinite flow for unbounded DAG.")
 
-        print("After first max flow")
-        print(flow_value)
-        print(flow_dict)
+        logger.debug("After first max flow")
         total_flow = 0.0
         for d in flow_dict.values():
             for flow in d.values():
                 total_flow += flow
-        print("Sum of all flow values:", total_flow)
+        logger.debug("Sum of all flow values: %d", total_flow)
 
         # Check if residual graph is saturated. If so, we have a feasible flow.
         for node_id in unbound_dag.successors(s_prime_id):
@@ -416,16 +411,16 @@ class PhillipsDessouky:
         for u, v, weight in add_candidates:
             new_residual.add_edge(u, v, weight=weight)
 
-        print("New residual graph")
-        print("Number of nodes:", new_residual.number_of_nodes())
-        print("Number of edges:", new_residual.number_of_edges())
-        print("Sum of weights:", sum(attr["weight"] for _, _, attr in new_residual.edges(data=True)))
-        print("Source node ID:", source_node)
-        print("Edges out of source node:", [new_residual[source_node][u] for u in new_residual.successors(source_node)])
+        logger.debug("New residual graph")
+        logger.debug("Number of nodes: %d", new_residual.number_of_nodes())
+        logger.debug("Number of edges: %d", new_residual.number_of_edges())
+        logger.debug(
+            "Sum of weights: %f",
+            sum(attr["weight"] for _, _, attr in new_residual.edges(data=True)),
+        )
 
         # TODO(JW): Step 4 above.
         visited, _ = self.search_path_dfs(new_residual, source_node, sink_node)
-        print("DFS visited:", visited)
         s_set: set[int] = set()
         t_set: set[int] = set()
         for i in range(len(visited)):
@@ -434,9 +429,9 @@ class PhillipsDessouky:
             else:
                 t_set.add(i)
 
-        print("Minimum s-t cut")
-        print("Size of s set:", len(s_set))
-        print("Size of t set:", len(t_set))
+        logger.debug("Minimum s-t cut")
+        logger.debug("Size of s set: %d", len(s_set))
+        logger.debug("Size of t set: %d", len(t_set))
 
         return (s_set, t_set)
 
@@ -463,20 +458,14 @@ class PhillipsDessouky:
         q.append(s)
         while len(q) > 0:
             cur_id = q.pop()
-            print("Hello", cur_id)
             visited[cur_id] = True
             if cur_id == t:
                 break
             for child_id in list(graph.successors(cur_id)):
-                print("Successor", child_id)
-                print(f"{visited[child_id]=}")
-                print(f"{abs(graph[cur_id][child_id]['weight'])=}")
-                print(f"{FP_ERROR=}")
                 if (
                     not visited[child_id]
                     and abs(graph[cur_id][child_id]["weight"]) > FP_ERROR
                 ):
-                    print("Appending", child_id)
                     parents[child_id] = cur_id
                     q.append(child_id)
 

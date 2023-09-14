@@ -58,8 +58,19 @@ def test_operation_spec_option_filtering(mock_spec: OperationSpec) -> None:
 
 def test_dummy_operation() -> None:
     op = DummyOperation()
+    assert op.is_dummy
+
+    # Dummy operations have no spec.
     with pytest.raises(AttributeError):
         op.spec
+
+    # No knob for execution either.
+    with pytest.raises(AttributeError):
+        op.assigned_knob
+
+    # Setting their duration should not invoke the assigned_knob setter.
+    op.duration = 123
+    assert op.duration == 123
 
 
 def test_operation_computed_fields(mock_spec: OperationSpec) -> None:
@@ -70,10 +81,13 @@ def test_operation_computed_fields(mock_spec: OperationSpec) -> None:
 
 
 def test_knob_assignment(mock_spec: OperationSpec) -> None:
+    # Slowest knob by default.
+    oper = Operation(spec=mock_spec)
+    assert oper.assigned_knob == "three"
+
     def op_assign_assert(duration: int, knob) -> None:
         op = Operation(spec=mock_spec)
         op.duration = duration
-        op.assign_knob()
         assert op.assigned_knob == knob
 
     with pytest.raises(ValueError, match=r".*20.*[123, 789]"):

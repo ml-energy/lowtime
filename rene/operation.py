@@ -6,13 +6,17 @@ import logging
 import sys
 from abc import ABC, abstractmethod
 from functools import cached_property, lru_cache
-from typing import Generic, Literal, TypeVar
+from typing import Generic, Literal, TypeVar, TYPE_CHECKING
 
 import matplotlib.pyplot as plt
 import numpy as np
 from attrs import define, field
 from attrs.setters import frozen
 from scipy.optimize import curve_fit
+
+if TYPE_CHECKING:
+    from attr import Attribute
+
 
 logger = logging.getLogger(__name__)
 
@@ -67,6 +71,7 @@ class CandidateExecutionOptions(Generic[KnobT]):
     """
 
     options: list[ExecutionOption[KnobT]]
+    _knob_cache: dict[int, KnobT] = field(init=False, repr=False, factory=dict)
 
     def __attrs_post_init__(self) -> None:
         """Return a new `ExecutionOptions` object with only Pareto-optimal options."""
@@ -96,6 +101,20 @@ class CandidateExecutionOptions(Generic[KnobT]):
         # Sort by `quant_time` in descending order.
         self.options = filtered_options
         self.options.sort(key=lambda x: x.quant_time, reverse=True)
+
+    def get_best_knob(self, quant_time: int) -> KnobT:
+        """Find the slowest `knob` value that still executes within `quant_time`."""
+        if (knob := self._knob_cache.get(quant_time)) is not None:
+            return knob
+
+        # Run binary search on options.
+        sorted_options = list(reversed(self.options))
+        i = bisect.bisect_right([o.quant_time for o in sorted_options], quant_time)
+        knob = sorted_options[i - 1].knob
+
+        # Cache the result.
+        self._knob_cache[quant_time] = knob
+        return knob
 
 
 class CostModel(ABC):
@@ -307,6 +326,16 @@ class OperationSpec(Generic[KnobT]):
     cost_model: CostModel
 
 
+def duration_setter(self: Operation, _: Attribute, duration: int) -> int:
+    """Find and assign the slowest `knob` value that still meets `duration`."""
+    if duration < self.min_duration or duration > self.max_duration:
+        raise ValueError(f"Duration {duration} is not in range for {self!r}.")
+
+    self.assigned_knob = self.spec.options.get_best_knob(duration)
+
+    return duration
+
+
 @define(slots=False)
 class Operation(Generic[KnobT]):
     """Base class for operations on the computation DAG.
@@ -330,7 +359,7 @@ class Operation(Generic[KnobT]):
     spec: OperationSpec[KnobT] = field(on_setattr=frozen)
     is_dummy: bool = field(default=False, init=False, on_setattr=frozen)
 
-    duration: int = field(init=False)
+    duration: int = field(init=False, on_setattr=duration_setter)
     max_duration: int = field(init=False)
     min_duration: int = field(init=False)
     assigned_knob: KnobT = field(init=False)
@@ -346,23 +375,13 @@ class Operation(Generic[KnobT]):
         self.max_duration = max(quant_times)
         self.min_duration = min(quant_times)
 
-        # By default, execute with the slowest speed.
+        # By default, execute with the slowest speed. `assigned_knob` will
+        # automatically be set by `duration_setter`.
         self.duration = self.max_duration
-        max_time_index = quant_times.index(self.max_duration)
-        self.assigned_knob = self.spec.options.options[max_time_index].knob
 
-    def assign_knob(self) -> None:
-        """Find and assign the slowest `knob` value that still meets `duration`."""
-        if self.duration < self.min_duration or self.duration > self.max_duration:
-            raise ValueError(
-                f"Duration {self.duration} is not in range "
-                f"[{self.min_duration}, {self.max_duration}]."
-            )
-
-        # Run binary search on options.
-        sorted_options = sorted(self.spec.options.options, key=lambda x: x.quant_time)
-        i = bisect.bisect_right([o.quant_time for o in sorted_options], self.duration)
-        self.assigned_knob = sorted_options[i - 1].knob
+    def __str__(self) -> str:
+        """Default implementation that shows current duration (number) and knob (@)."""
+        return f"Operation({self.duration}@{self.assigned_knob})"
 
     def reset_times(self) -> None:
         """Reset earliest/latest start/finish attributes to their default values."""
@@ -381,6 +400,9 @@ class DummyOperation(Operation):
 
     spec: OperationSpec = field(init=False, repr=False, on_setattr=frozen)
     is_dummy: bool = field(default=True, init=False, on_setattr=frozen)
+
+    # Delete the duration setter, which accesses `spec`.
+    duration: int = field(init=False)
 
     def __attrs_post_init__(self) -> None:
         """Compute derived attributes."""

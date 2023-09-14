@@ -209,7 +209,8 @@ def main(args: Args) -> None:
     ###################################
     solver = PhillipsDessouky(dag)
     for result in solver.run():
-        print(result)
+        # print(result)
+        pass
 
 
 if __name__ == "__main__":
