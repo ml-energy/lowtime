@@ -59,9 +59,7 @@ class Args:
     train_schedule: Literal["1f1b", "early_recomputation_1f1b"] = "1f1b"
 
 
-def main(
-    args: Args
-) -> None:
+def main(args: Args) -> None:
     """Perseus time-cost tradeoff optimization."""
     # Validate arguments.
     if args.train_schedule != "1f1b":
@@ -70,9 +68,9 @@ def main(
         raise NotImplementedError("Only exponential is supported for now.")
 
     # Setup logging and output.
-    output_dir= Path(args.output_dir)
+    output_dir = Path(args.output_dir)
     output_dir.mkdir(parents=True, exist_ok=False)
-    log_path = output_dir/ "job.log"
+    log_path = output_dir / "job.log"
 
     logging.basicConfig(
         format="%(asctime)s %(levelname)-8s [%(filename)s:%(lineno)d] %(message)s",
@@ -115,13 +113,18 @@ def main(
         p_p2p = args.p2p_power
     logger.info("P2P blocking power consumption: %.2fW", p_p2p)
 
+    initial_guess = (
+        eval(open(args.initial_guess).read()) if args.initial_guess else None
+    )
     op_spec_map: dict[int, dict[Type[Instruction], OperationSpec]] = defaultdict(dict)
     for instruction in [Forward, Backward]:
-        inst_name = instruction.__name__.lower()
+        inst_name = instruction.__name__
         for stage_id in range(args.num_stages):
             logger.info("Processing %s stage %d", inst_name, stage_id)
             options = []
-            _df = inst_df.query("stage == @stage_id and instruction == @instruction")
+            _df = inst_df.query(
+                f"stage == {stage_id} and instruction == '{inst_name.lower()}'"
+            )
             for _, row in _df.iterrows():
                 options.append(
                     ExecutionOption[int](
@@ -141,7 +144,12 @@ def main(
                 option.cost -= p_p2p * option.quant_time * option.unit_time
 
             # Fit the cost model.
-            model = ExponentialModel(cand_options)
+            if initial_guess is not None:
+                model = ExponentialModel(
+                    cand_options, initial_guess=initial_guess[inst_name][stage_id]
+                )
+            else:
+                model = ExponentialModel(cand_options)
 
             # Draw the cost model.
             fig, ax = plt.subplots(figsize=(8, 8), tight_layout=True)
@@ -175,7 +183,7 @@ def main(
             dag.add_node(node_id, op=inst)
             stage_node_ids.append(node_id)
             node_id += 1
-        
+
         # Add dependencies between adjacent instructions in the same stage.
         for node_id1, node_id2 in zip(stage_node_ids, stage_node_ids[1:]):
             dag.add_edge(node_id1, node_id2)
@@ -196,11 +204,12 @@ def main(
     dag.graph["source_node"] = 0
     dag.graph["sink_node"] = 1
 
-
     ###################################
     # Time-cost tradeoff optimization #
     ###################################
     solver = PhillipsDessouky(dag)
+    for result in solver.run():
+        print(result)
 
 
 if __name__ == "__main__":

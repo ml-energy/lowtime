@@ -5,7 +5,7 @@ import itertools
 import logging
 import sys
 from abc import ABC, abstractmethod
-from functools import cached_property
+from functools import cached_property, lru_cache
 from typing import Generic, Literal, TypeVar
 
 import matplotlib.pyplot as plt
@@ -60,7 +60,7 @@ class CandidateExecutionOptions(Generic[KnobT]):
     2. Deduplicate `quant_time` by keeping only the option with the largest `cost`.
         This is because time quantization is inherently rounding down, so the closest
         `quant_time` is the one with the largest `cost`.
-    3. Sort by `quant_time` in ascending order.
+    3. Sort by `quant_time` in descending order.
 
     Args:
         options: All candidate execution options of the operation.
@@ -95,7 +95,7 @@ class CandidateExecutionOptions(Generic[KnobT]):
 
         # Sort by `quant_time` in descending order.
         self.options = filtered_options
-        self.options.sort(key=lambda x: x.quant_time)
+        self.options.sort(key=lambda x: x.quant_time, reverse=True)
 
 
 class CostModel(ABC):
@@ -283,6 +283,7 @@ class ExponentialModel(CostModel):
         logger.info("Final coefficients: %s", best_coefficients)
         return best_coefficients
 
+    @lru_cache
     def __call__(self, quant_time: int) -> float:
         """Predict execution cost given quantized time."""
         return self.fn(quant_time, *self.coefficients)
@@ -309,6 +310,9 @@ class OperationSpec(Generic[KnobT]):
 @define(slots=False)
 class Operation(Generic[KnobT]):
     """Base class for operations on the computation DAG.
+
+    `__repr__` will display all object fields, so should only be used for debugging.
+    On the other hand, `__str__` is for a human readable representation of the object.
 
     Attributes:
         spec: The operation spec of this operation.
@@ -341,7 +345,11 @@ class Operation(Generic[KnobT]):
         quant_times = [o.quant_time for o in self.spec.options.options]
         self.max_duration = max(quant_times)
         self.min_duration = min(quant_times)
-        self.duration = self.min_duration
+
+        # By default, execute with the slowest speed.
+        self.duration = self.max_duration
+        max_time_index = quant_times.index(self.max_duration)
+        self.assigned_knob = self.spec.options.options[max_time_index].knob
 
     def assign_knob(self) -> None:
         """Find and assign the slowest `knob` value that still meets `duration`."""
@@ -356,15 +364,22 @@ class Operation(Generic[KnobT]):
         i = bisect.bisect_right([o.quant_time for o in sorted_options], self.duration)
         self.assigned_knob = sorted_options[i - 1].knob
 
+    def reset_times(self) -> None:
+        """Reset earliest/latest start/finish attributes to their default values."""
+        self.earliest_start = 0
+        self.latest_start = sys.maxsize
+        self.earliest_finish = 0
+        self.latest_finish = sys.maxsize
 
-@define(slots=False, repr=False)
+
+@define(slots=False)
 class DummyOperation(Operation):
     """A dummy operation that does nothing.
 
     An `AttributeError` is raised when you try to access `spec`.
     """
 
-    spec: OperationSpec = field(init=False, on_setattr=frozen)
+    spec: OperationSpec = field(init=False, repr=False, on_setattr=frozen)
     is_dummy: bool = field(default=True, init=False, on_setattr=frozen)
 
     def __attrs_post_init__(self) -> None:
@@ -373,5 +388,5 @@ class DummyOperation(Operation):
         self.min_duration = 0
         self.duration = 0
 
-    def __repr__(self) -> str:
+    def __str__(self) -> str:
         return "DummyOperation()"

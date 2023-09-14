@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 from pathlib import Path
 from typing import Any, ClassVar, Callable, Sequence, get_type_hints
-from functools import cached_property
+from functools import cached_property, lru_cache
 from dataclasses import dataclass, field
 
 from attrs import define
@@ -27,10 +27,11 @@ class Instruction(Operation):
     stage_id: int
     micro_batch_id: int
 
-    @cached_property
-    def shorthand(self) -> str:
-        """Return a shorthand representation of the instruction."""
-        return f"{type(self).__name__}(S{self.stage_id}B{self.micro_batch_id})"
+    def __str__(self) -> str:
+        """Return a human-readable string representation."""
+        return (
+            f"{type(self).__name__}(S{self.stage_id}B{self.micro_batch_id}, {self.duration}@{self.assigned_knob})"
+        )
 
 
 @define

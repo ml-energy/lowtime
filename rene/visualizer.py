@@ -28,7 +28,7 @@ class PipelineVisualizer:
     # pylint: disable=dangerous-default-value
     def __init__(
         self,
-        dag: ReneDAGOld,
+        dag: nx.DiGraph,
         rectangle_args: dict[InstructionType, dict[str, Any]] = DEFAULT_RECTANGLE_ARGS,  # type: ignore
         annotation_args: dict[InstructionType, dict[str, Any]] = DEFAULT_ANNOTATION_ARGS,  # type: ignore
         line_args: dict[str, Any] = DEFAULT_LINE_ARGS,

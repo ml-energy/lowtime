@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import sys
 import copy
 import logging
 from pathlib import Path
@@ -22,8 +23,11 @@ from rene.constants import (
 )
 from rene.dag import ReneDAGOld
 from rene.perseus.instruction import Instruction
-from rene.operation import DummyOperation
+from rene.operation import DummyOperation, Operation
 from rene.graph_utils import aon_dag_to_aoa_dag
+from rene.exceptions import ReneFlowError
+
+logger = logging.getLogger(__name__)
 
 
 class PhillipsDessouky:
@@ -108,13 +112,497 @@ class PhillipsDessouky:
             else:
                 break
 
-    def run_one_iteration(self, aoa_dag: nx.DiGraph) -> nx.DiGraph | None:
+    def run_one_iteration(self, aoa_dag: nx.DiGraph) -> float | None:
         """Reduce the execution time of the DAG by 1 while increasing cost minimally.
-        
+
         Returns:
             The new (reduced duration) DAG or None if no further reduction is possible.
         """
         critical_dag = self.to_critical_dag(aoa_dag)
+        print(
+            "Number of nodes:",
+            critical_dag.number_of_nodes(),
+            "Edges:",
+            critical_dag.number_of_edges(),
+        )
+        non_dummy_ops = [
+            attr["op"]
+            for _, _, attr in critical_dag.edges(data=True)
+            if not attr["op"].is_dummy
+        ]
+        print("Number of non-dummy operations:", len(non_dummy_ops))
+        print("Sum of non-dummy durations:", sum(op.duration for op in non_dummy_ops))
+
+        capacity_dag = self.annotate_capacities(critical_dag)
+        print(
+            f"Total lb value: {sum([capacity_dag[u][v]['lb'] for u, v in capacity_dag.edges])}"
+        )
+        print(
+            f"Total ub value: {sum([capacity_dag[u][v]['ub'] for u, v in capacity_dag.edges])}"
+        )
+
+        try:
+            s_set, t_set = self.find_min_cut(capacity_dag)
+        except ReneFlowError as e:
+            logger.info("Could not find minimum cut: %s", e.message)
+            logger.info("Terminating PD iteration.")
+            return None
+
+        cost_change = self.reduce_durations(capacity_dag, s_set, t_set)
+        if cost_change == float("inf") or abs(cost_change) < FP_ERROR:
+            logger.info("No further reduction possible.")
+            logger.info("Terminating PD iteration.")
+            return None
+
+        return cost_change
+
+    def reduce_durations(
+        self, capacity_dag: nx.DiGraph, s_set: set[int], t_set: set[int]
+    ) -> float:
+        """Modify operation durations to reduce the DAG execution time by 1."""
+        speed_up_edges: list[tuple[int, int, str]] = []
+        for node_id in s_set:
+            for child_id in list(capacity_dag.successors(node_id)):
+                if child_id in t_set:
+                    op: Operation = capacity_dag[node_id][child_id]["op"]
+                    speed_up_edges.append((node_id, child_id, str(op)))
+
+        slow_down_edges: list[tuple[int, int, str]] = []
+        for node_id in t_set:
+            for child_id in list(capacity_dag.successors(node_id)):
+                if child_id in s_set:
+                    slow_down_edges.append((node_id, child_id))
+
+        logger.info("Candidate edges to speed up: %s", speed_up_edges)
+        logger.info("Candidate edges to slow down: %s", slow_down_edges)
+
+        if not speed_up_edges:
+            return 0.0
+
+        cost_change = 0.0
+        reduce_insts: list[str] = []
+        for u, v in speed_up_edges:
+            op: Operation = capacity_dag[u][v]["op"]
+            # inst: Instruction = self.capacity_graph[u][v]["inst"]
+            reduce_insts.append(repr(inst))
+            if inst.duration - 1 < inst.min_duration or isinstance(inst, _Dummy):
+                return float("inf")
+            cost_change += inst.get_derivative(inst.duration, inst.duration - 1) * 1
+            inst.duration -= 1
+            logging.info("Reduced duration of %s to %s", repr(inst), inst.duration)
+
+        increase_insts: list[str] = []
+        for u, v in slow_down_edges:
+            inst = self.capacity_graph[u][v]["inst"]
+            logging.info("Increase edge: [%s, %s] %s", u, v, repr(inst))
+            increase_insts.append(repr(inst))
+            # Notice: dummy edge is always valid for increasing duration
+            if isinstance(inst, _Dummy):
+                inst.duration += 1
+                logging.info(
+                    "Increase edge is dummy: [%s, %s] %s, duration: %s",
+                    u,
+                    v,
+                    repr(inst),
+                    inst.duration,
+                )
+            elif inst.duration + 1 > inst.max_duration:
+                return float("inf")
+            else:
+                cost_change -= inst.get_derivative(inst.duration, inst.duration + 1) * 1
+                inst.duration += 1
+                logging.info(
+                    "Increase edge is non-dummy: [%s, %s] %s", u, v, repr(inst)
+                )
+        logging.info("Iteration %s: reduce insts %s", self.iteration, reduce_insts)
+        logging.info("Iteration %s: increase insts %s", self.iteration, increase_insts)
+        self.rene_dag.changed = True
+        return cost_change
+
+    def find_min_cut(self, capacity_dag: nx.DiGraph) -> tuple[set[int], set[int]]:
+        """Find the min cut of the capacity DAG.
+
+        Assumptions:
+            - The capacity DAG is in AOA form.
+            - The capacity DAG has been annotated with `lb` and `ub` attributes on edges,
+                representing the lower and upper bounds of the flow on the edge.
+
+        Returns:
+            A tuple of (s_set, t_set) where s_set is the set of nodes on the source side
+            of the min cut and t_set is the set of nodes on the sink side of the min cut.
+            Returns None if no feasible flow exists.
+
+        Raises:
+            ReneFlowError: When no feasible flow exists.
+        """
+        source_node = capacity_dag.graph["source_node"]
+        sink_node = capacity_dag.graph["sink_node"]
+
+        # In order to solve max flow on edges with both lower and upper bounds,
+        # we first need to convert it to another DAG that only has upper bounds.
+        unbound_dag = nx.DiGraph(capacity_dag)
+
+        # For every edge, capacity = ub - lb.
+        for _, _, edge_attrs in unbound_dag.edges(data=True):
+            edge_attrs["capacity"] = edge_attrs["ub"] - edge_attrs["lb"]
+
+        # Add a new node s', which will become the new source node.
+        # We constructed the AOA DAG, so we know that node IDs are integers.
+        node_ids: list[int] = list(unbound_dag.nodes)
+        s_prime_id = max(node_ids) + 1
+        unbound_dag.add_node(s_prime_id)
+
+        # For every node u in the original graph, add an edge (s', u) with capacity
+        # equal to the sum of all lower bounds of u's parents.
+        for node_id in capacity_dag.nodes:
+            capacity = 0.0
+            for pred_id in capacity_dag.predecessors(node_id):
+                capacity += capacity_dag[pred_id][node_id]["lb"]
+            # print(capacity)
+            unbound_dag.add_edge(s_prime_id, node_id, capacity=capacity)
+
+        # Add a new node t', which will become the new sink node.
+        t_prime_id = s_prime_id + 1
+        unbound_dag.add_node(t_prime_id)
+
+        # For every node u in the original graph, add an edge (u, t') with capacity
+        # equal to the sum of all lower bounds of u's children.
+        for node_id in capacity_dag.nodes:
+            capacity = 0.0
+            for succ_id in capacity_dag.successors(node_id):
+                capacity += capacity_dag[node_id][succ_id]["lb"]
+            # print(capacity)
+            unbound_dag.add_edge(node_id, t_prime_id, capacity=capacity)
+
+        print("Unbound DAG")
+        print("Number of nodes:", unbound_dag.number_of_nodes())
+        print("Number of edges:", unbound_dag.number_of_edges())
+        print("Sum of capacities:", sum(attr["capacity"] for _, _, attr in unbound_dag.edges(data=True)))
+
+        # Add an edge from t to s with infinite weight.
+        unbound_dag.add_edge(
+            sink_node,
+            source_node,
+            capacity=float("inf"),
+        )
+
+        # We're done with constructing the DAG with only flow upper bounds.
+        # Find the maximum flow on this DAG.
+        try:
+            flow_value, flow_dict = nx.maximum_flow(
+                unbound_dag,
+                s_prime_id,
+                t_prime_id,
+                capacity="capacity",
+                flow_func=edmonds_karp,
+            )
+        except nx.NetworkXUnbounded:
+            raise ReneFlowError("ERROR: Infinite flow for unbounded DAG.")
+
+        print("After first max flow")
+        print(flow_value)
+        print(flow_dict)
+        total_flow = 0.0
+        for d in flow_dict.values():
+            for flow in d.values():
+                total_flow += flow
+        print("Sum of all flow values:", total_flow)
+
+        # Check if residual graph is saturated. If so, we have a feasible flow.
+        for node_id in unbound_dag.successors(s_prime_id):
+            if (
+                abs(
+                    # unbound_res_graph[s_prime_id][node_id]["flow"]
+                    flow_dict[s_prime_id][node_id]
+                    - unbound_dag[s_prime_id][node_id]["capacity"]
+                )
+                > FP_ERROR
+            ):
+                logger.error(
+                    "s' -> %s unsaturated (flow: %s, capacity: %s)",
+                    node_id,
+                    flow_dict[s_prime_id][node_id],
+                    unbound_dag[s_prime_id][node_id]["capacity"],
+                )
+                raise ReneFlowError("ERROR: Max flow on unbounded DAG didn't saturate.")
+        for node_id in unbound_dag.predecessors(t_prime_id):
+            if (
+                abs(
+                    # unbound_res_graph[node_id][t_prime_id]["flow"]
+                    flow_dict[node_id][t_prime_id]
+                    - unbound_dag[node_id][t_prime_id]["capacity"]
+                )
+                > FP_ERROR
+            ):
+                logger.error(
+                    "%s -> t' unsaturated (flow: %s, capacity: %s)",
+                    node_id,
+                    flow_dict[node_id][t_prime_id],
+                    unbound_dag[node_id][t_prime_id]["capacity"],
+                )
+                raise ReneFlowError("ERROR: Max flow on unbounded DAG didn't saturate.")
+
+        # We have a feasible flow. Construct a new residual graph with the same
+        # shape as the capacity DAG so that we can find the min cut.
+        # TODO(JW): From here, it's basically:
+        # 1. Retrieve the flow amounts to the original capacity graph, where for
+        #    each edge u -> v, the flow amount is `weight = flow + lb`.
+        # 2. Construct a new residual graph (same shape as capacity DAG) with
+        #    u -> v capacity `ub - weight` (=`ub - flow - lb`) and v -> u capacity
+        #    `weight - lb` (=`flow`).
+        # 3. Run max flow on the new residual graph from 1.
+        # 4. Find the s-t cut induced by the maximum flow from 2.
+        # Steps 1 and 2 can be done in one step by directly converting the unbounded
+        # residual graph into a new one with u -> v capacity `ub - flow - lb` and
+        # v -> u capacity `flow`.
+        # Steps 3 and 4 can be done in one step with `nx.minimum_cut`. Especially,
+        # various `flow_func`s like `edmonds_karp` support the `residual_graph`
+        # keyword argument, which is exactly what we need.
+
+        # TODO(JW): Step 1 above.
+        for u, v in capacity_dag.edges:
+            # f'(u,v) = f(u,v) - lb(u,v)
+            capacity_dag[u][v]["weight"] = flow_dict[u][v] + capacity_dag[u][v]["lb"]
+
+        # TODO(JW): Step 2 above.
+        residual_graph = nx.DiGraph(capacity_dag)
+        edge_pending: list[tuple] = []
+        for u, v in residual_graph.edges:
+            residual_graph[u][v]["capacity"] = (
+                residual_graph[u][v]["ub"] - residual_graph[u][v]["weight"]
+            )
+            if u in residual_graph.successors(v):
+                residual_graph[v][u]["capacity"] = (
+                    residual_graph[u][v]["weight"] - residual_graph[u][v]["lb"]
+                )
+            else:
+                edge_pending.append(
+                    (
+                        v,
+                        u,
+                        residual_graph[u][v]["weight"] - residual_graph[u][v]["lb"],
+                    )
+                )
+        for u, v, capacity in edge_pending:
+            residual_graph.add_edge(u, v, capacity=capacity)
+
+        # TODO(JW): Step 3 above.
+        try:
+            _, flow_dict = nx.maximum_flow(
+                residual_graph,
+                source_node,
+                sink_node,
+                capacity="capacity",
+                flow_func=edmonds_karp,
+            )
+        except nx.NetworkXUnbounded:
+            raise ReneFlowError("ERROR: Infinite flow on capacity residual graph.")
+
+        # Add additional flow we get to the original graph
+        for u, v in capacity_dag.edges:
+            capacity_dag[u][v]["weight"] += flow_dict[u][v]
+            capacity_dag[u][v]["weight"] -= flow_dict[v][u]
+
+        # Construct the new residual graph.
+        new_residual = nx.DiGraph(capacity_dag)
+        add_candidates = []
+        for u, v in new_residual.edges:
+            new_residual[u][v]["weight"] = (
+                capacity_dag[u][v]["ub"] - capacity_dag[u][v]["weight"]
+            )
+            add_candidates.append(
+                (v, u, capacity_dag[u][v]["weight"] - capacity_dag[u][v]["lb"])
+            )
+        for u, v, weight in add_candidates:
+            new_residual.add_edge(u, v, weight=weight)
+
+        print("New residual graph")
+        print("Number of nodes:", new_residual.number_of_nodes())
+        print("Number of edges:", new_residual.number_of_edges())
+        print("Sum of weights:", sum(attr["weight"] for _, _, attr in new_residual.edges(data=True)))
+        print("Source node ID:", source_node)
+        print("Edges out of source node:", [new_residual[source_node][u] for u in new_residual.successors(source_node)])
+
+        # TODO(JW): Step 4 above.
+        visited, _ = self.search_path_dfs(new_residual, source_node, sink_node)
+        print("DFS visited:", visited)
+        s_set: set[int] = set()
+        t_set: set[int] = set()
+        for i in range(len(visited)):
+            if visited[i]:
+                s_set.add(i)
+            else:
+                t_set.add(i)
+
+        print("Minimum s-t cut")
+        print("Size of s set:", len(s_set))
+        print("Size of t set:", len(t_set))
+
+        return (s_set, t_set)
+
+    def search_path_dfs(
+        self, graph: nx.DiGraph, s: int, t: int
+    ) -> tuple[dict[int, bool], dict[int, int]]:
+        """Search path from s to t using DFS search, return a tuple of visited and parents.
+
+        Args:
+            graph: The graph to search on.
+            s: The source node id.
+            t: The target node id.
+
+        Returns:
+            A tuple of visited indices and parents.
+        """
+        parents: dict[int, int] = {}
+        visited: dict[int, bool] = {}
+        for node_id in graph.nodes:
+            parents[node_id] = -1
+            visited[node_id] = False
+        # logging.info(list(graph.nodes))
+        q: deque[int] = deque()
+        q.append(s)
+        while len(q) > 0:
+            cur_id = q.pop()
+            print("Hello", cur_id)
+            visited[cur_id] = True
+            if cur_id == t:
+                break
+            for child_id in list(graph.successors(cur_id)):
+                print("Successor", child_id)
+                print(f"{visited[child_id]=}")
+                print(f"{abs(graph[cur_id][child_id]['weight'])=}")
+                print(f"{FP_ERROR=}")
+                if (
+                    not visited[child_id]
+                    and abs(graph[cur_id][child_id]["weight"]) > FP_ERROR
+                ):
+                    print("Appending", child_id)
+                    parents[child_id] = cur_id
+                    q.append(child_id)
+
+        return (visited, parents)
+
+    def annotate_capacities(self, critical_dag: nx.DiGraph) -> nx.DiGraph:
+        """Annotate the critical DAG with flow capacities.
+
+        Returns:
+            A shallow copy of the input critical DAG with each edge annotated with
+            `lb` and `ub` attributes, each representing flow lower and upper bounds.
+        """
+        # XXX(JW): Do we need to shallow copy? Why not add lb and ub directly to
+        # capacity_dag edges?
+        capacity_dag = nx.DiGraph(critical_dag)
+
+        # XXX(JW): Why not actual float("inf")?
+        inf = 10000.0
+        for _, _, edge_attr in capacity_dag.edges(data=True):
+            op: Operation = edge_attr["op"]
+            # Dummy operations don't constrain the flow.
+            if op.is_dummy:
+                lb, ub = 0.0, inf
+            # Special case when the operation has only one execution option.
+            elif op.duration == op.min_duration == op.max_duration:
+                lb, ub = 0.0, inf
+            # Typical non-dummy operation.
+            else:
+                cost_model = op.spec.cost_model
+                # Can this operation be slowed down?
+                if op.duration + 1 <= op.max_duration:
+                    # Absolute right subgradient.
+                    lb = abs(cost_model(op.duration) - cost_model(op.duration + 1))
+                else:
+                    lb = 0.0
+                # Can this operation be sped up?
+                if op.duration - 1 >= op.min_duration:
+                    # Absolute left subgradient.
+                    ub = abs(cost_model(op.duration - 1) - cost_model(op.duration))
+                else:
+                    ub = inf
+
+            # XXX(JW): Why is this rouding needed?
+            edge_attr["lb"] = lb // FP_ERROR * FP_ERROR
+            edge_attr["ub"] = ub // FP_ERROR * FP_ERROR
+
+        return capacity_dag
+
+    def to_critical_dag(self, aoa_dag: nx.DiGraph) -> nx.DiGraph:
+        """Convert the AOA DAG to a critical AOA DAG where only critical edges remain."""
+        # Clear all earliest/latest start/end times.
+        for _, _, edge_attrs in aoa_dag.edges(data=True):
+            operation: Operation = edge_attrs["op"]
+            operation.reset_times()
+
+        # Run the forward pass to set earliest start/end times.
+        # TODO(JW): I think this implementation is strange. Why don't we just
+        # go through (u, v) with `nx.bfs_edge` and find the latest earliest_finish
+        # time among u's predecessor edges? Similar applies for the backward pass.
+        for node_id in nx.topological_sort(aoa_dag):
+            for succ_id in aoa_dag.successors(node_id):
+                cur_op: Operation = aoa_dag[node_id][succ_id]["op"]
+
+                for succ_succ_id in aoa_dag.successors(succ_id):
+                    next_op: Operation = aoa_dag[succ_id][succ_succ_id]["op"]
+
+                    next_op.earliest_start = max(
+                        next_op.earliest_start,
+                        cur_op.earliest_finish,
+                    )
+                    next_op.earliest_finish = next_op.earliest_start + next_op.duration
+
+        # Run the backward pass to set latest start/end times.
+        # XXX(JW): The original implementation only worked because there is guaranteed
+        # to be only one predecessor of the sink node because it was split into two nodes
+        # when converting to AOA form. Rather, the latest finish time of the entire AOA
+        # DAG should be derived by taking the max among all earliest_finish times of the
+        # edges that have the sink node as their target.
+        exit_node = aoa_dag.graph["sink_node"]
+        exit_edge_source_candidates = list(aoa_dag.predecessors(exit_node))
+        assert len(exit_edge_source_candidates) == 1
+        exit_edge_op: Operation = aoa_dag[exit_edge_source_candidates[0]][exit_node][
+            "op"
+        ]
+        exit_edge_op.latest_finish = exit_edge_op.earliest_finish
+        exit_edge_op.latest_start = exit_edge_op.latest_finish - exit_edge_op.duration
+        for node_id in reversed(list(nx.topological_sort(aoa_dag))):
+            for pred_id in aoa_dag.predecessors(node_id):
+                cur_op: Operation = aoa_dag[pred_id][node_id]["op"]
+
+                for pred_pred_id in aoa_dag.predecessors(pred_id):
+                    prev_op: Operation = aoa_dag[pred_pred_id][pred_id]["op"]
+
+                    prev_op.latest_start = min(
+                        prev_op.latest_start,
+                        cur_op.latest_start - prev_op.duration,
+                    )
+                    prev_op.latest_finish = prev_op.latest_start + prev_op.duration
+
+        # Remove all edges that are not on the critical path.
+        critical_dag = nx.DiGraph(aoa_dag)
+        # XXX(JW): I don't know why we should do a topological sort here. Why not just
+        # go through all edges like:
+        # for u, v, edge_attrs in aoa_dag.edges(data=True):
+        #     op: Operation = edge_attrs["op"]
+        #     if op.earliest_finish != op.latest_finish:
+        #         critical_dag.remove_edge(u, v)
+        for node_id in nx.topological_sort(aoa_dag):
+            for succ_id in aoa_dag.successors(node_id):
+                cur_op: Operation = aoa_dag[node_id][succ_id]["op"]
+                if cur_op.latest_finish != cur_op.earliest_finish:
+                    critical_dag.remove_edge(node_id, succ_id)
+
+        # Copy over source and sink node IDs.
+        source_id = critical_dag.graph["source_node"] = aoa_dag.graph["source_node"]
+        sink_id = critical_dag.graph["sink_node"] = aoa_dag.graph["sink_node"]
+        if source_id not in critical_dag and source_id in aoa_dag:
+            raise RuntimeError(
+                "Source node was removed from the DAG when getting critical DAG."
+            )
+        if sink_id not in critical_dag and sink_id in aoa_dag:
+            raise RuntimeError(
+                "Sink node was removed from the DAG when getting critical DAG."
+            )
+
+        return critical_dag
 
 
 class PDSolver:
@@ -431,6 +919,10 @@ class PDSolver:
         unbound_graph.add_edge(sink_id, source_id, capacity=float("inf"), inst=None)
 
         # Step 5: Find min cut on the unbound graph
+        # XXX(JW): Constructing the `flow_dict` needs an extra step of going through all
+        # the edges in the graph. We can directly use `edmonds_karp` to get the residual
+        # graph, from which we can check if the residual graph is saturated and reconstruct
+        # flow values on original graph (i.e., adding `lb` to current flow).
         flow_value, flow_dict = nx.maximum_flow(
             unbound_graph, s_prime, t_prime, capacity="capacity", flow_func=edmonds_karp
         )
@@ -513,8 +1005,6 @@ class PDSolver:
             )
 
             # Add additional flow we get to the original graph
-            # XXX(JW): I think we can directly use edmonds_karp to skip following lines
-            #          and directly get the residual graph.
             for u, v in graph.edges:
                 graph[u][v]["weight"] += flow_dict[u][v]
                 graph[u][v]["weight"] -= flow_dict[v][u]
@@ -642,11 +1132,7 @@ class PDSolver:
         logging.info("Iteration %s: cost change %s", self.iteration, cost_change)
         logging.info("Iteration %s: total cost %s", self.iteration, total_cost)
         logging.info("Iteration %s: refined cost %s", self.iteration, refined_cost)
-        logging.info(
-            "Iteration %s: total time %s",
-            self.iteration,
-            total_time,
-        )
+        logging.info("Iteration %s: total time %s", self.iteration, total_time)
         # Step 7: Do some bookkeeping at tne end of the iteration
         self.costs.append(total_cost)
         self.refined_costs.append(refined_cost)
