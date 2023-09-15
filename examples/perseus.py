@@ -75,7 +75,7 @@ def main(args: Args) -> None:
 
     logging.basicConfig(
         format="%(asctime)s %(levelname)-8s [%(filename)s:%(lineno)d] %(message)s",
-        level=logging.DEBUG,
+        level=logging.INFO,
         handlers=[logging.FileHandler(log_path, mode="a"), logging.StreamHandler()],
     )
     logger.info("Arguments: %s", args)

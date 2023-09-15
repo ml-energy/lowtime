@@ -225,7 +225,7 @@ class PhillipsDessouky:
                 logger.info("Operation %s has reached the limit of slow down", op)
                 return float("inf")
             else:
-                cost_change += abs(op.get_cost(op.duration) - op.get_cost(op.duration + 1))
+                cost_change -= abs(op.get_cost(op.duration) - op.get_cost(op.duration + 1))
                 logger.info("Slowed down %s to %d", op, op.duration + 1)
                 op.duration += 1
 
@@ -507,23 +507,21 @@ class PhillipsDessouky:
             # Dummy operations don't constrain the flow.
             if op.is_dummy:
                 lb, ub = 0.0, inf
-            # Special case when the operation has only one execution option.
+            # Cannot be sped up or down.
             elif op.duration == op.min_duration == op.max_duration:
                 lb, ub = 0.0, inf
-            # Typical non-dummy operation.
+            # Cannot be sped up.
+            elif op.duration - 1 < op.min_duration:
+                lb = abs(op.get_cost(op.duration) - op.get_cost(op.duration + 1))
+                ub = inf
+            # Cannot be slowed down.
+            elif op.duration + 1 > op.max_duration:
+                lb = 0.0
+                ub = abs(op.get_cost(op.duration - 1) - op.get_cost(op.duration))
             else:
-                # Can this operation be slowed down?
-                if op.duration + 1 <= op.max_duration:
-                    # Absolute right subgradient.
-                    lb = abs(op.get_cost(op.duration) - op.get_cost(op.duration + 1))
-                else:
-                    lb = 0.0
-                # Can this operation be sped up?
-                if op.duration - 1 >= op.min_duration:
-                    # Absolute left subgradient.
-                    ub = abs(op.get_cost(op.duration - 1) - op.get_cost(op.duration))
-                else:
-                    ub = inf
+                # In case the cost model is almost linear, give this edge some room.
+                lb = abs(op.get_cost(op.duration) - op.get_cost(op.duration + 1))
+                ub = abs(op.get_cost(op.duration - 1) - op.get_cost(op.duration)) + FP_ERROR
 
             # XXX(JW): Why is this rouding needed?
             edge_attr["lb"] = lb // FP_ERROR * FP_ERROR
