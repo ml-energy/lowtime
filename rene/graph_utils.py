@@ -226,7 +226,7 @@ def get_total_cost(graph: nx.DiGraph, mode: Literal["edge", "node"]) -> float:
         return cost
 
 
-def get_total_time(critical_dag: nx.DiGraph) -> int:
+def get_critical_dag_total_time(critical_dag: nx.DiGraph) -> int:
     """Find the total execution time of the given critical DAG."""
     source_node = critical_dag.graph["source_node"]
     sink_node = critical_dag.graph["sink_node"]

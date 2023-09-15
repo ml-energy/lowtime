@@ -41,7 +41,7 @@ class Args:
     # Raw P2P blocking power consumption, in Watts
     p2p_power: Union[float, str]
     # Directory to output results
-    output_dir: str
+    output_dir: Path
     # Number of microbatchs
     num_mbs: int
     # Number of stages
@@ -161,18 +161,19 @@ def main(args: Args) -> None:
             print(op_spec.options)
             op_spec_map[stage_id][instruction] = op_spec
 
-    ########################
-    # ReneDAG construction #
-    ########################
-    # dag = ReneDAG[Instruction, None]()
+    ####################
+    # DAG construction #
+    ####################
     dag = nx.DiGraph()
 
     # Generate and add all instructions to the DAG.
     # Reserve 0 for dummy source and 1 for dummy sink.
     # XXX(JW): Why should all these have a node ID exposed outside?
     node_id = 2
+    instructions: list[list[Instruction]] = []
     for stage_id in range(args.num_stages):
         # Generate instructions for each stage.
+        stage_insts: list[Instruction] = []
         stage_node_ids: list[int] = []
         for inst in Synchronous1F1B(
             num_stages=args.num_stages,
@@ -181,8 +182,10 @@ def main(args: Args) -> None:
             operation_spec_map=op_spec_map[stage_id],
         ):
             dag.add_node(node_id, op=inst)
+            stage_insts.append(inst)
             stage_node_ids.append(node_id)
             node_id += 1
+        instructions.append(stage_insts)
 
         # Add dependencies between adjacent instructions in the same stage.
         for node_id1, node_id2 in zip(stage_node_ids, stage_node_ids[1:]):
@@ -208,11 +211,26 @@ def main(args: Args) -> None:
     # Time-cost tradeoff optimization #
     ###################################
     solver = PhillipsDessouky(dag)
-    cost_changes = []
-    for result in solver.run():
-        cost_changes.append(result.cost_change)
+    for iteration, result in enumerate(solver.run()):
+        freqs: list[list[int]] = []
+        for stage_id, stage_insts in enumerate(instructions):
+            stage_freq = []
+            for inst in stage_insts:
+                stage_freq.append(inst.assigned_knob)
+            freqs.append(stage_freq)
 
-    pickle.dump(cost_changes, open(f"{output_dir}/cost_changes.pkl", "wb"))
+        # Don't flush since IO can overlap with the solver.
+        f = open(args.output_dir / f"freqs_pipeline_{iteration:05d}.py", "w")
+        f.write("[\n")
+        for stage_freq in freqs:
+            f.write(f"{stage_freq},\n")
+        f.write("]\n")
+
+        iter_str = f"# Iteration {iteration}: "
+        real_cost = result.cost + args.num_stages + result.real_time * p_p2p
+        f.write(iter_str + f"cost change {result.cost_change} \n")
+        f.write(iter_str + f"total cost {result.cost} \n")
+        f.write(iter_str + f"refined cost {real_cost} \n")
 
 
 if __name__ == "__main__":

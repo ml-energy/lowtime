@@ -11,10 +11,10 @@ from queue import SimpleQueue
 from collections import deque
 from collections.abc import Generator
 
-import matplotlib.pyplot as plt  # type: ignore
-import networkx as nx  # type: ignore
-from networkx.algorithms.flow import edmonds_karp  # type: ignore
-from attrs import define
+import matplotlib.pyplot as plt
+import networkx as nx
+from networkx.algorithms.flow import edmonds_karp
+from attrs import define, field
 
 from rene.constants import (
     FP_ERROR,
@@ -25,7 +25,11 @@ from rene.constants import (
 from rene.dag import ReneDAGOld
 from rene.perseus.instruction import Instruction
 from rene.operation import DummyOperation, Operation
-from rene.graph_utils import aon_dag_to_aoa_dag, get_total_time, get_total_cost
+from rene.graph_utils import (
+    aon_dag_to_aoa_dag,
+    get_critical_dag_total_time,
+    get_total_cost,
+)
 from rene.exceptions import ReneFlowError
 
 logger = logging.getLogger(__name__)
@@ -33,19 +37,48 @@ logger = logging.getLogger(__name__)
 
 @define
 class IterationResult:
-    """A POD to hold the results for one PD iteration."""
+    """Holds results after one PD iteration.
+    
+    Attributes:
+        iteration: Zero-indexed iteration number.
+        cost_change: The increase in cost from reducing the DAG's
+            quantized execution time by 1.
+        cost: The current total cost of the DAG.
+        quant_time: The current quantized total execution time of the DAG.
+        unit_time: The unit time used for time quantization.
+        real_time: The current real (de-quantized) total execution time of the DAG.
+    """
+
+    iteration: int
     cost_change: float
+    cost: float
+    quant_time: int
+    unit_time: float
+    real_time: float = field(init=False)
+
+    def __attrs_post_init__(self) -> None:
+        """Set `real_time` after initialization."""
+        self.real_time = self.quant_time * self.unit_time
 
 
 class PhillipsDessouky:
     """Implements the Phillips-Dessouky algorithm for the time-cost tradeoff problem."""
 
     def __init__(self, dag: nx.DiGraph) -> None:
-        """Initialize the solver.
+        """Initialize the Phillips-Dessouky solver.
+
+        Assumptions:
+            - The graph is a Directed Acyclic Graph (DAG).
+            - Computation operations are annotated on the node of the DAG.
+            - There is only one source (entry) node. The source node is annotated as
+                `dag.graph["source_node"]`.
+            - There is only one sink (exit) node. The sink node is annotated as
+                `dag.graph["sink_node"]`.
+            - The `unit_time` attribute of every operation is the same.
 
         Args:
-            dag: A DAG with the source and sink node IDs annotated respectively as
-                `dag.graph["source_node"]` and `dag.graph["sink_node"]`.
+            dag: A networkx DiGraph object that represents the computation DAG.
+                The aforementioned assumptions should hold for the DAG.
         """
         # Run checks on the DAG and cache some properties.
         # Check: It's a DAG.
@@ -94,7 +127,26 @@ class PhillipsDessouky:
                 f"the annotated sink node ({sink_node})."
             )
 
+        # Check: The `unit_time` attributes of every operation should be the same.
+        unit_time_candidates = set[float]()
+        for _, node_attr in dag.nodes(data=True):
+            if "op" in node_attr:
+                op: Operation = node_attr["op"]
+                if op.is_dummy:
+                    continue
+                unit_time_candidates.update(
+                    option.unit_time for option in op.spec.options.options
+                )
+        if len(unit_time_candidates) == 0:
+            raise ValueError("Found zero operations in the graph.")
+        if len(unit_time_candidates) > 1:
+            raise ValueError(
+                f"Expecting the same `unit_time` across all operations, "
+                f"found {unit_time_candidates}."
+            )
+
         self.aon_dag = dag
+        self.unit_time = unit_time_candidates.pop()
 
     def run(self) -> Generator[IterationResult, None, None]:
         """Run the algorithm and yield a DAG after each iteration.
@@ -110,38 +162,66 @@ class PhillipsDessouky:
         # should be in AON form.
         aoa_dag = aon_dag_to_aoa_dag(self.aon_dag, attr_name="op")
 
-        # Finding the critical DAG is the first step of each iteration, but that's
-        # also useful for computing the current execution time of the DAG *before*
-        # running each iteration. So we run this step here and do `to_critical_dag`
-        # again end of the loop.
-        logger.info(">>> Iteration 0")
+        # Estimate the minimum execution time of the DAG by setting every operation
+        # to run at its minimum duration.
+        for _, _, edge_attr in aoa_dag.edges(data=True):
+            op: Operation = edge_attr["op"]
+            if op.is_dummy:
+                continue
+            op.duration = op.min_duration
         critical_dag = self.to_critical_dag(aoa_dag)
+        min_time = get_critical_dag_total_time(critical_dag)
+        logger.info("Expected minimum quantized execution time: %d", min_time)
 
-        logger.info("Total quantized time: %d", get_total_time(critical_dag))
-        logger.info("Total cost: %f", get_total_cost(aoa_dag, mode="edge"))
-        logger.debug("Number of nodes: %d", critical_dag.number_of_nodes())
-        logger.debug("Number of edges: %d", critical_dag.number_of_edges())
-        non_dummy_ops = [
-            attr["op"]
-            for _, _, attr in critical_dag.edges(data=True)
-            if not attr["op"].is_dummy
-        ]
-        logger.debug("Number of non-dummy operations: %d", len(non_dummy_ops))
-        logger.debug(
-            "Sum of non-dummy durations: %d", sum(op.duration for op in non_dummy_ops)
-        )
+        # Estimated the maximum execution time of the DAG by setting every operation
+        # to run at its maximum duration.
+        for _, _, edge_attr in aoa_dag.edges(data=True):
+            op: Operation = edge_attr["op"]
+            if op.is_dummy:
+                continue
+            op.duration = op.max_duration
+        critical_dag = self.to_critical_dag(aoa_dag)
+        max_time = get_critical_dag_total_time(critical_dag)
+        logger.info("Expected maximum quantized execution time: %d", max_time)
+
+        num_iters = max_time - min_time
+        logger.info("Expected number of PD iterations: %d", num_iters)
 
         # Iteratively reduce the execution time of the DAG.
-        for iteration in range(1, sys.maxsize):
+        critical_dag = nx.DiGraph()  # Just to make the type checker happy.
+        for iteration in range(sys.maxsize):
+            logger.info(">>> Beginning iteration %d/%d", iteration + 1, num_iters)
+
+            # The critical DAG, except for the very first iteration, is computed
+            # after reducing the durations of operations in the previous interation
+            # in order to construct the previous iteration's `IterationResult`.
+            if iteration == 0:
+                critical_dag = self.to_critical_dag(aoa_dag)
+
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug("Number of nodes: %d", critical_dag.number_of_nodes())
+                logger.debug("Number of edges: %d", critical_dag.number_of_edges())
+                non_dummy_ops = [
+                    attr["op"]
+                    for _, _, attr in critical_dag.edges(data=True)
+                    if not attr["op"].is_dummy
+                ]
+                logger.debug("Number of non-dummy operations: %d", len(non_dummy_ops))
+                logger.debug(
+                    "Sum of non-dummy durations: %d",
+                    sum(op.duration for op in non_dummy_ops),
+                )
+
             capacity_dag = self.annotate_capacities(critical_dag)
-            logger.debug(
-                "Total lb value: %f",
-                sum([capacity_dag[u][v]["lb"] for u, v in capacity_dag.edges]),
-            )
-            logger.debug(
-                "Total ub value: %f",
-                sum([capacity_dag[u][v]["ub"] for u, v in capacity_dag.edges]),
-            )
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(
+                    "Total lb value: %f",
+                    sum([capacity_dag[u][v]["lb"] for u, v in capacity_dag.edges]),
+                )
+                logger.debug(
+                    "Total ub value: %f",
+                    sum([capacity_dag[u][v]["ub"] for u, v in capacity_dag.edges]),
+                )
 
             try:
                 s_set, t_set = self.find_min_cut(capacity_dag)
@@ -156,28 +236,19 @@ class PhillipsDessouky:
                 logger.info("Terminating PD iteration.")
                 break
 
-            logger.info("Cost change: %f", cost_change)
+            critical_dag = self.to_critical_dag(aoa_dag)
 
             # We directly modify operation attributes in the DAG, so after we
             # ran one iteration, the AON DAG holds updated attributes.
-            yield IterationResult(cost_change=cost_change)
-
-            logger.info(">>> Iteration %d", iteration)
-
-            critical_dag = self.to_critical_dag(aoa_dag)
-            logger.info("Total quantized time: %f", get_total_time(critical_dag))
-            logger.info("Total cost: %f", get_total_cost(aoa_dag, mode="edge"))
-            logger.debug("Number of nodes: %d", critical_dag.number_of_nodes())
-            logger.debug("Number of edges: %d", critical_dag.number_of_edges())
-            non_dummy_ops = [
-                attr["op"]
-                for _, _, attr in critical_dag.edges(data=True)
-                if not attr["op"].is_dummy
-            ]
-            logger.debug("Number of non-dummy operations: %d", len(non_dummy_ops))
-            logger.debug(
-                "Sum of non-dummy durations: %d", sum(op.duration for op in non_dummy_ops)
+            result = IterationResult(
+                iteration=iteration,
+                cost_change=cost_change,
+                cost=get_total_cost(aoa_dag, mode="edge"),
+                quant_time=get_critical_dag_total_time(critical_dag),
+                unit_time=self.unit_time,
             )
+            logger.info("%s", result)
+            yield result
 
     def reduce_durations(
         self, capacity_dag: nx.DiGraph, s_set: set[int], t_set: set[int]
@@ -225,7 +296,9 @@ class PhillipsDessouky:
                 logger.info("Operation %s has reached the limit of slow down", op)
                 return float("inf")
             else:
-                cost_change -= abs(op.get_cost(op.duration) - op.get_cost(op.duration + 1))
+                cost_change -= abs(
+                    op.get_cost(op.duration) - op.get_cost(op.duration + 1)
+                )
                 logger.info("Slowed down %s to %d", op, op.duration + 1)
                 op.duration += 1
 
@@ -521,7 +594,10 @@ class PhillipsDessouky:
             else:
                 # In case the cost model is almost linear, give this edge some room.
                 lb = abs(op.get_cost(op.duration) - op.get_cost(op.duration + 1))
-                ub = abs(op.get_cost(op.duration - 1) - op.get_cost(op.duration)) + FP_ERROR
+                ub = (
+                    abs(op.get_cost(op.duration - 1) - op.get_cost(op.duration))
+                    + FP_ERROR
+                )
 
             # XXX(JW): Why is this rouding needed?
             edge_attr["lb"] = lb // FP_ERROR * FP_ERROR

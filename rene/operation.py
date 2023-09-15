@@ -102,7 +102,7 @@ class CandidateExecutionOptions(Generic[KnobT]):
         self.options = filtered_options
         self.options.sort(key=lambda x: x.quant_time, reverse=True)
 
-    def get_best_knob(self, quant_time: int) -> KnobT:
+    def get_knob(self, quant_time: int) -> KnobT:
         """Find the slowest `knob` value that still executes within `quant_time`."""
         if (knob := self._knob_cache.get(quant_time)) is not None:
             return knob
@@ -326,12 +326,12 @@ class OperationSpec(Generic[KnobT]):
     cost_model: CostModel
 
 
-def duration_setter(self: Operation, _: Attribute, duration: int) -> int:
+def knob_setter(self: Operation, _: Attribute, duration: int) -> int:
     """Find and assign the slowest `knob` value that still meets `duration`."""
     if duration < self.min_duration or duration > self.max_duration:
         raise ValueError(f"Duration {duration} is not in range for {self!r}.")
 
-    self.assigned_knob = self.spec.options.get_best_knob(duration)
+    self.assigned_knob = self.spec.options.get_knob(duration)
 
     return duration
 
@@ -359,7 +359,7 @@ class Operation(Generic[KnobT]):
     spec: OperationSpec[KnobT] = field(on_setattr=frozen)
     is_dummy: bool = field(default=False, init=False, on_setattr=frozen)
 
-    duration: int = field(init=False, on_setattr=duration_setter)
+    duration: int = field(init=False, on_setattr=knob_setter)
     max_duration: int = field(init=False)
     min_duration: int = field(init=False)
     assigned_knob: KnobT = field(init=False)
