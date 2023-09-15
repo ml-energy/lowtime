@@ -1,8 +1,9 @@
 from __future__ import annotations
-import itertools
 
+import itertools
 import logging
 from pathlib import Path
+import pickle
 from typing import Literal, Optional, Union, Type
 from collections import defaultdict
 from dataclasses import dataclass
@@ -74,7 +75,6 @@ def main(args: Args) -> None:
 
     logging.basicConfig(
         format="%(asctime)s %(levelname)-8s [%(filename)s:%(lineno)d] %(message)s",
-        datefmt="%m/%d/%Y %H:%M:%S",
         level=logging.INFO,
         handlers=[logging.FileHandler(log_path, mode="a"), logging.StreamHandler()],
     )
@@ -154,7 +154,7 @@ def main(args: Args) -> None:
             # Draw the cost model.
             fig, ax = plt.subplots(figsize=(8, 8), tight_layout=True)
             model.draw(ax, cand_options)
-            fig.savefig(f"{output_dir}/{instruction}_{stage_id}.png")
+            fig.savefig(f"{output_dir}/{inst_name.lower()}_{stage_id}.png")
 
             # Initialize the operation spec.
             op_spec = OperationSpec[int](options=cand_options, cost_model=model)
@@ -208,9 +208,11 @@ def main(args: Args) -> None:
     # Time-cost tradeoff optimization #
     ###################################
     solver = PhillipsDessouky(dag)
+    cost_changes = []
     for result in solver.run():
-        # print(result)
-        pass
+        cost_changes.append(result.cost_change)
+
+    pickle.dump(cost_changes, open(f"{output_dir}/cost_changes.pkl", "wb"))
 
 
 if __name__ == "__main__":

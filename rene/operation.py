@@ -383,6 +383,10 @@ class Operation(Generic[KnobT]):
         """Default implementation that shows current duration (number) and knob (@)."""
         return f"Operation({self.duration}@{self.assigned_knob})"
 
+    def get_cost(self, duration: int | None = None) -> float:
+        """Return the cost prediction of this operation at its current duration."""
+        return self.spec.cost_model(self.duration if duration is None else duration)
+
     def reset_times(self) -> None:
         """Reset earliest/latest start/finish attributes to their default values."""
         self.earliest_start = 0
@@ -412,3 +416,7 @@ class DummyOperation(Operation):
 
     def __str__(self) -> str:
         return "DummyOperation()"
+
+    def get_cost(self, duration: int | None = None) -> float:
+        """No cost for dummy operations."""
+        raise AttributeError("DummyOperation has no cost.")

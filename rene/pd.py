@@ -14,6 +14,7 @@ from collections.abc import Generator
 import matplotlib.pyplot as plt  # type: ignore
 import networkx as nx  # type: ignore
 from networkx.algorithms.flow import edmonds_karp  # type: ignore
+from attrs import define
 
 from rene.constants import (
     FP_ERROR,
@@ -24,10 +25,17 @@ from rene.constants import (
 from rene.dag import ReneDAGOld
 from rene.perseus.instruction import Instruction
 from rene.operation import DummyOperation, Operation
-from rene.graph_utils import aon_dag_to_aoa_dag
+from rene.graph_utils import aon_dag_to_aoa_dag, get_total_time, get_total_cost
 from rene.exceptions import ReneFlowError
 
 logger = logging.getLogger(__name__)
+
+
+@define
+class IterationResult:
+    """A POD to hold the results for one PD iteration."""
+    dag: nx.DiGraph
+    cost_change: float
 
 
 class PhillipsDessouky:
@@ -89,37 +97,29 @@ class PhillipsDessouky:
 
         self.aon_dag = dag
 
-    def run(self) -> Generator[nx.DiGraph, None, None]:
+    def run(self) -> Generator[IterationResult, None, None]:
         """Run the algorithm and yield a DAG after each iteration.
 
         The solver will not deepcopy operations on the DAG but rather in-place modify them
         for performance reasons. The caller should deepcopy the DAG if needed before running
         the next iteration.
         """
+        logger.info("Starting Phillips-Dessouky solver.")
+
         # Convert the original activity-on-node DAG to activity-on-arc DAG form.
         # AOA DAGs are purely internal. All public input and output of this class
         # should be in AON form.
         aoa_dag = aon_dag_to_aoa_dag(self.aon_dag, attr_name="op")
 
-        # Iteratively reduce the execution time of the DAG.
-        for iteration in range(sys.maxsize):
-            logger.info("Iteration %d", iteration)
-            # TODO(JW): More than the DAG should probably be returned.
-            dag = self.run_one_iteration(aoa_dag)
-            if dag is not None:
-                # We directly modify operation attributes in the DAG, so after we
-                # ran one iteration, the AON DAG holds updated attributes.
-                yield self.aon_dag
-            else:
-                break
-
-    def run_one_iteration(self, aoa_dag: nx.DiGraph) -> float | None:
-        """Reduce the execution time of the DAG by 1 while increasing cost minimally.
-
-        Returns:
-            The new (reduced duration) DAG or None if no further reduction is possible.
-        """
+        # Finding the critical DAG is the first step of each iteration, but that's
+        # also useful for computing the current execution time of the DAG *before*
+        # running each iteration. So we run this step here and do `to_critical_dag`
+        # again end of the loop.
         critical_dag = self.to_critical_dag(aoa_dag)
+
+        logger.info("Before PD iteration")
+        logger.info("Total quantized time: %d", get_total_time(critical_dag))
+        logger.info("Total cost: %f", get_total_cost(aoa_dag, mode="edge"))
         logger.debug("Number of nodes: %d", critical_dag.number_of_nodes())
         logger.debug("Number of edges: %d", critical_dag.number_of_edges())
         non_dummy_ops = [
@@ -132,30 +132,53 @@ class PhillipsDessouky:
             "Sum of non-dummy durations: %d", sum(op.duration for op in non_dummy_ops)
         )
 
-        capacity_dag = self.annotate_capacities(critical_dag)
-        logger.debug(
-            "Total lb value: %f",
-            sum([capacity_dag[u][v]["lb"] for u, v in capacity_dag.edges]),
-        )
-        logger.debug(
-            "Total ub value: %f",
-            sum([capacity_dag[u][v]['ub'] for u, v in capacity_dag.edges]),
-        )
+        # Iteratively reduce the execution time of the DAG.
+        for iteration in range(sys.maxsize):
+            logger.info(">>> Iteration %d", iteration)
 
-        try:
-            s_set, t_set = self.find_min_cut(capacity_dag)
-        except ReneFlowError as e:
-            logger.info("Could not find minimum cut: %s", e.message)
-            logger.info("Terminating PD iteration.")
-            return None
+            capacity_dag = self.annotate_capacities(critical_dag)
+            logger.debug(
+                "Total lb value: %f",
+                sum([capacity_dag[u][v]["lb"] for u, v in capacity_dag.edges]),
+            )
+            logger.debug(
+                "Total ub value: %f",
+                sum([capacity_dag[u][v]["ub"] for u, v in capacity_dag.edges]),
+            )
 
-        cost_change = self.reduce_durations(capacity_dag, s_set, t_set)
-        if cost_change == float("inf") or abs(cost_change) < FP_ERROR:
-            logger.info("No further time reduction possible.")
-            logger.info("Terminating PD iteration.")
-            return None
+            try:
+                s_set, t_set = self.find_min_cut(capacity_dag)
+            except ReneFlowError as e:
+                logger.info("Could not find minimum cut: %s", e.message)
+                logger.info("Terminating PD iteration.")
+                break
 
-        return cost_change
+            cost_change = self.reduce_durations(capacity_dag, s_set, t_set)
+            if cost_change == float("inf") or abs(cost_change) < FP_ERROR:
+                logger.info("No further time reduction possible.")
+                logger.info("Terminating PD iteration.")
+                break
+
+            # We directly modify operation attributes in the DAG, so after we
+            # ran one iteration, the AON DAG holds updated attributes.
+            yield IterationResult(dag=self.aon_dag, cost_change=cost_change)
+
+            logger.info("Cost change: %f", cost_change)
+
+            critical_dag = self.to_critical_dag(aoa_dag)
+            logger.info("Total quantized time: %f", get_total_time(critical_dag))
+            logger.info("Total cost: %f", get_total_cost(aoa_dag, mode="edge"))
+            logger.debug("Number of nodes: %d", critical_dag.number_of_nodes())
+            logger.debug("Number of edges: %d", critical_dag.number_of_edges())
+            non_dummy_ops = [
+                attr["op"]
+                for _, _, attr in critical_dag.edges(data=True)
+                if not attr["op"].is_dummy
+            ]
+            logger.debug("Number of non-dummy operations: %d", len(non_dummy_ops))
+            logger.debug(
+                "Sum of non-dummy durations: %d", sum(op.duration for op in non_dummy_ops)
+            )
 
     def reduce_durations(
         self, capacity_dag: nx.DiGraph, s_set: set[int], t_set: set[int]
@@ -189,8 +212,7 @@ class PhillipsDessouky:
             if op.duration - 1 < op.min_duration:
                 logger.info("Operation %s has reached the limit of speed up", op)
                 return float("inf")
-            cost_model = op.spec.cost_model
-            cost_change += abs(cost_model(op.duration - 1) - cost_model(op.duration))
+            cost_change += abs(op.get_cost(op.duration - 1) - op.get_cost(op.duration))
             logger.info("Sped up %s to %d", op, op.duration - 1)
             op.duration -= 1
 
@@ -204,10 +226,7 @@ class PhillipsDessouky:
                 logger.info("Operation %s has reached the limit of slow down", op)
                 return float("inf")
             else:
-                cost_model = op.spec.cost_model
-                cost_change += abs(
-                    cost_model(op.duration) - cost_model(op.duration + 1)
-                )
+                cost_change += abs(op.get_cost(op.duration) - op.get_cost(op.duration + 1))
                 logger.info("Slowed down %s to %d", op, op.duration + 1)
                 op.duration += 1
 
@@ -494,17 +513,16 @@ class PhillipsDessouky:
                 lb, ub = 0.0, inf
             # Typical non-dummy operation.
             else:
-                cost_model = op.spec.cost_model
                 # Can this operation be slowed down?
                 if op.duration + 1 <= op.max_duration:
                     # Absolute right subgradient.
-                    lb = abs(cost_model(op.duration) - cost_model(op.duration + 1))
+                    lb = abs(op.get_cost(op.duration) - op.get_cost(op.duration + 1))
                 else:
                     lb = 0.0
                 # Can this operation be sped up?
                 if op.duration - 1 >= op.min_duration:
                     # Absolute left subgradient.
-                    ub = abs(cost_model(op.duration - 1) - cost_model(op.duration))
+                    ub = abs(op.get_cost(op.duration - 1) - op.get_cost(op.duration))
                 else:
                     ub = inf
 

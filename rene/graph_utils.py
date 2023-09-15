@@ -2,13 +2,16 @@ from __future__ import annotations
 
 import logging
 from itertools import count
-from typing import Any, TypeVar, Generator
+from typing import Any, Literal, TypeVar, Generator, TYPE_CHECKING
 
 import networkx as nx
 import matplotlib.pyplot as plt
 
 from rene.operation import DummyOperation
 from rene.exceptions import ReneGraphError
+
+if TYPE_CHECKING:
+    from rene.operation import Operation
 
 logger = logging.getLogger(__name__)
 
@@ -197,3 +200,45 @@ def aon_dag_to_aoa_dag(
     logger.info("All sanity checks passed.")
 
     return aoa
+
+
+def get_total_cost(graph: nx.DiGraph, mode: Literal["edge", "node"]) -> float:
+    """Return the total cost of the given graph.
+    
+    Assumptions:
+        - The graph has a "op" attribute on each edge that holds `Operation`.
+    """
+    if mode == "edge":
+        cost = 0.0
+        for _, _, edge_attr in graph.edges(data=True):
+            op: Operation = edge_attr["op"]
+            if op.is_dummy:
+                continue
+            cost += op.get_cost()
+        return cost
+    elif mode == "node":
+        cost = 0.0
+        for _, node_attr in graph.nodes(data=True):
+            op: Operation = node_attr["op"]
+            if op.is_dummy:
+                continue
+            cost += op.get_cost()
+        return cost
+
+
+def get_total_time(critical_dag: nx.DiGraph) -> int:
+    """Find the total execution time of the given critical DAG."""
+    source_node = critical_dag.graph["source_node"]
+    sink_node = critical_dag.graph["sink_node"]
+
+    # Any path from the source to sink node is a critical path, so we can just
+    # traverse in a DFS order and when we reach the sink node, we're done.
+    total_time = 0
+    for cur_node, next_node in nx.dfs_edges(critical_dag, source_node):
+        op: Operation = critical_dag[cur_node][next_node]["op"]
+        if not op.is_dummy:
+            total_time += op.duration
+        if next_node == sink_node:
+            break
+
+    return total_time
