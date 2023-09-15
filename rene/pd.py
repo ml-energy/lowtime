@@ -34,7 +34,6 @@ logger = logging.getLogger(__name__)
 @define
 class IterationResult:
     """A POD to hold the results for one PD iteration."""
-    dag: nx.DiGraph
     cost_change: float
 
 
@@ -115,9 +114,9 @@ class PhillipsDessouky:
         # also useful for computing the current execution time of the DAG *before*
         # running each iteration. So we run this step here and do `to_critical_dag`
         # again end of the loop.
+        logger.info(">>> Iteration 0")
         critical_dag = self.to_critical_dag(aoa_dag)
 
-        logger.info("Before PD iteration")
         logger.info("Total quantized time: %d", get_total_time(critical_dag))
         logger.info("Total cost: %f", get_total_cost(aoa_dag, mode="edge"))
         logger.debug("Number of nodes: %d", critical_dag.number_of_nodes())
@@ -133,9 +132,7 @@ class PhillipsDessouky:
         )
 
         # Iteratively reduce the execution time of the DAG.
-        for iteration in range(sys.maxsize):
-            logger.info(">>> Iteration %d", iteration)
-
+        for iteration in range(1, sys.maxsize):
             capacity_dag = self.annotate_capacities(critical_dag)
             logger.debug(
                 "Total lb value: %f",
@@ -159,11 +156,13 @@ class PhillipsDessouky:
                 logger.info("Terminating PD iteration.")
                 break
 
+            logger.info("Cost change: %f", cost_change)
+
             # We directly modify operation attributes in the DAG, so after we
             # ran one iteration, the AON DAG holds updated attributes.
-            yield IterationResult(dag=self.aon_dag, cost_change=cost_change)
+            yield IterationResult(cost_change=cost_change)
 
-            logger.info("Cost change: %f", cost_change)
+            logger.info(">>> Iteration %d", iteration)
 
             critical_dag = self.to_critical_dag(aoa_dag)
             logger.info("Total quantized time: %f", get_total_time(critical_dag))
@@ -320,7 +319,7 @@ class PhillipsDessouky:
         for d in flow_dict.values():
             for flow in d.values():
                 total_flow += flow
-        logger.debug("Sum of all flow values: %d", total_flow)
+        logger.debug("Sum of all flow values: %f", total_flow)
 
         # Check if residual graph is saturated. If so, we have a feasible flow.
         for node_id in unbound_dag.successors(s_prime_id):
