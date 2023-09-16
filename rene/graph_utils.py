@@ -46,6 +46,8 @@ def add_sink_node(graph: nx.DiGraph, sink_node: Any) -> None:
 def bfs_nodes(graph: nx.Graph, source_node: NodeT) -> Generator[NodeT, None, None]:
     """Yield nodes in the order they are visited by BFS.
 
+    Note that this will visit all the nodes, but not necessarily all the edges.
+
     Reference:
     Example in
     https://networkx.org/documentation/stable/reference/algorithms/generated/networkx.algorithms.traversal.breadth_first_search.bfs_edges.html
@@ -196,7 +198,7 @@ def aon_dag_to_aoa_dag(
         raise ReneGraphError(
             f"Expected {aon_nedges + aon_nnodes} edges, got {aoa_nedges}."
         )
-    
+
     logger.info("All sanity checks passed.")
 
     return aoa
@@ -204,7 +206,7 @@ def aon_dag_to_aoa_dag(
 
 def get_total_cost(graph: nx.DiGraph, mode: Literal["edge", "node"]) -> float:
     """Return the total cost of the given graph.
-    
+
     Assumptions:
         - The graph has a "op" attribute on each edge that holds `Operation`.
     """
@@ -226,8 +228,102 @@ def get_total_cost(graph: nx.DiGraph, mode: Literal["edge", "node"]) -> float:
         return cost
 
 
-def get_critical_dag_total_time(critical_dag: nx.DiGraph) -> int:
-    """Find the total execution time of the given critical DAG."""
+def aoa_to_critical_dag(aoa_dag: nx.DiGraph) -> nx.DiGraph:
+    """Convert the AOA DAG to a critical AOA DAG where only critical edges remain.
+
+    This function modifies the earliest/latest start/end times of the `Operation`s
+    on the given graph.
+
+    Assumptions:
+        - The graph is a DAG with `Operation`s annotated on edges.
+        - The graph has only one source node, annotated as "source_node" on the graph.
+        - The graph has only one sink node, annotated as "sink_node" on the graph.
+    """
+    # Clear all earliest/latest start/end times.
+    for _, _, edge_attrs in aoa_dag.edges(data=True):
+        operation: Operation = edge_attrs["op"]
+        operation.reset_times()
+
+    # Run the forward pass to set earliest start/end times.
+    # TODO(JW): I think this implementation is strange. Why don't we just
+    # go through (u, v) with `nx.bfs_edge` and find the latest earliest_finish
+    # time among u's predecessor edges? Similar applies for the backward pass.
+    for node_id in nx.topological_sort(aoa_dag):
+        for succ_id in aoa_dag.successors(node_id):
+            cur_op: Operation = aoa_dag[node_id][succ_id]["op"]
+
+            for succ_succ_id in aoa_dag.successors(succ_id):
+                next_op: Operation = aoa_dag[succ_id][succ_succ_id]["op"]
+
+                next_op.earliest_start = max(
+                    next_op.earliest_start,
+                    cur_op.earliest_finish,
+                )
+                next_op.earliest_finish = next_op.earliest_start + next_op.duration
+
+    # Run the backward pass to set latest start/end times.
+    # XXX(JW): The original implementation only worked because there is guaranteed
+    # to be only one predecessor of the sink node, since the sink node of the AON
+    # DAG was split into two nodes when converting to AOA form. Rather, the latest
+    # finish time of the entire AOA DAG should be derived by taking the max among
+    # all `earliest_finish` times of all incoming edges to the sink node.
+    exit_node = aoa_dag.graph["sink_node"]
+    exit_edge_source_candidates = list(aoa_dag.predecessors(exit_node))
+    assert len(exit_edge_source_candidates) == 1  # Not always true for any AOA DAG.
+    exit_edge_op: Operation = aoa_dag[exit_edge_source_candidates[0]][exit_node]["op"]
+    exit_edge_op.latest_finish = exit_edge_op.earliest_finish
+    exit_edge_op.latest_start = exit_edge_op.latest_finish - exit_edge_op.duration
+    for node_id in reversed(list(nx.topological_sort(aoa_dag))):
+        for pred_id in aoa_dag.predecessors(node_id):
+            cur_op: Operation = aoa_dag[pred_id][node_id]["op"]
+
+            for pred_pred_id in aoa_dag.predecessors(pred_id):
+                prev_op: Operation = aoa_dag[pred_pred_id][pred_id]["op"]
+
+                prev_op.latest_start = min(
+                    prev_op.latest_start,
+                    cur_op.latest_start - prev_op.duration,
+                )
+                prev_op.latest_finish = prev_op.latest_start + prev_op.duration
+
+    # Remove all edges that are not on the critical path.
+    critical_dag = nx.DiGraph(aoa_dag)
+    # XXX(JW): I don't know why we should do a topological sort here. Why not just
+    # go through all edges like:
+    # for u, v, edge_attrs in aoa_dag.edges(data=True):
+    #     op: Operation = edge_attrs["op"]
+    #     if op.earliest_finish != op.latest_finish:
+    #         critical_dag.remove_edge(u, v)
+    for node_id in nx.topological_sort(aoa_dag):
+        for succ_id in aoa_dag.successors(node_id):
+            cur_op: Operation = aoa_dag[node_id][succ_id]["op"]
+            if cur_op.latest_finish != cur_op.earliest_finish:
+                critical_dag.remove_edge(node_id, succ_id)
+
+    # Copy over source and sink node IDs.
+    source_id = critical_dag.graph["source_node"] = aoa_dag.graph["source_node"]
+    sink_id = critical_dag.graph["sink_node"] = aoa_dag.graph["sink_node"]
+    if source_id not in critical_dag and source_id in aoa_dag:
+        raise RuntimeError(
+            "Source node was removed from the DAG when getting critical DAG."
+        )
+    if sink_id not in critical_dag and sink_id in aoa_dag:
+        raise RuntimeError(
+            "Sink node was removed from the DAG when getting critical DAG."
+        )
+
+    return critical_dag
+
+
+def get_critical_aoa_dag_total_time(critical_dag: nx.DiGraph) -> int:
+    """Find the total execution time of the given critical DAG in AOA form.
+    
+    Assumptions:
+        - The graph is a DAG with `Operation`s annotated on edges.
+        - The graph only contains operations that are on the critical path.
+        - The graph has only one source node, annotated as "source_node" on the graph.
+        - The graph has only one sink node, annotated as "sink_node" on the graph.
+    """
     source_node = critical_dag.graph["source_node"]
     sink_node = critical_dag.graph["sink_node"]
 
@@ -239,6 +335,34 @@ def get_critical_dag_total_time(critical_dag: nx.DiGraph) -> int:
         if not op.is_dummy:
             total_time += op.duration
         if next_node == sink_node:
+            break
+
+    return total_time
+
+
+def get_critical_aon_dag_total_time(critical_dag: nx.DiGraph) -> int:
+    """Find the total execution time of the given critical DAG AON form.
+    
+    Assumptions:
+        - The graph is a DAG with `Operation`s annotated on nodes.
+        - The graph only contains operations that are on the critical path.
+        - The graph has only one source node, annotated as "source_node" on the graph.
+        - The graph has only one sink node, annotated as "sink_node" on the graph.
+    """
+    source_node = critical_dag.graph["source_node"]
+    sink_node = critical_dag.graph["sink_node"]
+
+    # Any path from the source to sink node is a critical path, so we can just
+    # traverse in a DFS order and when we reach the sink node, we're done.
+    total_time = 0
+    for cur_node, next_node in nx.dfs_edges(critical_dag, source_node):
+        op: Operation = critical_dag.nodes[cur_node]["op"]
+        if not op.is_dummy:
+            total_time += op.duration
+        if next_node == sink_node:
+            next_op: Operation = critical_dag.nodes[next_node]["op"]
+            if not next_op.is_dummy:
+                total_time += next_op.duration
             break
 
     return total_time

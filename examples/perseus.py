@@ -3,7 +3,6 @@ from __future__ import annotations
 import itertools
 import logging
 from pathlib import Path
-import pickle
 from typing import Literal, Optional, Union, Type
 from collections import defaultdict
 from dataclasses import dataclass
@@ -30,6 +29,7 @@ from rene.perseus.schedule import Synchronous1F1B
 from rene.dag import DependencyResolver
 from rene.pd import PhillipsDessouky
 from rene.graph_utils import add_source_node, add_sink_node
+from rene.perseus.visualizer import PipelineVisualizer
 
 logger = logging.getLogger()
 
@@ -210,8 +210,36 @@ def main(args: Args) -> None:
     ###################################
     # Time-cost tradeoff optimization #
     ###################################
+    def annotation_hook(inst: Instruction) -> str:
+        return f"{type(inst).__name__[0]}\n{inst.micro_batch_id}"
+
+    def draw(dag: nx.DiGraph, iteration: int, xlim: int) -> None:
+        fig, ax = plt.subplots(figsize=(8, 4), tight_layout=True)
+        vis = PipelineVisualizer(dag)
+        vis.draw(
+            ax,
+            draw_time_axis=True,
+            p2p_power=p_p2p,
+            annotation_hook=annotation_hook,
+        )
+        vis.draw_critical_path(ax)
+        # Fix xlim so that we can visually see the pipeline width shrink.
+        ax.set_xlim(0.0, xlim)
+        fig.savefig(f"{output_dir}/pipeline_{iteration:05d}.png")
+        plt.close(fig)
+
+
     solver = PhillipsDessouky(dag)
+
+    max_real_time = None
     for iteration, result in enumerate(solver.run()):
+        # Maybe draw the pipeline.
+        if iteration % args.interval == 0:
+            if max_real_time is None:
+                max_real_time = int(result.real_time) + 1
+            draw(dag, iteration, max_real_time)
+
+        # Write the frequency assignment Python file.
         freqs: list[list[int]] = []
         for stage_id, stage_insts in enumerate(instructions):
             stage_freq = []
@@ -232,6 +260,8 @@ def main(args: Args) -> None:
         f.write(iter_str + f"total cost {result.cost} \n")
         f.write(iter_str + f"refined cost {real_cost} \n")
 
+    if iteration % args.interval != 0:
+        draw(dag, iteration + 1, max_real_time)
 
 if __name__ == "__main__":
     args = tyro.cli(Args)

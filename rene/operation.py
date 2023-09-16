@@ -102,7 +102,7 @@ class CandidateExecutionOptions(Generic[KnobT]):
         self.options = filtered_options
         self.options.sort(key=lambda x: x.quant_time, reverse=True)
 
-    def get_knob(self, quant_time: int) -> KnobT:
+    def get_knob_for(self, quant_time: int) -> KnobT:
         """Find the slowest `knob` value that still executes within `quant_time`."""
         if (knob := self._knob_cache.get(quant_time)) is not None:
             return knob
@@ -331,7 +331,7 @@ def knob_setter(self: Operation, _: Attribute, duration: int) -> int:
     if duration < self.min_duration or duration > self.max_duration:
         raise ValueError(f"Duration {duration} is not in range for {self!r}.")
 
-    self.assigned_knob = self.spec.options.get_knob(duration)
+    self.assigned_knob = self.spec.options.get_knob_for(duration)
 
     return duration
 

@@ -27,7 +27,8 @@ from rene.perseus.instruction import Instruction
 from rene.operation import DummyOperation, Operation
 from rene.graph_utils import (
     aon_dag_to_aoa_dag,
-    get_critical_dag_total_time,
+    aoa_to_critical_dag,
+    get_critical_aoa_dag_total_time,
     get_total_cost,
 )
 from rene.exceptions import ReneFlowError
@@ -38,9 +39,9 @@ logger = logging.getLogger(__name__)
 @define
 class IterationResult:
     """Holds results after one PD iteration.
-    
+
     Attributes:
-        iteration: Zero-indexed iteration number.
+        iteration: The number of optimization iterations experienced by the DAG.
         cost_change: The increase in cost from reducing the DAG's
             quantized execution time by 1.
         cost: The current total cost of the DAG.
@@ -151,9 +152,12 @@ class PhillipsDessouky:
     def run(self) -> Generator[IterationResult, None, None]:
         """Run the algorithm and yield a DAG after each iteration.
 
-        The solver will not deepcopy operations on the DAG but rather in-place modify them
-        for performance reasons. The caller should deepcopy the DAG if needed before running
-        the next iteration.
+        The solver will not deepcopy operations on the DAG but rather in-place modify
+        them for speed. The caller should deepcopy the operations or the DAG if needed
+        before running the next iteration.
+
+        Upon yield, it is guaranteed that the earliest/latest start/finish time values
+        of all operations are up to date w.r.t. the `duration` of each operation.
         """
         logger.info("Starting Phillips-Dessouky solver.")
 
@@ -169,36 +173,35 @@ class PhillipsDessouky:
             if op.is_dummy:
                 continue
             op.duration = op.min_duration
-        critical_dag = self.to_critical_dag(aoa_dag)
-        min_time = get_critical_dag_total_time(critical_dag)
+        critical_dag = aoa_to_critical_dag(aoa_dag)
+        min_time = get_critical_aoa_dag_total_time(critical_dag)
         logger.info("Expected minimum quantized execution time: %d", min_time)
 
         # Estimated the maximum execution time of the DAG by setting every operation
-        # to run at its maximum duration.
+        # to run at its maximum duration. This is also our initial start point.
         for _, _, edge_attr in aoa_dag.edges(data=True):
             op: Operation = edge_attr["op"]
             if op.is_dummy:
                 continue
             op.duration = op.max_duration
-        critical_dag = self.to_critical_dag(aoa_dag)
-        max_time = get_critical_dag_total_time(critical_dag)
+        critical_dag = aoa_to_critical_dag(aoa_dag)
+        max_time = get_critical_aoa_dag_total_time(critical_dag)
         logger.info("Expected maximum quantized execution time: %d", max_time)
 
-        num_iters = max_time - min_time
+        num_iters = max_time - min_time + 1
         logger.info("Expected number of PD iterations: %d", num_iters)
 
         # Iteratively reduce the execution time of the DAG.
-        critical_dag = nx.DiGraph()  # Just to make the type checker happy.
         for iteration in range(sys.maxsize):
             logger.info(">>> Beginning iteration %d/%d", iteration + 1, num_iters)
 
-            # The critical DAG, except for the very first iteration, is computed
-            # after reducing the durations of operations in the previous interation
-            # in order to construct the previous iteration's `IterationResult`.
-            if iteration == 0:
-                critical_dag = self.to_critical_dag(aoa_dag)
-
+            # At this point, `critical_dag` always exists and is what we want.
+            # For the first iteration, the critical DAG is computed before the for
+            # loop in order to estimate the number of iterations. For subsequent
+            # iterations, the critcal DAG is computed after each iteration in
+            # in order to construct `IterationResult`.
             if logger.isEnabledFor(logging.DEBUG):
+                logger.debug("Critical DAG:")
                 logger.debug("Number of nodes: %d", critical_dag.number_of_nodes())
                 logger.debug("Number of edges: %d", critical_dag.number_of_edges())
                 non_dummy_ops = [
@@ -214,6 +217,7 @@ class PhillipsDessouky:
 
             capacity_dag = self.annotate_capacities(critical_dag)
             if logger.isEnabledFor(logging.DEBUG):
+                logger.debug("Capacity DAG:")
                 logger.debug(
                     "Total lb value: %f",
                     sum([capacity_dag[u][v]["lb"] for u, v in capacity_dag.edges]),
@@ -236,15 +240,16 @@ class PhillipsDessouky:
                 logger.info("Terminating PD iteration.")
                 break
 
-            critical_dag = self.to_critical_dag(aoa_dag)
+            # Earliest/latest start/finish times on operations also annotated here.
+            critical_dag = aoa_to_critical_dag(aoa_dag)
 
             # We directly modify operation attributes in the DAG, so after we
             # ran one iteration, the AON DAG holds updated attributes.
             result = IterationResult(
-                iteration=iteration,
+                iteration=iteration + 1,
                 cost_change=cost_change,
                 cost=get_total_cost(aoa_dag, mode="edge"),
-                quant_time=get_critical_dag_total_time(critical_dag),
+                quant_time=get_critical_aoa_dag_total_time(critical_dag),
                 unit_time=self.unit_time,
             )
             logger.info("%s", result)
@@ -604,85 +609,6 @@ class PhillipsDessouky:
             edge_attr["ub"] = ub // FP_ERROR * FP_ERROR
 
         return capacity_dag
-
-    def to_critical_dag(self, aoa_dag: nx.DiGraph) -> nx.DiGraph:
-        """Convert the AOA DAG to a critical AOA DAG where only critical edges remain."""
-        # Clear all earliest/latest start/end times.
-        for _, _, edge_attrs in aoa_dag.edges(data=True):
-            operation: Operation = edge_attrs["op"]
-            operation.reset_times()
-
-        # Run the forward pass to set earliest start/end times.
-        # TODO(JW): I think this implementation is strange. Why don't we just
-        # go through (u, v) with `nx.bfs_edge` and find the latest earliest_finish
-        # time among u's predecessor edges? Similar applies for the backward pass.
-        for node_id in nx.topological_sort(aoa_dag):
-            for succ_id in aoa_dag.successors(node_id):
-                cur_op: Operation = aoa_dag[node_id][succ_id]["op"]
-
-                for succ_succ_id in aoa_dag.successors(succ_id):
-                    next_op: Operation = aoa_dag[succ_id][succ_succ_id]["op"]
-
-                    next_op.earliest_start = max(
-                        next_op.earliest_start,
-                        cur_op.earliest_finish,
-                    )
-                    next_op.earliest_finish = next_op.earliest_start + next_op.duration
-
-        # Run the backward pass to set latest start/end times.
-        # XXX(JW): The original implementation only worked because there is guaranteed
-        # to be only one predecessor of the sink node because it was split into two nodes
-        # when converting to AOA form. Rather, the latest finish time of the entire AOA
-        # DAG should be derived by taking the max among all earliest_finish times of the
-        # edges that have the sink node as their target.
-        exit_node = aoa_dag.graph["sink_node"]
-        exit_edge_source_candidates = list(aoa_dag.predecessors(exit_node))
-        assert len(exit_edge_source_candidates) == 1
-        exit_edge_op: Operation = aoa_dag[exit_edge_source_candidates[0]][exit_node][
-            "op"
-        ]
-        exit_edge_op.latest_finish = exit_edge_op.earliest_finish
-        exit_edge_op.latest_start = exit_edge_op.latest_finish - exit_edge_op.duration
-        for node_id in reversed(list(nx.topological_sort(aoa_dag))):
-            for pred_id in aoa_dag.predecessors(node_id):
-                cur_op: Operation = aoa_dag[pred_id][node_id]["op"]
-
-                for pred_pred_id in aoa_dag.predecessors(pred_id):
-                    prev_op: Operation = aoa_dag[pred_pred_id][pred_id]["op"]
-
-                    prev_op.latest_start = min(
-                        prev_op.latest_start,
-                        cur_op.latest_start - prev_op.duration,
-                    )
-                    prev_op.latest_finish = prev_op.latest_start + prev_op.duration
-
-        # Remove all edges that are not on the critical path.
-        critical_dag = nx.DiGraph(aoa_dag)
-        # XXX(JW): I don't know why we should do a topological sort here. Why not just
-        # go through all edges like:
-        # for u, v, edge_attrs in aoa_dag.edges(data=True):
-        #     op: Operation = edge_attrs["op"]
-        #     if op.earliest_finish != op.latest_finish:
-        #         critical_dag.remove_edge(u, v)
-        for node_id in nx.topological_sort(aoa_dag):
-            for succ_id in aoa_dag.successors(node_id):
-                cur_op: Operation = aoa_dag[node_id][succ_id]["op"]
-                if cur_op.latest_finish != cur_op.earliest_finish:
-                    critical_dag.remove_edge(node_id, succ_id)
-
-        # Copy over source and sink node IDs.
-        source_id = critical_dag.graph["source_node"] = aoa_dag.graph["source_node"]
-        sink_id = critical_dag.graph["sink_node"] = aoa_dag.graph["sink_node"]
-        if source_id not in critical_dag and source_id in aoa_dag:
-            raise RuntimeError(
-                "Source node was removed from the DAG when getting critical DAG."
-            )
-        if sink_id not in critical_dag and sink_id in aoa_dag:
-            raise RuntimeError(
-                "Sink node was removed from the DAG when getting critical DAG."
-            )
-
-        return critical_dag
 
 
 class PDSolver:
