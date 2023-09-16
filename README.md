@@ -1,12 +1,4 @@
-<div align="center">
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="assets/wide-resnet-dark.gif">
-  <source media="(prefers-color-scheme: light)" srcset="assets/wide-resnet-light.gif">
-  <img alt="Zeus logo" width="55%" src="docs/assets/img/logo_dark.svg">
-</picture>
-</div>
-
-# Poise
+<h1 align="center">Poise: A TIme-Cost Tradeoff Problem Solver</h1>
 
 Poise is a library for solving the [time-cost tradeoff problem](https://link.springer.com/chapter/10.1007/978-3-030-61423-2_5).
 
