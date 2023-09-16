@@ -200,7 +200,7 @@ class PipelineVisualizer:
 
     def draw_critical_path(self, ax: Axes) -> None:
         """Draw all critical paths of the DAG on the given Axes object.
-        
+
         Args:
             ax: The Axes object to draw on.
         """
@@ -209,11 +209,10 @@ class PipelineVisualizer:
             v_inst: Instruction = self.dag.nodes[v]["op"]
             if u_inst.is_dummy or v_inst.is_dummy:
                 continue
+            x1 = (u_inst.earliest_start + u_inst.earliest_finish) * self.unit_time / 2
+            x2 = (v_inst.earliest_start + v_inst.earliest_finish) * self.unit_time / 2
             ax.plot(
-                [
-                    (u_inst.earliest_start + u_inst.earliest_finish) * self.unit_time / 2,
-                    (v_inst.earliest_start + v_inst.earliest_finish) * self.unit_time / 2,
-                ],
+                [x1, x2],
                 [u_inst.stage_id + 0.75, v_inst.stage_id + 0.75],
                 **self.plot_args,
             )

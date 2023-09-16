@@ -317,7 +317,7 @@ def aoa_to_critical_dag(aoa_dag: nx.DiGraph) -> nx.DiGraph:
 
 def get_critical_aoa_dag_total_time(critical_dag: nx.DiGraph) -> int:
     """Find the total execution time of the given critical DAG in AOA form.
-    
+
     Assumptions:
         - The graph is a DAG with `Operation`s annotated on edges.
         - The graph only contains operations that are on the critical path.
@@ -342,7 +342,7 @@ def get_critical_aoa_dag_total_time(critical_dag: nx.DiGraph) -> int:
 
 def get_critical_aon_dag_total_time(critical_dag: nx.DiGraph) -> int:
     """Find the total execution time of the given critical DAG AON form.
-    
+
     Assumptions:
         - The graph is a DAG with `Operation`s annotated on nodes.
         - The graph only contains operations that are on the critical path.

@@ -364,13 +364,14 @@ class PhillipsDessouky:
             # print(capacity)
             unbound_dag.add_edge(node_id, t_prime_id, capacity=capacity)
 
-        logger.debug("Unbound DAG")
-        logger.debug("Number of nodes: %d", unbound_dag.number_of_nodes())
-        logger.debug("Number of edges: %d", unbound_dag.number_of_edges())
-        logger.debug(
-            "Sum of capacities: %f",
-            sum(attr["capacity"] for _, _, attr in unbound_dag.edges(data=True)),
-        )
+        if logger.isEnabledFor(logging.DEBUG):
+            logger.debug("Unbound DAG")
+            logger.debug("Number of nodes: %d", unbound_dag.number_of_nodes())
+            logger.debug("Number of edges: %d", unbound_dag.number_of_edges())
+            logger.debug(
+                "Sum of capacities: %f",
+                sum(attr["capacity"] for _, _, attr in unbound_dag.edges(data=True)),
+            )
 
         # Add an edge from t to s with infinite weight.
         unbound_dag.add_edge(
@@ -392,12 +393,13 @@ class PhillipsDessouky:
         except nx.NetworkXUnbounded:
             raise ReneFlowError("ERROR: Infinite flow for unbounded DAG.")
 
-        logger.debug("After first max flow")
-        total_flow = 0.0
-        for d in flow_dict.values():
-            for flow in d.values():
-                total_flow += flow
-        logger.debug("Sum of all flow values: %f", total_flow)
+        if logger.isEnabledFor(logging.DEBUG):
+            logger.debug("After first max flow")
+            total_flow = 0.0
+            for d in flow_dict.values():
+                for flow in d.values():
+                    total_flow += flow
+            logger.debug("Sum of all flow values: %f", total_flow)
 
         # Check if residual graph is saturated. If so, we have a feasible flow.
         for node_id in unbound_dag.successors(s_prime_id):
@@ -507,13 +509,14 @@ class PhillipsDessouky:
         for u, v, weight in add_candidates:
             new_residual.add_edge(u, v, weight=weight)
 
-        logger.debug("New residual graph")
-        logger.debug("Number of nodes: %d", new_residual.number_of_nodes())
-        logger.debug("Number of edges: %d", new_residual.number_of_edges())
-        logger.debug(
-            "Sum of weights: %f",
-            sum(attr["weight"] for _, _, attr in new_residual.edges(data=True)),
-        )
+        if logger.isEnabledFor(logging.DEBUG):
+            logger.debug("New residual graph")
+            logger.debug("Number of nodes: %d", new_residual.number_of_nodes())
+            logger.debug("Number of edges: %d", new_residual.number_of_edges())
+            logger.debug(
+                "Sum of weights: %f",
+                sum(attr["weight"] for _, _, attr in new_residual.edges(data=True)),
+            )
 
         # TODO(JW): Step 4 above.
         visited, _ = self.search_path_dfs(new_residual, source_node, sink_node)
@@ -525,9 +528,10 @@ class PhillipsDessouky:
             else:
                 t_set.add(i)
 
-        logger.debug("Minimum s-t cut")
-        logger.debug("Size of s set: %d", len(s_set))
-        logger.debug("Size of t set: %d", len(t_set))
+        if logger.isEnabledFor(logging.DEBUG):
+            logger.debug("Minimum s-t cut")
+            logger.debug("Size of s set: %d", len(s_set))
+            logger.debug("Size of t set: %d", len(t_set))
 
         return (s_set, t_set)
 

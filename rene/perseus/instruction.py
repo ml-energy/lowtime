@@ -29,9 +29,7 @@ class Instruction(Operation):
 
     def __str__(self) -> str:
         """Return a human-readable string representation."""
-        return (
-            f"{type(self).__name__}(S{self.stage_id}B{self.micro_batch_id}, {self.duration}@{self.assigned_knob})"
-        )
+        return f"{type(self).__name__}(S{self.stage_id}B{self.micro_batch_id}, {self.duration}@{self.assigned_knob})"
 
 
 @define
