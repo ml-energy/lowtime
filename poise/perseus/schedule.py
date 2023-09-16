@@ -19,8 +19,8 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from typing import Generator, Type
 
-from rene.operation import OperationSpec
-from rene.perseus.instruction import (
+from poise.operation import OperationSpec
+from poise.perseus.instruction import (
     Instruction,
     Forward,
     Backward,
@@ -64,7 +64,7 @@ class PipelineSchedule(ABC):
         `Instruction`s just need their stage ID and microbatch ID.
 
         This method also corresponds to DeepSpeed's PipeSchedule.steps method.
-        However, in Rene, one step doesn't have much meaning. We just exhaust the
+        However, in Poise, one step doesn't have much meaning. We just exhaust the
         generator immediately to get a list of all instructions.
         """
 

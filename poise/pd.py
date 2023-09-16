@@ -30,22 +30,22 @@ import networkx as nx
 from networkx.algorithms.flow import edmonds_karp
 from attrs import define, field
 
-from rene.constants import (
+from poise.constants import (
     FP_ERROR,
     DEFAULT_RECTANGLE_ARGS,
     DEFAULT_ANNOTATION_ARGS,
     DEFAULT_LINE_ARGS,
 )
-from rene.dag import ReneDAGOld
-from rene.perseus.instruction import Instruction
-from rene.operation import DummyOperation, Operation
-from rene.graph_utils import (
+from poise.dag import ReneDAGOld
+from poise.perseus.instruction import Instruction
+from poise.operation import DummyOperation, Operation
+from poise.graph_utils import (
     aon_dag_to_aoa_dag,
     aoa_to_critical_dag,
     get_critical_aoa_dag_total_time,
     get_total_cost,
 )
-from rene.exceptions import ReneFlowError
+from poise.exceptions import PoiseFlowError
 
 logger = logging.getLogger(__name__)
 
@@ -243,7 +243,7 @@ class PhillipsDessouky:
 
             try:
                 s_set, t_set = self.find_min_cut(capacity_dag)
-            except ReneFlowError as e:
+            except PoiseFlowError as e:
                 logger.info("Could not find minimum cut: %s", e.message)
                 logger.info("Terminating PD iteration.")
                 break
@@ -337,7 +337,7 @@ class PhillipsDessouky:
             Returns None if no feasible flow exists.
 
         Raises:
-            ReneFlowError: When no feasible flow exists.
+            PoiseFlowError: When no feasible flow exists.
         """
         source_node = capacity_dag.graph["source_node"]
         sink_node = capacity_dag.graph["sink_node"]
@@ -405,7 +405,7 @@ class PhillipsDessouky:
                 flow_func=edmonds_karp,
             )
         except nx.NetworkXUnbounded:
-            raise ReneFlowError("ERROR: Infinite flow for unbounded DAG.")
+            raise PoiseFlowError("ERROR: Infinite flow for unbounded DAG.")
 
         if logger.isEnabledFor(logging.DEBUG):
             logger.debug("After first max flow")
@@ -431,7 +431,7 @@ class PhillipsDessouky:
                     flow_dict[s_prime_id][node_id],
                     unbound_dag[s_prime_id][node_id]["capacity"],
                 )
-                raise ReneFlowError("ERROR: Max flow on unbounded DAG didn't saturate.")
+                raise PoiseFlowError("ERROR: Max flow on unbounded DAG didn't saturate.")
         for node_id in unbound_dag.predecessors(t_prime_id):
             if (
                 abs(
@@ -447,7 +447,7 @@ class PhillipsDessouky:
                     flow_dict[node_id][t_prime_id],
                     unbound_dag[node_id][t_prime_id]["capacity"],
                 )
-                raise ReneFlowError("ERROR: Max flow on unbounded DAG didn't saturate.")
+                raise PoiseFlowError("ERROR: Max flow on unbounded DAG didn't saturate.")
 
         # We have a feasible flow. Construct a new residual graph with the same
         # shape as the capacity DAG so that we can find the min cut.
@@ -503,7 +503,7 @@ class PhillipsDessouky:
                 flow_func=edmonds_karp,
             )
         except nx.NetworkXUnbounded:
-            raise ReneFlowError("ERROR: Infinite flow on capacity residual graph.")
+            raise PoiseFlowError("ERROR: Infinite flow on capacity residual graph.")
 
         # Add additional flow we get to the original graph
         for u, v in capacity_dag.edges:

@@ -13,16 +13,16 @@
 # limitations under the License.
 
 
-class ReneBaseError(Exception):
-    """Base class for all exceptions in rene."""
+class PoiseBaseError(Exception):
+    """Base class for all exceptions in Poise."""
 
     def __init__(self, message):
         self.message = message
 
 
-class ReneFlowError(ReneBaseError):
+class PoiseFlowError(PoiseBaseError):
     """Error while running flow operations on graphs."""
 
 
-class ReneGraphError(ReneBaseError):
+class PoiseGraphError(PoiseBaseError):
     """Error while manipulating graphs."""

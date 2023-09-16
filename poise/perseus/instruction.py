@@ -31,7 +31,7 @@ from matplotlib.patches import Rectangle  # type: ignore
 from scipy.optimize import curve_fit  # type: ignore
 from scipy.spatial import ConvexHull  # type: ignore
 
-from rene.operation import Operation
+from poise.operation import Operation
 
 
 @define(slots=False, kw_only=True)

@@ -11,25 +11,26 @@ import tyro
 import pandas as pd
 import networkx as nx
 from matplotlib import pyplot as plt
+from matplotlib.colors import Normalize
 
-from rene.operation import (
+from poise.operation import (
     CandidateExecutionOptions,
     OperationSpec,
     ExecutionOption,
     ExponentialModel,
 )
-from rene.perseus.instruction import (
+from poise.perseus.instruction import (
     Instruction,
     Forward,
     Backward,
     forward_dep,
     backward_dep,
 )
-from rene.perseus.schedule import Synchronous1F1B
-from rene.dag import DependencyResolver
-from rene.pd import PhillipsDessouky
-from rene.graph_utils import add_source_node, add_sink_node
-from rene.perseus.visualizer import PipelineVisualizer
+from poise.perseus.schedule import Synchronous1F1B
+from poise.dag import DependencyResolver
+from poise.pd import PhillipsDessouky
+from poise.graph_utils import add_source_node, add_sink_node
+from poise.perseus.visualizer import PipelineVisualizer, ANNOTATE_ARGS, LINE_ARGS
 
 logger = logging.getLogger()
 
@@ -214,17 +215,28 @@ def main(args: Args) -> None:
         return f"{type(inst).__name__[0]}\n{inst.micro_batch_id}"
 
     def draw(dag: nx.DiGraph, iteration: int, xlim: int) -> None:
+        ANNOTATE_ARGS[Forward]["fontsize"] = 11.0
+        ANNOTATE_ARGS[Backward]["fontsize"] = 11.0
+        ANNOTATE_ARGS[Forward]["color"] = "black"
+        ANNOTATE_ARGS[Backward]["color"] = "black"
+        LINE_ARGS["linewidth"] = 3.0
+
         fig, ax = plt.subplots(figsize=(8, 4), tight_layout=True)
+
         vis = PipelineVisualizer(dag)
         vis.draw(
             ax,
             draw_time_axis=True,
             p2p_power=p_p2p,
             annotation_hook=annotation_hook,
+            power_color="RdBu_r",
+            normalizer=Normalize(vmin=-200, vmax=550),
         )
         vis.draw_critical_path(ax)
+
         # Fix xlim so that we can visually see the pipeline width shrink.
         ax.set_xlim(0.0, xlim)
+        ax.set_title(f"Iteration {iteration:4d}")
         fig.savefig(f"{output_dir}/pipeline_{iteration:05d}.png")
         plt.close(fig)
 

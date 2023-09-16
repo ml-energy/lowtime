@@ -23,8 +23,8 @@ from matplotlib.patches import Rectangle
 from matplotlib.cm import get_cmap
 from matplotlib.ticker import FormatStrFormatter
 
-from rene.graph_utils import get_critical_aon_dag_total_time
-from rene.perseus.instruction import (
+from poise.graph_utils import get_critical_aon_dag_total_time
+from poise.perseus.instruction import (
     Instruction,
     Forward,
     Backward,
@@ -49,7 +49,7 @@ ANNOTATE_ARGS: dict[Type[Instruction], dict[str, Any]] = {
 }
 
 # The default arguments for matplotlib.axes.Axes.plot.
-PLOT_ARGS: dict[str, Any] = dict(color="#00a6ff", linewidth=4.0)
+LINE_ARGS: dict[str, Any] = dict(color="#00a6ff", linewidth=4.0)
 
 
 class PipelineVisualizer:
@@ -60,7 +60,7 @@ class PipelineVisualizer:
         dag: nx.DiGraph,
         rectangle_args: dict[Type[Instruction], dict[str, Any]] = RECTANGLE_ARGS,
         annotate_args: dict[Type[Instruction], dict[str, Any]] = ANNOTATE_ARGS,
-        plot_args: dict[str, Any] = PLOT_ARGS,
+        line_args: dict[str, Any] = LINE_ARGS,
     ) -> None:
         """Intialize the visualizer with the DAG.
 
@@ -82,7 +82,7 @@ class PipelineVisualizer:
         self.dag = dag
         self.rectangle_args = rectangle_args
         self.annotate_args = annotate_args
-        self.plot_args = plot_args
+        self.line_args = line_args
 
         # Flesh out non-dummy instructions from the DAG.
         instructions: list[Instruction] = []
@@ -228,5 +228,5 @@ class PipelineVisualizer:
             ax.plot(
                 [x1, x2],
                 [u_inst.stage_id + 0.75, v_inst.stage_id + 0.75],
-                **self.plot_args,
+                **self.line_args,
             )

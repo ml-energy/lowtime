@@ -1,11 +1,25 @@
-![Synchronous 1F1B](assets/1f1b_with_critical_path.png)
-<div align="center"><i><h3>This is not a pipe.</h3></i></div>
+<div align="center">
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="assets/wide-resnet-dark.gif">
+  <source media="(prefers-color-scheme: light)" srcset="assets/wide-resnet-light.gif">
+  <img alt="Zeus logo" width="55%" src="docs/assets/img/logo_dark.svg">
+</picture>
+</div>
 
-# René
+# Poise
 
-René is a visualizer for pipeline parallel training schedules like 1F1B.
+Poise is a library for solving the [time-cost tradeoff problem](https://link.springer.com/chapter/10.1007/978-3-030-61423-2_5).
 
-[Why the name?](https://en.wikipedia.org/wiki/The_Treachery_of_Images)
+## Where do I use Poise?
+
+Say you want to execute a **DAG of tasks**, and each task has multiple execution options with **different time and cost**.
+
+Poise will find the **complete time-cost Pareto frontier** of the entire DAG. Each point on the DAG will be annotated with the right execution option for each task.
+
+You define cost. Any floating point number that is at odds with time.
+
+## Getting started
+
 
 ## Architecture
 

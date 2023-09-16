@@ -19,18 +19,18 @@ from itertools import count
 from typing import Any, Literal, TypeVar, Generator, TYPE_CHECKING
 
 import networkx as nx
-import matplotlib.pyplot as plt
 
-from rene.operation import DummyOperation
-from rene.exceptions import ReneGraphError
+from poise.operation import DummyOperation
+from poise.exceptions import PoiseGraphError
 
 if TYPE_CHECKING:
-    from rene.operation import Operation
+    from poise.operation import Operation
 
 logger = logging.getLogger(__name__)
 
 
 NodeT = TypeVar("NodeT")
+GraphT = TypeVar("GraphT", bound=nx.Graph)
 
 
 def add_source_node(graph: nx.DiGraph, source_node: Any) -> None:
@@ -71,7 +71,7 @@ def bfs_nodes(graph: nx.Graph, source_node: NodeT) -> Generator[NodeT, None, Non
         yield v
 
 
-def relabel_nodes_to_int(graph: nx.DiGraph) -> tuple[nx.DiGraph, dict[Any, int]]:
+def relabel_nodes_to_int(graph: GraphT) -> tuple[GraphT, dict[Any, int]]:
     """Relabel the node IDs of a graph so that they are consecutive integers.
 
     Keeps "source_node" and "sink_node" graph attributes consistent.
@@ -82,7 +82,7 @@ def relabel_nodes_to_int(graph: nx.DiGraph) -> tuple[nx.DiGraph, dict[Any, int]]
     """
     node_id_counter = count()
     mapping = {node_id: next(node_id_counter) for node_id in graph.nodes}
-    relabeled_graph = nx.relabel_nodes(graph, mapping, copy=True)
+    relabeled_graph: GraphT = nx.relabel_nodes(graph, mapping, copy=True)
     relabeled_graph.graph["source_node"] = mapping[graph.graph["source_node"]]
     relabeled_graph.graph["sink_node"] = mapping[graph.graph["sink_node"]]
     return relabeled_graph, mapping
@@ -181,24 +181,24 @@ def aon_dag_to_aoa_dag(
 
     # Sanity checks.
     if new_source_node is None or new_sink_node is None:
-        raise ReneGraphError(
+        raise PoiseGraphError(
             "New source and sink nodes could not be determined. "
             "Check whether the source and sink nodes were in the original graph."
         )
 
     # Check source/sink node correctness and membership.
     if aoa.in_degree(aoa.graph["source_node"]) != 0:
-        raise ReneGraphError("The new source node has incoming edges.")
+        raise PoiseGraphError("The new source node has incoming edges.")
     if aoa.out_degree(aoa.graph["sink_node"]) != 0:
-        raise ReneGraphError("The new sink node has outgoing edges.")
+        raise PoiseGraphError("The new sink node has outgoing edges.")
 
     # The graph should be one piece.
     if not nx.is_weakly_connected(aoa):
-        raise ReneGraphError("The converted graph is not connected.")
+        raise PoiseGraphError("The converted graph is not connected.")
 
     # It should still be a DAG.
     if not nx.is_directed_acyclic_graph(aoa):
-        raise ReneGraphError("The converted graph is not a DAG.")
+        raise PoiseGraphError("The converted graph is not a DAG.")
 
     # All nodes are split into two nodes.
     # All original edges are intact and each original node contributes one edge.
@@ -207,9 +207,9 @@ def aon_dag_to_aoa_dag(
     aoa_nnodes = aoa.number_of_nodes()
     aoa_nedges = aoa.number_of_edges()
     if aon_nnodes * 2 != aoa_nnodes:
-        raise ReneGraphError(f"Expected {aon_nnodes * 2} nodes, got {aoa_nnodes}.")
+        raise PoiseGraphError(f"Expected {aon_nnodes * 2} nodes, got {aoa_nnodes}.")
     if aon_nedges + aon_nnodes != aoa_nedges:
-        raise ReneGraphError(
+        raise PoiseGraphError(
             f"Expected {aon_nedges + aon_nnodes} edges, got {aoa_nedges}."
         )
 

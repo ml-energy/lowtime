@@ -40,8 +40,8 @@ import networkx as nx  # type: ignore
 import numpy as np
 from pydantic import BaseModel
 
-from rene.constants import FP_ERROR
-from rene.perseus.instruction import (
+from poise.constants import FP_ERROR
+from poise.perseus.instruction import (
     ForwardBackward,
     Instruction,
     Forward,
