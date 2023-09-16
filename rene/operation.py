@@ -41,7 +41,7 @@ KnobT = TypeVar("KnobT")
 class ExecutionOption(Generic[KnobT]):
     """One option for executing an operation.
 
-    An operation can be executed by with one among multiple possible knob,
+    An operation can be executed with one among multiple possible knobs,
     and the execution expenditure of choosing this particular `knob` value is
     represented by this class.
 

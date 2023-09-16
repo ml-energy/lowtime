@@ -12,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+
 class ReneBaseError(Exception):
     """Base class for all exceptions in rene."""
 
