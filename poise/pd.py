@@ -521,6 +521,10 @@ class PhillipsDessouky:
     def annotate_capacities(self, critical_dag: nx.DiGraph) -> None:
         """In-place annotate the critical DAG with flow capacities."""
         # XXX(JW): Is this always large enough?
+        # It is necessary to monitor the `cost_change` value in `IterationResult`
+        # and make sure they are way smaller than this value. Even if the cost
+        # change is close or larger than this, users can scale down their cost
+        # value in `ExecutionOption`s.
         inf = 10000.0
         for _, _, edge_attr in critical_dag.edges(data=True):
             op: Operation = edge_attr["op"]
