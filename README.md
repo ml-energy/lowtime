@@ -1,4 +1,4 @@
-<h1 align="center">Poise: A TIme-Cost Tradeoff Problem Solver</h1>
+<h1 align="center">Poise: A Time-Cost Tradeoff Problem Solver</h1>
 
 Poise is a library for solving the [time-cost tradeoff problem](https://link.springer.com/chapter/10.1007/978-3-030-61423-2_5).
 
