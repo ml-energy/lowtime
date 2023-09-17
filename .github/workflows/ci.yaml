@@ -1,4 +1,4 @@
-name: Lint and check format
+name: Format, lint, and test
 
 on:
   push
@@ -14,8 +14,10 @@ jobs:
         with:
           python-version: 3.9
           cache: 'pip'
-          cache-dependency-path: '**/setup.py'
+          cache-dependency-path: 'pyproject.toml'
       - name: Install package and lint tools
         run: pip install ".[dev]"
+      - name: Run tests
+        run: pytest -vvv
       - name: Run lint
         run: bash scripts/lint.sh
