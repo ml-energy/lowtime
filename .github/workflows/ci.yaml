@@ -4,7 +4,7 @@ on:
   push
 
 jobs:
-  lint_and_check_format:
+  ci:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
