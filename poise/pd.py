@@ -358,12 +358,12 @@ class PhillipsDessouky:
 
         # For every node u in the original graph, add an edge (s', u) with capacity
         # equal to the sum of all lower bounds of u's parents.
-        for node_id in capacity_dag.nodes:
+        for u in capacity_dag.nodes:
             capacity = 0.0
-            for pred_id in capacity_dag.predecessors(node_id):
-                capacity += capacity_dag[pred_id][node_id]["lb"]
+            for pred_id in capacity_dag.predecessors(u):
+                capacity += capacity_dag[pred_id][u]["lb"]
             # print(capacity)
-            unbound_dag.add_edge(s_prime_id, node_id, capacity=capacity)
+            unbound_dag.add_edge(s_prime_id, u, capacity=capacity)
 
         # Add a new node t', which will become the new sink node.
         t_prime_id = s_prime_id + 1
@@ -371,12 +371,12 @@ class PhillipsDessouky:
 
         # For every node u in the original graph, add an edge (u, t') with capacity
         # equal to the sum of all lower bounds of u's children.
-        for node_id in capacity_dag.nodes:
+        for u in capacity_dag.nodes:
             capacity = 0.0
-            for succ_id in capacity_dag.successors(node_id):
-                capacity += capacity_dag[node_id][succ_id]["lb"]
+            for succ_id in capacity_dag.successors(u):
+                capacity += capacity_dag[u][succ_id]["lb"]
             # print(capacity)
-            unbound_dag.add_edge(node_id, t_prime_id, capacity=capacity)
+            unbound_dag.add_edge(u, t_prime_id, capacity=capacity)
 
         if logger.isEnabledFor(logging.DEBUG):
             logger.debug("Unbound DAG")
@@ -397,7 +397,7 @@ class PhillipsDessouky:
         # We're done with constructing the DAG with only flow upper bounds.
         # Find the maximum flow on this DAG.
         try:
-            flow_value, flow_dict = nx.maximum_flow(
+            _, flow_dict = nx.maximum_flow(
                 unbound_dag,
                 s_prime_id,
                 t_prime_id,
@@ -416,84 +416,68 @@ class PhillipsDessouky:
             logger.debug("Sum of all flow values: %f", total_flow)
 
         # Check if residual graph is saturated. If so, we have a feasible flow.
-        for node_id in unbound_dag.successors(s_prime_id):
+        for u in unbound_dag.successors(s_prime_id):
             if (
-                abs(
-                    # unbound_res_graph[s_prime_id][node_id]["flow"]
-                    flow_dict[s_prime_id][node_id]
-                    - unbound_dag[s_prime_id][node_id]["capacity"]
-                )
+                abs(flow_dict[s_prime_id][u] - unbound_dag[s_prime_id][u]["capacity"])
                 > FP_ERROR
             ):
                 logger.error(
                     "s' -> %s unsaturated (flow: %s, capacity: %s)",
-                    node_id,
-                    flow_dict[s_prime_id][node_id],
-                    unbound_dag[s_prime_id][node_id]["capacity"],
+                    u,
+                    flow_dict[s_prime_id][u],
+                    unbound_dag[s_prime_id][u]["capacity"],
                 )
-                raise PoiseFlowError("ERROR: Max flow on unbounded DAG didn't saturate.")
-        for node_id in unbound_dag.predecessors(t_prime_id):
+                raise PoiseFlowError(
+                    "ERROR: Max flow on unbounded DAG didn't saturate."
+                )
+        for u in unbound_dag.predecessors(t_prime_id):
             if (
-                abs(
-                    # unbound_res_graph[node_id][t_prime_id]["flow"]
-                    flow_dict[node_id][t_prime_id]
-                    - unbound_dag[node_id][t_prime_id]["capacity"]
-                )
+                abs(flow_dict[u][t_prime_id] - unbound_dag[u][t_prime_id]["capacity"])
                 > FP_ERROR
             ):
                 logger.error(
                     "%s -> t' unsaturated (flow: %s, capacity: %s)",
-                    node_id,
-                    flow_dict[node_id][t_prime_id],
-                    unbound_dag[node_id][t_prime_id]["capacity"],
+                    u,
+                    flow_dict[u][t_prime_id],
+                    unbound_dag[u][t_prime_id]["capacity"],
                 )
-                raise PoiseFlowError("ERROR: Max flow on unbounded DAG didn't saturate.")
+                raise PoiseFlowError(
+                    "ERROR: Max flow on unbounded DAG didn't saturate."
+                )
 
         # We have a feasible flow. Construct a new residual graph with the same
         # shape as the capacity DAG so that we can find the min cut.
-        # TODO(JW): From here, it's basically:
-        # 1. Retrieve the flow amounts to the original capacity graph, where for
-        #    each edge u -> v, the flow amount is `weight = flow + lb`.
-        # 2. Construct a new residual graph (same shape as capacity DAG) with
-        #    u -> v capacity `ub - weight` (=`ub - flow - lb`) and v -> u capacity
-        #    `weight - lb` (=`flow`).
-        # 3. Run max flow on the new residual graph from 1.
-        # 4. Find the s-t cut induced by the maximum flow from 2.
-        # Steps 1 and 2 can be done in one step by directly converting the unbounded
-        # residual graph into a new one with u -> v capacity `ub - flow - lb` and
-        # v -> u capacity `flow`.
-        # Steps 3 and 4 can be done in one step with `nx.minimum_cut`. Especially,
-        # various `flow_func`s like `edmonds_karp` support the `residual_graph`
-        # keyword argument, which is exactly what we need.
-
-        # TODO(JW): Step 1 above.
+        # First, retrieve the flow amounts to the original capacity graph, where for
+        # each edge u -> v, the flow amount is `weight = flow + lb`.
         for u, v in capacity_dag.edges:
-            # f'(u,v) = f(u,v) - lb(u,v)
             capacity_dag[u][v]["weight"] = flow_dict[u][v] + capacity_dag[u][v]["lb"]
 
-        # TODO(JW): Step 2 above.
+        # Construct a new residual graph (same shape as capacity DAG) with
+        # u -> v capacity `ub - weight` (=`ub - flow - lb`) and v -> u capacity
+        # `weight - lb` (=`flow`).
         residual_graph = nx.DiGraph(capacity_dag)
-        edge_pending: list[tuple] = []
-        for u, v in residual_graph.edges:
+        # edge_pending: list[tuple] = []
+        for u, v in capacity_dag.edges:
             residual_graph[u][v]["capacity"] = (
                 residual_graph[u][v]["ub"] - residual_graph[u][v]["weight"]
             )
-            if u in residual_graph.successors(v):
-                residual_graph[v][u]["capacity"] = (
-                    residual_graph[u][v]["weight"] - residual_graph[u][v]["lb"]
-                )
+            capacity = residual_graph[u][v]["weight"] - residual_graph[u][v]["lb"]
+            if capacity_dag.has_edge(v, u):
+            # if u in capacity_dag.successors(v):
+                residual_graph[v][u]["capacity"] = capacity
             else:
-                edge_pending.append(
-                    (
-                        v,
-                        u,
-                        residual_graph[u][v]["weight"] - residual_graph[u][v]["lb"],
-                    )
-                )
-        for u, v, capacity in edge_pending:
-            residual_graph.add_edge(u, v, capacity=capacity)
+                residual_graph.add_edge(v, u, capacity=capacity)
+        #         edge_pending.append(
+        #             (
+        #                 v,
+        #                 u,
+        #                 residual_graph[u][v]["weight"] - residual_graph[u][v]["lb"],
+        #             )
+        #         )
+        # for u, v, capacity in edge_pending:
+        #     residual_graph.add_edge(u, v, capacity=capacity)
 
-        # TODO(JW): Step 3 above.
+        # Run max flow on the new residual graph.
         try:
             _, flow_dict = nx.maximum_flow(
                 residual_graph,
@@ -532,7 +516,7 @@ class PhillipsDessouky:
                 sum(attr["weight"] for _, _, attr in new_residual.edges(data=True)),
             )
 
-        # TODO(JW): Step 4 above.
+        # Find the s-t cut induced by the second maximum flow above.
         visited, _ = self.search_path_dfs(new_residual, source_node, sink_node)
         s_set: set[int] = set()
         t_set: set[int] = set()
