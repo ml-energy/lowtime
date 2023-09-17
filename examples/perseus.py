@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import time
 import itertools
 import logging
 from pathlib import Path
@@ -244,6 +245,7 @@ def main(args: Args) -> None:
     solver = PhillipsDessouky(dag)
 
     max_real_time = None
+    iteration = 0
     for iteration, result in enumerate(solver.run()):
         # Maybe draw the pipeline.
         if iteration % args.interval == 0:
@@ -273,8 +275,12 @@ def main(args: Args) -> None:
         f.write(iter_str + f"refined cost {real_cost} \n")
 
     if iteration % args.interval != 0:
+        assert max_real_time is not None
         draw(dag, iteration + 1, max_real_time)
 
 if __name__ == "__main__":
     args = tyro.cli(Args)
+
+    start_time = time.time()
     main(args)
+    logger.info("Total time: %.2fs", time.time() - start_time)

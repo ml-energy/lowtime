@@ -259,9 +259,6 @@ def aoa_to_critical_dag(aoa_dag: nx.DiGraph) -> nx.DiGraph:
         operation.reset_times()
 
     # Run the forward pass to set earliest start/end times.
-    # TODO(JW): I think this implementation is strange. Why don't we just
-    # go through (u, v) with `nx.bfs_edge` and find the latest earliest_finish
-    # time among u's predecessor edges? Similar applies for the backward pass.
     for node_id in nx.topological_sort(aoa_dag):
         for succ_id in aoa_dag.successors(node_id):
             cur_op: Operation = aoa_dag[node_id][succ_id]["op"]
@@ -276,17 +273,22 @@ def aoa_to_critical_dag(aoa_dag: nx.DiGraph) -> nx.DiGraph:
                 next_op.earliest_finish = next_op.earliest_start + next_op.duration
 
     # Run the backward pass to set latest start/end times.
-    # XXX(JW): The original implementation only worked because there is guaranteed
-    # to be only one predecessor of the sink node, since the sink node of the AON
-    # DAG was split into two nodes when converting to AOA form. Rather, the latest
-    # finish time of the entire AOA DAG should be derived by taking the max among
-    # all `earliest_finish` times of all incoming edges to the sink node.
-    exit_node = aoa_dag.graph["sink_node"]
-    exit_edge_source_candidates = list(aoa_dag.predecessors(exit_node))
-    assert len(exit_edge_source_candidates) == 1  # Not always true for any AOA DAG.
-    exit_edge_op: Operation = aoa_dag[exit_edge_source_candidates[0]][exit_node]["op"]
-    exit_edge_op.latest_finish = exit_edge_op.earliest_finish
-    exit_edge_op.latest_start = exit_edge_op.latest_finish - exit_edge_op.duration
+    # For the forward pass, `reset_times` was called on all `Operation`s, so we
+    # didn't have to think about the initial values of earliest/latest_start.
+    # For the backward pass, we need to find the largest `earliest_finish` value
+    # among operations on incoming edges to the sink node, which is when the entire
+    # DAG will finish executing. Then, we set that value as the latest_finish value
+    # for operations on incoming edges to the sink node.
+    sink_node = aoa_dag.graph["sink_node"]
+    dag_earliest_finish = 0
+    for node_id in aoa_dag.predecessors(sink_node):
+        op: Operation = aoa_dag[node_id][sink_node]["op"]
+        dag_earliest_finish = max(dag_earliest_finish, op.earliest_finish)
+    for node_id in aoa_dag.predecessors(sink_node):
+        op: Operation = aoa_dag[node_id][sink_node]["op"]
+        op.latest_finish = dag_earliest_finish
+        op.latest_start = op.latest_finish - op.duration
+
     for node_id in reversed(list(nx.topological_sort(aoa_dag))):
         for pred_id in aoa_dag.predecessors(node_id):
             cur_op: Operation = aoa_dag[pred_id][node_id]["op"]
