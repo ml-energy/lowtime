@@ -12,14 +12,13 @@ import tyro
 import pandas as pd
 import networkx as nx
 from matplotlib import pyplot as plt
-from matplotlib.colors import Normalize
 
 from poise.operation import (
     CandidateExecutionOptions,
     OperationSpec,
     ExecutionOption,
-    ExponentialModel,
 )
+from poise.cost_model import ExponentialModel
 from poise.perseus.instruction import (
     Instruction,
     Forward,
@@ -128,6 +127,7 @@ def main(args: Args) -> None:
                 f"stage == {stage_id} and instruction == '{inst_name.lower()}'"
             )
             for _, row in _df.iterrows():
+                row = row.to_dict()
                 options.append(
                     ExecutionOption[int](
                         real_time=row["time"],
@@ -231,7 +231,7 @@ def main(args: Args) -> None:
             p2p_power=p_p2p,
             annotation_hook=annotation_hook,
             power_color="RdBu_r",
-            normalizer=Normalize(vmin=-200, vmax=550),
+            normalizer_range=(-200, 550),
         )
         vis.draw_critical_path(ax)
 

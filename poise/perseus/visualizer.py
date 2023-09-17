@@ -12,6 +12,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+"""Draw the pipeline schedule with matplotlib."""
+
 from __future__ import annotations
 
 from typing import Callable, Any, Type
@@ -77,7 +79,7 @@ class PipelineVisualizer:
             dag: The DAG to visualize.
             rectangle_args: Arguments to `matplotlib.patches.Rectangle` for Instructions.
             annotate_args: Arguments to `Axes.annotate` to describe Instructions.
-            plot_args: Arguments to `Axes.plot` to for the critical path.
+            line_args: Arguments to `Axes.plot` to for the critical path.
         """
         self.dag = dag
         self.rectangle_args = rectangle_args
@@ -129,7 +131,7 @@ class PipelineVisualizer:
         annotation_hook: Callable[[Instruction], str] | None = None,
         power_color: str | None = "Oranges",
         p2p_power: float = 75.5,
-        normalizer: Normalize = Normalize(vmin=0, vmax=400),
+        normalizer_range: tuple[float, float] = (0.0, 400.0),
     ) -> None:
         """Draw the pipeline schedule on the given Axes object.
 
@@ -143,11 +145,12 @@ class PipelineVisualizer:
                 Otherwise, this should be a matplotlib colormap name, and the color of each
                 instruction is determined by its power consumption (= cost/duration).
             p2p_power: The power consumption during P2P communication.
-            normalizer: A matplotlib Normalize object to normalize the power consumption.
-                By default, power consumption is normalized to [0, 400] W.
+            normalizer_range: The range of the power consumption normalizer.
+                By default, power consumption is normalized from [0, 400] to [0, 1].
         """
         # Fill in the background (P2P blocking power consumption) as a Rectangle.
         cmap = get_cmap(power_color) if power_color is not None else None
+        normalizer = Normalize(*normalizer_range)
         if cmap is not None:
             bg_color = cmap(normalizer(p2p_power))
             background = Rectangle(
@@ -179,10 +182,9 @@ class PipelineVisualizer:
             ax.add_patch(rect)
 
             # Place annotations inside the instruction rectangle.
-            if annotation_hook:
-                annotation = annotation_hook(inst)
-            else:
-                annotation = str(inst.assigned_knob)
+            annotation = (
+                annotation_hook(inst) if annotation_hook else str(inst.assigned_knob)
+            )
 
             annotation_args: dict[str, Any] = dict(
                 text=annotation,

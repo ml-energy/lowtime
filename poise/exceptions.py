@@ -12,11 +12,14 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+"""Exceptions for Poise."""
+
 
 class PoiseBaseError(Exception):
     """Base class for all exceptions in Poise."""
 
     def __init__(self, message):
+        """Initialize the exception with a message."""
         self.message = message
 
 

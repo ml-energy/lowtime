@@ -10,6 +10,7 @@ Poise will find the **complete time-cost Pareto frontier** of the entire DAG. Ea
 
 You define cost. Any floating point number that is at odds with time.
 
+<!--
 ## Getting started
 
 
@@ -41,3 +42,4 @@ Refer to the method's docstring for details on supported scheduling algorithms.
 Finally, `PipelineVisualizer` accepts the scheduled `ReneDAG` instance and optional Matplotlib arguments, and generates the final figure.
 
 Also refer to `examples`.
+-->

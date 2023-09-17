@@ -211,8 +211,8 @@ class EarlyRecomputation1F1B(Synchronous1F1B):
                                 micro_batch_id=micro_batch_id,
                             )
                         )
-                else:
-                    if (  # noqa: PLR5501
+                else:  # noqa: PLR5501
+                    if (
                         micro_batch_id
                         <= self.num_micro_batches - self.num_stages + self.stage_id
                     ):

@@ -32,12 +32,12 @@ dynamic = ["version"]
 [project.urls]
 Repository = "https://github.com/SymbioticLab/poise"
 
-[project.optional-dependencie]
+[project.optional-dependencies]
 lint = ["ruff", "black"]
 test = ["pytest"]
-dev = ["ruff", "black", "pytest"]
+dev = ["ruff", "black", "pytest", "tyro", "pandas"]
 
-[tool.setuptools.package.find]
+[tool.setuptools.packages.find]
 where = ["."]
 
 [tool.setuptools.dynamic]

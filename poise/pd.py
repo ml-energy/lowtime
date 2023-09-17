@@ -394,8 +394,8 @@ class PhillipsDessouky:
                 capacity="capacity",
                 flow_func=edmonds_karp,
             )
-        except nx.NetworkXUnbounded:
-            raise PoiseFlowError("ERROR: Infinite flow for unbounded DAG.")
+        except nx.NetworkXUnbounded as e:
+            raise PoiseFlowError("ERROR: Infinite flow for unbounded DAG.") from e
 
         if logger.isEnabledFor(logging.DEBUG):
             logger.debug("After first max flow")
@@ -464,8 +464,10 @@ class PhillipsDessouky:
                 capacity="capacity",
                 flow_func=edmonds_karp,
             )
-        except nx.NetworkXUnbounded:
-            raise PoiseFlowError("ERROR: Infinite flow on capacity residual graph.")
+        except nx.NetworkXUnbounded as e:
+            raise PoiseFlowError(
+                "ERROR: Infinite flow on capacity residual graph."
+            ) from e
 
         # Add additional flow we get to the original graph
         for u, v in dag.edges:
@@ -520,7 +522,7 @@ class PhillipsDessouky:
             op: Operation = edge_attr["op"]
             duration = op.duration
             # Dummy operations don't constrain the flow.
-            if op.is_dummy:
+            if op.is_dummy:  # noqa: SIM114
                 lb, ub = 0.0, inf
             # Cannot be sped up or down.
             elif duration == op.min_duration == op.max_duration:

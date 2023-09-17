@@ -9,4 +9,3 @@ else
 fi
 
 ruff rene
-mypy rene
