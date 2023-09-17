@@ -26,14 +26,14 @@ import networkx as nx
 from networkx.algorithms.flow import edmonds_karp
 from attrs import define, field
 
-from poise.operation import Operation
-from poise.graph_utils import (
+from lowtime.operation import Operation
+from lowtime.graph_utils import (
     aon_dag_to_aoa_dag,
     aoa_to_critical_dag,
     get_critical_aoa_dag_total_time,
     get_total_cost,
 )
-from poise.exceptions import PoiseFlowError
+from lowtime.exceptions import LowtimeFlowError
 
 FP_ERROR = 1e-6
 
@@ -233,7 +233,7 @@ class PhillipsDessouky:
 
             try:
                 s_set, t_set = self.find_min_cut(critical_dag)
-            except PoiseFlowError as e:
+            except LowtimeFlowError as e:
                 logger.info("Could not find minimum cut: %s", e.message)
                 logger.info("Terminating PD iteration.")
                 break
@@ -327,7 +327,7 @@ class PhillipsDessouky:
             Returns None if no feasible flow exists.
 
         Raises:
-            PoiseFlowError: When no feasible flow exists.
+            LowtimeFlowError: When no feasible flow exists.
         """
         source_node = dag.graph["source_node"]
         sink_node = dag.graph["sink_node"]
@@ -395,7 +395,7 @@ class PhillipsDessouky:
                 flow_func=edmonds_karp,
             )
         except nx.NetworkXUnbounded as e:
-            raise PoiseFlowError("ERROR: Infinite flow for unbounded DAG.") from e
+            raise LowtimeFlowError("ERROR: Infinite flow for unbounded DAG.") from e
 
         if logger.isEnabledFor(logging.DEBUG):
             logger.debug("After first max flow")
@@ -417,7 +417,7 @@ class PhillipsDessouky:
                     flow_dict[s_prime_id][u],
                     unbound_dag[s_prime_id][u]["capacity"],
                 )
-                raise PoiseFlowError(
+                raise LowtimeFlowError(
                     "ERROR: Max flow on unbounded DAG didn't saturate."
                 )
         for u in unbound_dag.predecessors(t_prime_id):
@@ -431,7 +431,7 @@ class PhillipsDessouky:
                     flow_dict[u][t_prime_id],
                     unbound_dag[u][t_prime_id]["capacity"],
                 )
-                raise PoiseFlowError(
+                raise LowtimeFlowError(
                     "ERROR: Max flow on unbounded DAG didn't saturate."
                 )
 
@@ -465,7 +465,7 @@ class PhillipsDessouky:
                 flow_func=edmonds_karp,
             )
         except nx.NetworkXUnbounded as e:
-            raise PoiseFlowError(
+            raise LowtimeFlowError(
                 "ERROR: Infinite flow on capacity residual graph."
             ) from e
 

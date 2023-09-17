@@ -12,20 +12,20 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Exceptions for Poise."""
+"""Exceptions for Lowtime."""
 
 
-class PoiseBaseError(Exception):
-    """Base class for all exceptions in Poise."""
+class LowtimeBaseError(Exception):
+    """Base class for all exceptions in Lowtime."""
 
     def __init__(self, message):
         """Initialize the exception with a message."""
         self.message = message
 
 
-class PoiseFlowError(PoiseBaseError):
+class LowtimeFlowError(LowtimeBaseError):
     """Error while running flow operations on graphs."""
 
 
-class PoiseGraphError(PoiseBaseError):
+class LowtimeGraphError(LowtimeBaseError):
     """Error while manipulating graphs."""

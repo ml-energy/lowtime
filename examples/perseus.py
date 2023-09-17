@@ -29,13 +29,13 @@ import pandas as pd
 import networkx as nx
 from matplotlib import pyplot as plt
 
-from poise.operation import (
+from lowtime.operation import (
     CandidateExecutionOptions,
     OperationSpec,
     ExecutionOption,
 )
-from poise.cost_model import ExponentialModel
-from poise.perseus.instruction import (
+from lowtime.cost_model import ExponentialModel
+from lowtime.perseus.instruction import (
     Instruction,
     Forward,
     Backward,
@@ -43,10 +43,10 @@ from poise.perseus.instruction import (
     backward_dep,
     DependencyResolver,
 )
-from poise.perseus.schedule import Synchronous1F1B
-from poise.pd import PhillipsDessouky
-from poise.graph_utils import add_source_node, add_sink_node
-from poise.perseus.visualizer import PipelineVisualizer, ANNOTATE_ARGS, LINE_ARGS
+from lowtime.perseus.schedule import Synchronous1F1B
+from lowtime.pd import PhillipsDessouky
+from lowtime.graph_utils import add_source_node, add_sink_node
+from lowtime.perseus.visualizer import PipelineVisualizer, ANNOTATE_ARGS, LINE_ARGS
 
 logger = logging.getLogger()
 

@@ -3,9 +3,9 @@
 set -ev
 
 if [[ -z $GITHUB_ACTION ]]; then
-  black poise
+  black lowtime
 else
-  black --check poise
+  black --check lowtime
 fi
 
-ruff poise
+ruff lowtime

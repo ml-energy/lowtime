@@ -33,7 +33,7 @@ from typing import Generic, TypeVar, TYPE_CHECKING
 from attrs import define, field
 from attrs.setters import frozen
 
-from poise.cost_model import CostModel
+from lowtime.cost_model import CostModel
 
 if TYPE_CHECKING:
     from attr import Attribute

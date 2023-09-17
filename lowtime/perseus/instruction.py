@@ -20,7 +20,7 @@ from typing import Sequence, Type, Callable, get_type_hints
 
 from attrs import define
 
-from poise.operation import Operation
+from lowtime.operation import Operation
 
 
 @define(slots=False, kw_only=True)

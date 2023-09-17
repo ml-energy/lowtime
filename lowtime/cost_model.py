@@ -33,7 +33,7 @@ import numpy as np
 from scipy.optimize import curve_fit
 
 if TYPE_CHECKING:
-    from poise.operation import CandidateExecutionOptions
+    from lowtime.operation import CandidateExecutionOptions
 
 
 logger = logging.getLogger(__name__)

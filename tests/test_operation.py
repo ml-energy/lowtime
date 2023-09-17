@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from poise.operation import (
+from lowtime.operation import (
     CandidateExecutionOptions,
     DummyOperation,
     ExecutionOption,

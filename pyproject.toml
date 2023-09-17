@@ -3,7 +3,7 @@ requires = ["setuptools>=61.0.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "poise"
+name = "lowtime"
 description = "A library for solving the time-cost tradeoff problem."
 readme = "README.md"
 authors = [
@@ -30,7 +30,7 @@ dependencies = [
 dynamic = ["version"]
 
 [project.urls]
-Repository = "https://github.com/SymbioticLab/poise"
+Repository = "https://github.com/ml-energy/lowtime"
 
 [project.optional-dependencies]
 lint = ["ruff", "black"]
@@ -41,7 +41,7 @@ dev = ["ruff", "black", "pytest", "tyro", "pandas"]
 where = ["."]
 
 [tool.setuptools.dynamic]
-version = {attr = "poise.__version__"}
+version = {attr = "lowtime.__version__"}
 
 [tool.ruff]
 select = [

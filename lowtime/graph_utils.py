@@ -22,11 +22,11 @@ from typing import Any, Literal, TypeVar, Generator, TYPE_CHECKING
 
 import networkx as nx
 
-from poise.operation import DummyOperation
-from poise.exceptions import PoiseGraphError
+from lowtime.operation import DummyOperation
+from lowtime.exceptions import LowtimeGraphError
 
 if TYPE_CHECKING:
-    from poise.operation import Operation
+    from lowtime.operation import Operation
 
 logger = logging.getLogger(__name__)
 
@@ -177,24 +177,24 @@ def aon_dag_to_aoa_dag(
 
     # Sanity checks.
     if new_source_node is None or new_sink_node is None:
-        raise PoiseGraphError(
+        raise LowtimeGraphError(
             "New source and sink nodes could not be determined. "
             "Check whether the source and sink nodes were in the original graph."
         )
 
     # Check source/sink node correctness and membership.
     if aoa.in_degree(aoa.graph["source_node"]) != 0:
-        raise PoiseGraphError("The new source node has incoming edges.")
+        raise LowtimeGraphError("The new source node has incoming edges.")
     if aoa.out_degree(aoa.graph["sink_node"]) != 0:
-        raise PoiseGraphError("The new sink node has outgoing edges.")
+        raise LowtimeGraphError("The new sink node has outgoing edges.")
 
     # The graph should be one piece.
     if not nx.is_weakly_connected(aoa):
-        raise PoiseGraphError("The converted graph is not connected.")
+        raise LowtimeGraphError("The converted graph is not connected.")
 
     # It should still be a DAG.
     if not nx.is_directed_acyclic_graph(aoa):
-        raise PoiseGraphError("The converted graph is not a DAG.")
+        raise LowtimeGraphError("The converted graph is not a DAG.")
 
     # All nodes are split into two nodes.
     # All original edges are intact and each original node contributes one edge.
@@ -203,9 +203,9 @@ def aon_dag_to_aoa_dag(
     aoa_nnodes = aoa.number_of_nodes()
     aoa_nedges = aoa.number_of_edges()
     if aon_nnodes * 2 != aoa_nnodes:
-        raise PoiseGraphError(f"Expected {aon_nnodes * 2} nodes, got {aoa_nnodes}.")
+        raise LowtimeGraphError(f"Expected {aon_nnodes * 2} nodes, got {aoa_nnodes}.")
     if aon_nedges + aon_nnodes != aoa_nedges:
-        raise PoiseGraphError(
+        raise LowtimeGraphError(
             f"Expected {aon_nedges + aon_nnodes} edges, got {aoa_nedges}."
         )
 

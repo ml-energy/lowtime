@@ -25,8 +25,8 @@ from matplotlib.patches import Rectangle
 from matplotlib.cm import get_cmap
 from matplotlib.ticker import FormatStrFormatter
 
-from poise.graph_utils import get_critical_aon_dag_total_time
-from poise.perseus.instruction import (
+from lowtime.graph_utils import get_critical_aon_dag_total_time
+from lowtime.perseus.instruction import (
     Instruction,
     Forward,
     Backward,
