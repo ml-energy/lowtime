@@ -229,26 +229,26 @@ class PhillipsDessouky:
                     sum(op.duration for op in non_dummy_ops),
                 )
 
-            capacity_dag = self.annotate_capacities(critical_dag)
+            self.annotate_capacities(critical_dag)
             if logger.isEnabledFor(logging.DEBUG):
                 logger.debug("Capacity DAG:")
                 logger.debug(
                     "Total lb value: %f",
-                    sum([capacity_dag[u][v]["lb"] for u, v in capacity_dag.edges]),
+                    sum([critical_dag[u][v]["lb"] for u, v in critical_dag.edges]),
                 )
                 logger.debug(
                     "Total ub value: %f",
-                    sum([capacity_dag[u][v]["ub"] for u, v in capacity_dag.edges]),
+                    sum([critical_dag[u][v]["ub"] for u, v in critical_dag.edges]),
                 )
 
             try:
-                s_set, t_set = self.find_min_cut(capacity_dag)
+                s_set, t_set = self.find_min_cut(critical_dag)
             except PoiseFlowError as e:
                 logger.info("Could not find minimum cut: %s", e.message)
                 logger.info("Terminating PD iteration.")
                 break
 
-            cost_change = self.reduce_durations(capacity_dag, s_set, t_set)
+            cost_change = self.reduce_durations(critical_dag, s_set, t_set)
             if cost_change == float("inf") or abs(cost_change) < FP_ERROR:
                 logger.info("No further time reduction possible.")
                 logger.info("Terminating PD iteration.")
@@ -270,21 +270,21 @@ class PhillipsDessouky:
             yield result
 
     def reduce_durations(
-        self, capacity_dag: nx.DiGraph, s_set: set[int], t_set: set[int]
+        self, dag: nx.DiGraph, s_set: set[int], t_set: set[int]
     ) -> float:
-        """Modify operation durations to reduce the DAG execution time by 1."""
+        """Modify operation durations to reduce the DAG's execution time by 1."""
         speed_up_edges: list[Operation] = []
         for node_id in s_set:
-            for child_id in list(capacity_dag.successors(node_id)):
+            for child_id in list(dag.successors(node_id)):
                 if child_id in t_set:
-                    op: Operation = capacity_dag[node_id][child_id]["op"]
+                    op: Operation = dag[node_id][child_id]["op"]
                     speed_up_edges.append(op)
 
         slow_down_edges: list[Operation] = []
         for node_id in t_set:
-            for child_id in list(capacity_dag.successors(node_id)):
+            for child_id in list(dag.successors(node_id)):
                 if child_id in s_set:
-                    op: Operation = capacity_dag[node_id][child_id]["op"]
+                    op: Operation = dag[node_id][child_id]["op"]
                     slow_down_edges.append(op)
 
         if not speed_up_edges:
@@ -323,8 +323,8 @@ class PhillipsDessouky:
 
         return cost_change
 
-    def find_min_cut(self, capacity_dag: nx.DiGraph) -> tuple[set[int], set[int]]:
-        """Find the min cut of the capacity DAG.
+    def find_min_cut(self, dag: nx.DiGraph) -> tuple[set[int], set[int]]:
+        """Find the min cut of the DAG annotated with lower/upper bound flow capacities.
 
         Assumptions:
             - The capacity DAG is in AOA form.
@@ -339,12 +339,12 @@ class PhillipsDessouky:
         Raises:
             PoiseFlowError: When no feasible flow exists.
         """
-        source_node = capacity_dag.graph["source_node"]
-        sink_node = capacity_dag.graph["sink_node"]
+        source_node = dag.graph["source_node"]
+        sink_node = dag.graph["sink_node"]
 
         # In order to solve max flow on edges with both lower and upper bounds,
         # we first need to convert it to another DAG that only has upper bounds.
-        unbound_dag = nx.DiGraph(capacity_dag)
+        unbound_dag = nx.DiGraph(dag)
 
         # For every edge, capacity = ub - lb.
         for _, _, edge_attrs in unbound_dag.edges(data=True):
@@ -358,10 +358,10 @@ class PhillipsDessouky:
 
         # For every node u in the original graph, add an edge (s', u) with capacity
         # equal to the sum of all lower bounds of u's parents.
-        for u in capacity_dag.nodes:
+        for u in dag.nodes:
             capacity = 0.0
-            for pred_id in capacity_dag.predecessors(u):
-                capacity += capacity_dag[pred_id][u]["lb"]
+            for pred_id in dag.predecessors(u):
+                capacity += dag[pred_id][u]["lb"]
             # print(capacity)
             unbound_dag.add_edge(s_prime_id, u, capacity=capacity)
 
@@ -371,10 +371,10 @@ class PhillipsDessouky:
 
         # For every node u in the original graph, add an edge (u, t') with capacity
         # equal to the sum of all lower bounds of u's children.
-        for u in capacity_dag.nodes:
+        for u in dag.nodes:
             capacity = 0.0
-            for succ_id in capacity_dag.successors(u):
-                capacity += capacity_dag[u][succ_id]["lb"]
+            for succ_id in dag.successors(u):
+                capacity += dag[u][succ_id]["lb"]
             # print(capacity)
             unbound_dag.add_edge(u, t_prime_id, capacity=capacity)
 
@@ -449,18 +449,18 @@ class PhillipsDessouky:
         # shape as the capacity DAG so that we can find the min cut.
         # First, retrieve the flow amounts to the original capacity graph, where for
         # each edge u -> v, the flow amount is `flow + lb`.
-        for u, v in capacity_dag.edges:
-            capacity_dag[u][v]["flow"] = flow_dict[u][v] + capacity_dag[u][v]["lb"]
+        for u, v in dag.edges:
+            dag[u][v]["flow"] = flow_dict[u][v] + dag[u][v]["lb"]
 
         # Construct a new residual graph (same shape as capacity DAG) with
         # u -> v capacity `ub - flow` and v -> u capacity `flow - lb`.
-        residual_graph = nx.DiGraph(capacity_dag)
-        for u, v in capacity_dag.edges:
+        residual_graph = nx.DiGraph(dag)
+        for u, v in dag.edges:
             residual_graph[u][v]["capacity"] = (
                 residual_graph[u][v]["ub"] - residual_graph[u][v]["flow"]
             )
             capacity = residual_graph[u][v]["flow"] - residual_graph[u][v]["lb"]
-            if capacity_dag.has_edge(v, u):
+            if dag.has_edge(v, u):
                 residual_graph[v][u]["capacity"] = capacity
             else:
                 residual_graph.add_edge(v, u, capacity=capacity)
@@ -478,19 +478,15 @@ class PhillipsDessouky:
             raise PoiseFlowError("ERROR: Infinite flow on capacity residual graph.")
 
         # Add additional flow we get to the original graph
-        for u, v in capacity_dag.edges:
-            capacity_dag[u][v]["flow"] += flow_dict[u][v]
-            capacity_dag[u][v]["flow"] -= flow_dict[v][u]
+        for u, v in dag.edges:
+            dag[u][v]["flow"] += flow_dict[u][v]
+            dag[u][v]["flow"] -= flow_dict[v][u]
 
         # Construct the new residual graph.
-        new_residual = nx.DiGraph(capacity_dag)
-        for u, v in capacity_dag.edges:
-            new_residual[u][v]["flow"] = (
-                capacity_dag[u][v]["ub"] - capacity_dag[u][v]["flow"]
-            )
-            new_residual.add_edge(
-                v, u, flow=capacity_dag[u][v]["flow"] - capacity_dag[u][v]["lb"]
-            )
+        new_residual = nx.DiGraph(dag)
+        for u, v in dag.edges:
+            new_residual[u][v]["flow"] = dag[u][v]["ub"] - dag[u][v]["flow"]
+            new_residual.add_edge(v, u, flow=dag[u][v]["flow"] - dag[u][v]["lb"])
 
         if logger.isEnabledFor(logging.DEBUG):
             logger.debug("New residual graph")
@@ -522,20 +518,11 @@ class PhillipsDessouky:
 
         return s_set, t_set
 
-    def annotate_capacities(self, critical_dag: nx.DiGraph) -> nx.DiGraph:
-        """Annotate the critical DAG with flow capacities.
-
-        Returns:
-            A shallow copy of the input critical DAG with each edge annotated with
-            `lb` and `ub` attributes, each representing flow lower and upper bounds.
-        """
-        # XXX(JW): Do we need to shallow copy? Why not add lb and ub directly to
-        # capacity_dag edges?
-        capacity_dag = nx.DiGraph(critical_dag)
-
+    def annotate_capacities(self, critical_dag: nx.DiGraph) -> None:
+        """In-place annotate the critical DAG with flow capacities."""
         # XXX(JW): Why not actual float("inf")?
         inf = 10000.0
-        for _, _, edge_attr in capacity_dag.edges(data=True):
+        for _, _, edge_attr in critical_dag.edges(data=True):
             op: Operation = edge_attr["op"]
             # Dummy operations don't constrain the flow.
             if op.is_dummy:
@@ -562,8 +549,6 @@ class PhillipsDessouky:
             # XXX(JW): Why is this rouding needed?
             edge_attr["lb"] = lb // FP_ERROR * FP_ERROR
             edge_attr["ub"] = ub // FP_ERROR * FP_ERROR
-
-        return capacity_dag
 
 
 class PDSolver:
