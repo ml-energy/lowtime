@@ -448,19 +448,18 @@ class PhillipsDessouky:
         # We have a feasible flow. Construct a new residual graph with the same
         # shape as the capacity DAG so that we can find the min cut.
         # First, retrieve the flow amounts to the original capacity graph, where for
-        # each edge u -> v, the flow amount is `weight = flow + lb`.
+        # each edge u -> v, the flow amount is `flow + lb`.
         for u, v in capacity_dag.edges:
-            capacity_dag[u][v]["weight"] = flow_dict[u][v] + capacity_dag[u][v]["lb"]
+            capacity_dag[u][v]["flow"] = flow_dict[u][v] + capacity_dag[u][v]["lb"]
 
         # Construct a new residual graph (same shape as capacity DAG) with
-        # u -> v capacity `ub - weight` (=`ub - flow - lb`) and v -> u capacity
-        # `weight - lb` (=`flow`).
+        # u -> v capacity `ub - flow` and v -> u capacity `flow - lb`.
         residual_graph = nx.DiGraph(capacity_dag)
         for u, v in capacity_dag.edges:
             residual_graph[u][v]["capacity"] = (
-                residual_graph[u][v]["ub"] - residual_graph[u][v]["weight"]
+                residual_graph[u][v]["ub"] - residual_graph[u][v]["flow"]
             )
-            capacity = residual_graph[u][v]["weight"] - residual_graph[u][v]["lb"]
+            capacity = residual_graph[u][v]["flow"] - residual_graph[u][v]["lb"]
             if capacity_dag.has_edge(v, u):
                 residual_graph[v][u]["capacity"] = capacity
             else:
@@ -480,17 +479,17 @@ class PhillipsDessouky:
 
         # Add additional flow we get to the original graph
         for u, v in capacity_dag.edges:
-            capacity_dag[u][v]["weight"] += flow_dict[u][v]
-            capacity_dag[u][v]["weight"] -= flow_dict[v][u]
+            capacity_dag[u][v]["flow"] += flow_dict[u][v]
+            capacity_dag[u][v]["flow"] -= flow_dict[v][u]
 
         # Construct the new residual graph.
         new_residual = nx.DiGraph(capacity_dag)
         for u, v in capacity_dag.edges:
-            new_residual[u][v]["weight"] = (
-                capacity_dag[u][v]["ub"] - capacity_dag[u][v]["weight"]
+            new_residual[u][v]["flow"] = (
+                capacity_dag[u][v]["ub"] - capacity_dag[u][v]["flow"]
             )
             new_residual.add_edge(
-                v, u, weight=capacity_dag[u][v]["weight"] - capacity_dag[u][v]["lb"]
+                v, u, flow=capacity_dag[u][v]["flow"] - capacity_dag[u][v]["lb"]
             )
 
         if logger.isEnabledFor(logging.DEBUG):
@@ -498,12 +497,12 @@ class PhillipsDessouky:
             logger.debug("Number of nodes: %d", new_residual.number_of_nodes())
             logger.debug("Number of edges: %d", new_residual.number_of_edges())
             logger.debug(
-                "Sum of weights: %f",
-                sum(attr["weight"] for _, _, attr in new_residual.edges(data=True)),
+                "Sum of flow: %f",
+                sum(attr["flow"] for _, _, attr in new_residual.edges(data=True)),
             )
 
         # Find the s-t cut induced by the second maximum flow above.
-        # Only following `weight > 0` edges, find the set of nodes reachable from
+        # Only following `flow > 0` edges, find the set of nodes reachable from
         # source node. That's the s-set, and the rest is the t-set.
         s_set = set[int]()
         q: deque[int] = deque()
@@ -516,7 +515,7 @@ class PhillipsDessouky:
             for child_id in list(new_residual.successors(cur_id)):
                 if (
                     child_id not in s_set
-                    and abs(new_residual[cur_id][child_id]["weight"]) > FP_ERROR
+                    and abs(new_residual[cur_id][child_id]["flow"]) > FP_ERROR
                 ):
                     q.append(child_id)
         t_set = set(new_residual.nodes) - s_set
