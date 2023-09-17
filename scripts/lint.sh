@@ -3,9 +3,9 @@
 set -ev
 
 if [[ -z $GITHUB_ACTION ]]; then
-  black rene
+  black poise
 else
-  black --check rene
+  black --check poise
 fi
 
-ruff rene
+ruff poise
