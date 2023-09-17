@@ -26,9 +26,9 @@ from poise.perseus.instruction import (
     Backward,
     forward_dep,
     backward_dep,
+    DependencyResolver,
 )
 from poise.perseus.schedule import Synchronous1F1B
-from poise.dag import DependencyResolver
 from poise.pd import PhillipsDessouky
 from poise.graph_utils import add_source_node, add_sink_node
 from poise.perseus.visualizer import PipelineVisualizer, ANNOTATE_ARGS, LINE_ARGS
