@@ -254,8 +254,8 @@ def aoa_to_critical_dag(aoa_dag: nx.DiGraph) -> nx.DiGraph:
         - The graph has only one sink node, annotated as "sink_node" on the graph.
     """
     # Clear all earliest/latest start/end times.
-    for _, _, edge_attrs in aoa_dag.edges(data=True):
-        operation: Operation = edge_attrs["op"]
+    for _, _, edge_attr in aoa_dag.edges(data=True):
+        operation: Operation = edge_attr["op"]
         operation.reset_times()
 
     # Run the forward pass to set earliest start/end times.
@@ -304,17 +304,10 @@ def aoa_to_critical_dag(aoa_dag: nx.DiGraph) -> nx.DiGraph:
 
     # Remove all edges that are not on the critical path.
     critical_dag = nx.DiGraph(aoa_dag)
-    # XXX(JW): I don't know why we should do a topological sort here. Why not just
-    # go through all edges like:
-    # for u, v, edge_attrs in aoa_dag.edges(data=True):
-    #     op: Operation = edge_attrs["op"]
-    #     if op.earliest_finish != op.latest_finish:
-    #         critical_dag.remove_edge(u, v)
-    for node_id in nx.topological_sort(aoa_dag):
-        for succ_id in aoa_dag.successors(node_id):
-            cur_op: Operation = aoa_dag[node_id][succ_id]["op"]
-            if cur_op.latest_finish != cur_op.earliest_finish:
-                critical_dag.remove_edge(node_id, succ_id)
+    for u, v, edge_attr in aoa_dag.edges(data=True):
+        op: Operation = edge_attr["op"]
+        if op.earliest_finish != op.latest_finish:
+            critical_dag.remove_edge(u, v)
 
     # Copy over source and sink node IDs.
     source_id = critical_dag.graph["source_node"] = aoa_dag.graph["source_node"]
