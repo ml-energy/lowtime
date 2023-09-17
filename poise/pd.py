@@ -38,7 +38,7 @@ from poise.constants import (
 )
 from poise.dag import ReneDAGOld
 from poise.perseus.instruction import Instruction
-from poise.operation import DummyOperation, Operation
+from poise.operation import Operation
 from poise.graph_utils import (
     aon_dag_to_aoa_dag,
     aoa_to_critical_dag,
@@ -387,7 +387,7 @@ class PhillipsDessouky:
                 sum(attr["capacity"] for _, _, attr in unbound_dag.edges(data=True)),
             )
 
-        # Add an edge from t to s with infinite weight.
+        # Add an edge from t to s with infinite capacity.
         unbound_dag.add_edge(
             sink_node,
             source_node,
@@ -456,26 +456,15 @@ class PhillipsDessouky:
         # u -> v capacity `ub - weight` (=`ub - flow - lb`) and v -> u capacity
         # `weight - lb` (=`flow`).
         residual_graph = nx.DiGraph(capacity_dag)
-        # edge_pending: list[tuple] = []
         for u, v in capacity_dag.edges:
             residual_graph[u][v]["capacity"] = (
                 residual_graph[u][v]["ub"] - residual_graph[u][v]["weight"]
             )
             capacity = residual_graph[u][v]["weight"] - residual_graph[u][v]["lb"]
             if capacity_dag.has_edge(v, u):
-            # if u in capacity_dag.successors(v):
                 residual_graph[v][u]["capacity"] = capacity
             else:
                 residual_graph.add_edge(v, u, capacity=capacity)
-        #         edge_pending.append(
-        #             (
-        #                 v,
-        #                 u,
-        #                 residual_graph[u][v]["weight"] - residual_graph[u][v]["lb"],
-        #             )
-        #         )
-        # for u, v, capacity in edge_pending:
-        #     residual_graph.add_edge(u, v, capacity=capacity)
 
         # Run max flow on the new residual graph.
         try:
@@ -496,16 +485,13 @@ class PhillipsDessouky:
 
         # Construct the new residual graph.
         new_residual = nx.DiGraph(capacity_dag)
-        add_candidates = []
-        for u, v in new_residual.edges:
+        for u, v in capacity_dag.edges:
             new_residual[u][v]["weight"] = (
                 capacity_dag[u][v]["ub"] - capacity_dag[u][v]["weight"]
             )
-            add_candidates.append(
-                (v, u, capacity_dag[u][v]["weight"] - capacity_dag[u][v]["lb"])
+            new_residual.add_edge(
+                v, u, weight=capacity_dag[u][v]["weight"] - capacity_dag[u][v]["lb"]
             )
-        for u, v, weight in add_candidates:
-            new_residual.add_edge(u, v, weight=weight)
 
         if logger.isEnabledFor(logging.DEBUG):
             logger.debug("New residual graph")
@@ -517,57 +503,25 @@ class PhillipsDessouky:
             )
 
         # Find the s-t cut induced by the second maximum flow above.
-        visited, _ = self.search_path_dfs(new_residual, source_node, sink_node)
-        s_set: set[int] = set()
-        t_set: set[int] = set()
-        for i in range(len(visited)):
-            if visited[i]:
-                s_set.add(i)
-            else:
-                t_set.add(i)
-
-        if logger.isEnabledFor(logging.DEBUG):
-            logger.debug("Minimum s-t cut")
-            logger.debug("Size of s set: %d", len(s_set))
-            logger.debug("Size of t set: %d", len(t_set))
-
-        return (s_set, t_set)
-
-    def search_path_dfs(
-        self, graph: nx.DiGraph, s: int, t: int
-    ) -> tuple[dict[int, bool], dict[int, int]]:
-        """Search path from s to t using DFS search, return a tuple of visited and parents.
-
-        Args:
-            graph: The graph to search on.
-            s: The source node id.
-            t: The target node id.
-
-        Returns:
-            A tuple of visited indices and parents.
-        """
-        parents: dict[int, int] = {}
-        visited: dict[int, bool] = {}
-        for node_id in graph.nodes:
-            parents[node_id] = -1
-            visited[node_id] = False
-        # logging.info(list(graph.nodes))
+        # Only following `weight > 0` edges, find the set of nodes reachable from
+        # source node. That's the s-set, and the rest is the t-set.
+        s_set = set[int]()
         q: deque[int] = deque()
-        q.append(s)
-        while len(q) > 0:
+        q.append(source_node)
+        while q:
             cur_id = q.pop()
-            visited[cur_id] = True
-            if cur_id == t:
+            s_set.add(cur_id)
+            if cur_id == sink_node:
                 break
-            for child_id in list(graph.successors(cur_id)):
+            for child_id in list(new_residual.successors(cur_id)):
                 if (
-                    not visited[child_id]
-                    and abs(graph[cur_id][child_id]["weight"]) > FP_ERROR
+                    child_id not in s_set
+                    and abs(new_residual[cur_id][child_id]["weight"]) > FP_ERROR
                 ):
-                    parents[child_id] = cur_id
                     q.append(child_id)
+        t_set = set(new_residual.nodes) - s_set
 
-        return (visited, parents)
+        return s_set, t_set
 
     def annotate_capacities(self, critical_dag: nx.DiGraph) -> nx.DiGraph:
         """Annotate the critical DAG with flow capacities.
