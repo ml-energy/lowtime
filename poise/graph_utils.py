@@ -140,12 +140,6 @@ def aon_dag_to_aoa_dag(
 
         # Split the node into two, left and right, and connect them.
         left_id, right_id = next(node_id_counter), next(node_id_counter)
-        # TODO(JW): I don't think we need to add attributes to the left and right
-        # nodes. First keep it and later check whether removing it is fine.
-        aoa.add_node(left_id, **attr)
-        aoa.add_node(right_id, **attr)
-        # NOTE(JW): The old implementation added weight=duration, but I'm pretty
-        # sure that's not used anywhere.
         aoa.add_edge(left_id, right_id, **attr)
         logger.debug("Connecting %d -> %d (%s)", left_id, right_id, str(op))
 
