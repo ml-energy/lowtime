@@ -518,37 +518,45 @@ class PhillipsDessouky:
 
         return s_set, t_set
 
-    def annotate_capacities(self, critical_dag: nx.DiGraph) -> None:
-        """In-place annotate the critical DAG with flow capacities."""
-        # XXX(JW): Why not actual float("inf")?
-        inf = 10000.0
+    def annotate_capacities(self, critical_dag: nx.DiGraph, inf: float = 1.0) -> None:
+        """In-place annotate the critical DAG with flow capacities.
+
+        Args:
+            critical_dag: A critical DAG in AOA form.
+            inf: A finite value to use for infinity.
+        """
+        max_ub = 0.0
         for _, _, edge_attr in critical_dag.edges(data=True):
             op: Operation = edge_attr["op"]
+            duration = op.duration
             # Dummy operations don't constrain the flow.
             if op.is_dummy:
                 lb, ub = 0.0, inf
             # Cannot be sped up or down.
-            elif op.duration == op.min_duration == op.max_duration:
+            elif duration == op.min_duration == op.max_duration:
                 lb, ub = 0.0, inf
             # Cannot be sped up.
-            elif op.duration - 1 < op.min_duration:
-                lb = abs(op.get_cost(op.duration) - op.get_cost(op.duration + 1))
+            elif duration - 1 < op.min_duration:
+                lb = abs(op.get_cost(duration) - op.get_cost(duration + 1))
                 ub = inf
             # Cannot be slowed down.
-            elif op.duration + 1 > op.max_duration:
+            elif duration + 1 > op.max_duration:
                 lb = 0.0
-                ub = abs(op.get_cost(op.duration - 1) - op.get_cost(op.duration))
+                ub = abs(op.get_cost(duration - 1) - op.get_cost(duration))
             else:
                 # In case the cost model is almost linear, give this edge some room.
-                lb = abs(op.get_cost(op.duration) - op.get_cost(op.duration + 1))
-                ub = (
-                    abs(op.get_cost(op.duration - 1) - op.get_cost(op.duration))
-                    + FP_ERROR
-                )
+                lb = abs(op.get_cost(duration) - op.get_cost(duration + 1))
+                ub = abs(op.get_cost(duration - 1) - op.get_cost(duration)) + FP_ERROR
+            max_ub = max(max_ub, ub)
 
             # XXX(JW): Why is this rouding needed?
             edge_attr["lb"] = lb // FP_ERROR * FP_ERROR
             edge_attr["ub"] = ub // FP_ERROR * FP_ERROR
+
+        # We want to make sure that `inf` is larger than any flow upper bound.
+        # This will recurse at most once.
+        if max_ub > inf:
+            self.annotate_capacities(critical_dag, inf=max_ub * 10)
 
 
 class PDSolver:
