@@ -43,9 +43,9 @@ from lowtime.perseus.instruction import (
     backward_dep,
     DependencyResolver,
 )
-from lowtime.perseus.schedule import Synchronous1F1B
 from lowtime.solver import PhillipsDessouky
 from lowtime.graph_utils import add_source_node, add_sink_node
+from lowtime.perseus.schedule import Synchronous1F1B
 from lowtime.perseus.visualizer import PipelineVisualizer, ANNOTATE_ARGS, LINE_ARGS
 
 logger = logging.getLogger()

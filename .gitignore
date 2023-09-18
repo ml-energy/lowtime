@@ -1,6 +1,8 @@
 .envrc
 results
 figures
+dist
+workloads*
 *.egg-info
 **/__pycache__
 **/*.png

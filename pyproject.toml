@@ -37,11 +37,15 @@ lint = ["ruff", "black"]
 test = ["pytest"]
 dev = ["ruff", "black", "pytest", "tyro", "pandas"]
 
-[tool.setuptools.packages.find]
-where = ["."]
+[tool.setuptools]
+include-package-data = false
 
 [tool.setuptools.dynamic]
 version = {attr = "lowtime.__version__"}
+
+[tool.setuptools.packages.find]
+include = ["lowtime*"]
+exclude = ["examples", "scripts", "stubs", "tests"]
 
 [tool.ruff]
 select = [
