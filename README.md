@@ -2,19 +2,10 @@
 
 Lowtime is a library for solving the [time-cost tradeoff problem](https://link.springer.com/chapter/10.1007/978-3-030-61423-2_5).
 
-## Where is Lowtime useful?
+## What do I use `lowtime` for?
 
-Say you want to execute a **DAG of tasks**, and each task has multiple execution options with **different time and cost**.
+Say you want to execute a **DAG of operations or tasks**, and each operation has multiple execution options each with **different time and cost**.
 
-Lowtime will find the **complete time-cost Pareto frontier** of the entire DAG.
+Given the definition of the DAG, `lowtime` will find the **complete time-cost Pareto frontier** of the entire DAG.
 
-You define cost. Any floating point number that is at odds with time!
-
-
-## Getting started
-
-### Install
-
-```console
-$ pip install lowtime
-```
+You define *cost*. Any positive floating point number that is at odds with time!
