@@ -116,10 +116,19 @@ class PipelineVisualizer:
 
         # Construct and cache the CriticalDAG.
         self.critical_dag = nx.DiGraph(dag)
+        # First, remove all non-critical nodes.
         for node_id, node_attr in dag.nodes(data=True):
             inst: Instruction = node_attr["op"]
             if inst.earliest_finish != inst.latest_finish:
                 self.critical_dag.remove_node(node_id)
+        # Then, only leave edges that *back-to-back* connect two critical nodes.
+        # There may be edges that connect two critical nodes that are not
+        # necessarily planned to execute back-to-back.
+        for u, v in list(self.critical_dag.edges):
+            u_inst: Instruction = dag.nodes[u]["op"]
+            v_inst: Instruction = dag.nodes[v]["op"]
+            if u_inst.earliest_finish != v_inst.earliest_start:
+                self.critical_dag.remove_edge(u, v)
         self.total_real_time = (
             get_critical_aon_dag_total_time(self.critical_dag) * self.unit_time
         )

@@ -24,15 +24,18 @@ from lowtime.operation import Operation
 
 
 @define(slots=False, kw_only=True)
-class Instruction(Operation):
+class Instruction(Operation[int]):
     """An operation on a pipeline training schedule."""
 
     stage_id: int
     micro_batch_id: int
 
     def __str__(self) -> str:
-        """Return a human-readable string representation."""
-        return f"{type(self).__name__}(S{self.stage_id}B{self.micro_batch_id}, {self.duration}@{self.assigned_knob})"
+        """Return a human-readable string representation of the instruction."""
+        return (
+            f"{type(self).__name__}(S{self.stage_id}B{self.micro_batch_id}, "
+            f"{self.duration}@{self.assigned_knob})"
+        )
 
 
 @define

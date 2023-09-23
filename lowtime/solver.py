@@ -292,24 +292,23 @@ class PhillipsDessouky:
                 logger.info("Operation %s has reached the limit of speed up", op)
                 return float("inf")
             cost_change += abs(op.get_cost(op.duration - 1) - op.get_cost(op.duration))
-            logger.info("Sped up %s to %d", op, op.duration - 1)
+            op_before_str = str(op)
             op.duration -= 1
+            logger.info("Sped up %s to %s", op_before_str, op)
 
         # Increase the duration of edges (slow down) by quant_time 1.
         for op in slow_down_edges:
             # Dummy edges can always be slowed down.
             if op.is_dummy:
-                logger.info("Slowed down %s to %d", op, op.duration + 1)
-                op.duration += 1
+                logger.info("Slowed down DummyOperation (didn't really slowdown).")
+                continue
             elif op.duration + 1 > op.max_duration:
                 logger.info("Operation %s has reached the limit of slow down", op)
                 return float("inf")
-            else:
-                cost_change -= abs(
-                    op.get_cost(op.duration) - op.get_cost(op.duration + 1)
-                )
-                logger.info("Slowed down %s to %d", op, op.duration + 1)
-                op.duration += 1
+            cost_change -= abs(op.get_cost(op.duration) - op.get_cost(op.duration + 1))
+            before_op_str = str(op)
+            op.duration += 1
+            logger.info("Slowed down %s to %s", before_op_str, op)
 
         return cost_change
 
@@ -352,7 +351,6 @@ class PhillipsDessouky:
             capacity = 0.0
             for pred_id in dag.predecessors(u):
                 capacity += dag[pred_id][u]["lb"]
-            # print(capacity)
             unbound_dag.add_edge(s_prime_id, u, capacity=capacity)
 
         # Add a new node t', which will become the new sink node.
@@ -365,7 +363,6 @@ class PhillipsDessouky:
             capacity = 0.0
             for succ_id in dag.successors(u):
                 capacity += dag[u][succ_id]["lb"]
-            # print(capacity)
             unbound_dag.add_edge(u, t_prime_id, capacity=capacity)
 
         if logger.isEnabledFor(logging.DEBUG):
