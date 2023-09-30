@@ -127,12 +127,17 @@ class CandidateExecutionOptions(Generic[KnobT]):
 
     def get_knob_for(self, quant_time: int) -> KnobT:
         """Find the slowest `knob` value that still executes within `quant_time`."""
-        if (knob := self._knob_cache.get(quant_time)) is not None:
-            return knob
+        try:
+            return self._knob_cache[quant_time]
+        except KeyError:
+            pass
 
         # Run binary search on options.
         sorted_options = list(reversed(self.options))
         i = bisect.bisect_right([o.quant_time for o in sorted_options], quant_time)
+        # Just in case `quant_time` is smaller than the smallest `quant_time`,
+        # we select the knob for the smallest `quant_time`.
+        i = max(1, i)
         knob = sorted_options[i - 1].knob
 
         # Cache the result.
@@ -160,11 +165,7 @@ class OperationSpec(Generic[KnobT]):
 
 def knob_setter(self: Operation, _: Attribute, duration: int) -> int:
     """Find and assign the slowest `knob` value that still meets `duration`."""
-    if duration < self.min_duration or duration > self.max_duration:
-        raise ValueError(f"Duration {duration} is not in range for {self!r}.")
-
     self.assigned_knob = self.spec.options.get_knob_for(duration)
-
     return duration
 
 

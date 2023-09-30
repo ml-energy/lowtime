@@ -90,11 +90,8 @@ def test_knob_assignment(mock_spec: OperationSpec) -> None:
         op.duration = duration
         assert op.assigned_knob == knob
 
-    with pytest.raises(ValueError, match=r".*20.*[123, 789]"):
-        op_assign_assert(20, None)
-    with pytest.raises(ValueError, match=r".*122.*[123, 789]"):
-        op_assign_assert(122, None)
-
+    op_assign_assert(20, "one")
+    op_assign_assert(122, "one")
     op_assign_assert(123, "one")
     op_assign_assert(124, "one")
     op_assign_assert(234, "one")
@@ -105,8 +102,5 @@ def test_knob_assignment(mock_spec: OperationSpec) -> None:
     op_assign_assert(654, "two")
     op_assign_assert(788, "two")
     op_assign_assert(789, "three")
-
-    with pytest.raises(ValueError, match=r".*790.*[123, 789]"):
-        op_assign_assert(790, None)
-    with pytest.raises(ValueError, match=r".*1234.*[123, 789]"):
-        op_assign_assert(1234, None)
+    op_assign_assert(790, "three")
+    op_assign_assert(1234, "three")
