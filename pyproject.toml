@@ -35,7 +35,7 @@ Repository = "https://github.com/ml-energy/lowtime"
 [project.optional-dependencies]
 lint = ["ruff", "black"]
 test = ["pytest"]
-dev = ["ruff", "black", "pytest", "tyro", "pandas"]
+dev = ["ruff", "black", "pytest", "tyro", "pandas", "pyright"]
 
 [tool.setuptools]
 include-package-data = false

@@ -12,13 +12,23 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Utilities for understanding and manipulating task graphs."""
+"""Utilities for creating, understanding, and manipulating task graphs."""
 
 from __future__ import annotations
 
 import logging
 from itertools import count
-from typing import Any, Literal, TypeVar, Generator, TYPE_CHECKING
+from typing import (
+    Any,
+    Literal,
+    TypeVar,
+    Generator,
+    Sequence,
+    Callable,
+    Type,
+    get_type_hints,
+    TYPE_CHECKING,
+)
 
 import networkx as nx
 
@@ -371,3 +381,61 @@ def get_critical_aon_dag_total_time(critical_dag: nx.DiGraph) -> int:
             break
 
     return total_time
+
+
+class DependencyResolver:
+    """Finds whether two operations are dependent.
+
+    Given a sequence of dependency rules, this class checks whether two
+    operations should have a dependency edge between them in the DAG.
+    Dependency rules are functions that take two operations and return
+    a boolean, True if there is a dependency and False otherwise.
+    """
+
+    def __init__(
+        self,
+        dependency_rules: Sequence[Callable[..., bool]],
+        node_type: Type[Operation],
+    ) -> None:
+        """Initialize the dependency manager with dependency rules.
+
+        Args:
+            dependency_rules: Sequence of dependency rules. Each rule is a type-annotated
+                function that takes two operations and returns a boolean.
+            node_type: The base type of nodes in the DAG. Should be a subclass of `Operation`.
+        """
+        arg_types = []
+        for rule in dependency_rules:
+            type_hints = get_type_hints(rule)
+
+            # We'll forgive missing return types.
+            if "return" in type_hints:
+                type_hints.pop("return")
+
+            # Exactly two input arguments.
+            if len(type_hints) != 2:
+                raise ValueError("Dependency rules must have exactly two arguments.")
+
+            # Cache type hints.
+            op1_t, op2_t = type_hints.values()
+            arg_types.append((op1_t, op2_t))
+
+            # Both input argumens must be the given node type.
+            if not issubclass(op1_t, node_type):
+                raise ValueError(f"First argument is not a subclass of {node_type}.")
+            if not issubclass(op2_t, node_type):
+                raise ValueError(f"Second argument is not a subclass of {node_type}.")
+
+        self.rules = dependency_rules
+        self.arg_types = arg_types
+
+    def is_dependent(self, op1: Operation, op2: Operation) -> bool:
+        """Check if there is a dependency from `op1` and `op2`."""
+        for rule, (op1_t, op2_t) in zip(self.rules, self.arg_types):
+            if isinstance(op1, op1_t) and isinstance(op2, op2_t):
+                result = rule(op1, op2)
+                if not isinstance(result, bool):
+                    raise RuntimeError("Dependency rule returned a non-boolean value.")
+                if result:
+                    return True
+        return False

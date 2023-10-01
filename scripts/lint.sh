@@ -9,3 +9,4 @@ else
 fi
 
 ruff lowtime
+pyright lowtime

@@ -113,7 +113,7 @@ class ExponentialModel(CostModel):
 
         def l2_error(coefficients: tuple[float, float, float]) -> float:
             preds = np.array([self.fn(t, *coefficients) for t in quant_times])
-            return np.mean(np.square(target_costs - preds))
+            return np.mean(np.square(target_costs - preds)).item()
 
         # When an initial parameter guess is provided, just use it.
         if initial_guess is not None:
@@ -169,7 +169,7 @@ class ExponentialModel(CostModel):
 
         def l2_error(coefficients: tuple[float, float, float]) -> float:
             preds = np.array([self.fn(t, *coefficients) for t in quant_times])
-            return np.mean(np.square(target_costs - preds))
+            return np.mean(np.square(target_costs - preds)).item()
 
         best_error = np.inf
         best_coefficients = (np.inf, np.inf, np.inf)
