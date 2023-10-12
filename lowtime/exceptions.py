@@ -24,7 +24,7 @@ class LowtimeBaseError(Exception):
 
 
 class LowtimeFlowError(LowtimeBaseError):
-    """Error while running flow operations on graphs."""
+    """Error while running max flow operations on graphs."""
 
 
 class LowtimeGraphError(LowtimeBaseError):

@@ -45,25 +45,37 @@ NodeT = TypeVar("NodeT")
 GraphT = TypeVar("GraphT", bound=nx.Graph)
 
 
-def add_source_node(graph: nx.DiGraph, source_node: Any) -> None:
+def add_source_node(graph: nx.DiGraph, source_node: Any, attr_name: str = "op") -> None:
     """Add a source node to the given graph.
 
     The graph may have multiple source nodes, and this function adds a new source
     node that is connected to all existing source nodes.
+
+    Args:
+        graph: The graph to add the source node to.
+        source_node: The ID of the new source node.
+        attr_name: The name of the node attribute that holds the `Operation`.
     """
-    graph.add_node(source_node, op=DummyOperation())
+    add_node_arg = {attr_name: DummyOperation()}
+    graph.add_node(source_node, **add_node_arg)
     for node_id, in_degree in graph.in_degree():
         if node_id != source_node and in_degree == 0:
             graph.add_edge(source_node, node_id)
 
 
-def add_sink_node(graph: nx.DiGraph, sink_node: Any) -> None:
+def add_sink_node(graph: nx.DiGraph, sink_node: Any, attr_name: str = "op") -> None:
     """Add a sink node to the given graph.
 
     The graph may have multiple sink nodes, and this function adds a new sink
     node that is connected to all existing sink nodes.
+
+    Args:
+        graph: The graph to add the sink node to.
+        sink_node: The ID of the new sink node.
+        attr_name: The name of the node attribute that holds the `Operation`.
     """
-    graph.add_node(sink_node, op=DummyOperation())
+    add_node_arg = {attr_name: DummyOperation()}
+    graph.add_node(sink_node, **add_node_arg)
     for node_id, out_degree in graph.out_degree():
         if node_id != sink_node and out_degree == 0:
             graph.add_edge(node_id, sink_node)
@@ -224,16 +236,22 @@ def aon_dag_to_aoa_dag(
     return aoa
 
 
-def get_total_cost(graph: nx.DiGraph, mode: Literal["edge", "node"]) -> float:
+def get_total_cost(
+    graph: nx.DiGraph,
+    mode: Literal["edge", "node"],
+    attr_name: str = "op",
+) -> float:
     """Return the total cost of the given graph.
 
-    Assumptions:
-        - The graph has a "op" attribute on each edge that holds `Operation`.
+    Args:
+        graph: The graph to get the total cost of.
+        mode: Whether to get the total cost of operations on edges or nodes.
+        attr_name: The name of the node/edge attribute that holds the `Operation`.
     """
     if mode == "edge":
         cost = 0.0
         for _, _, edge_attr in graph.edges(data=True):
-            op: Operation = edge_attr["op"]
+            op: Operation = edge_attr[attr_name]
             if op.is_dummy:
                 continue
             cost += op.get_cost()
@@ -241,14 +259,16 @@ def get_total_cost(graph: nx.DiGraph, mode: Literal["edge", "node"]) -> float:
     elif mode == "node":
         cost = 0.0
         for _, node_attr in graph.nodes(data=True):
-            op: Operation = node_attr["op"]
+            op: Operation = node_attr[attr_name]
             if op.is_dummy:
                 continue
             cost += op.get_cost()
         return cost
+    else:
+        raise ValueError(f"Invalid mode: {mode}. Must be 'edge' or 'node'.")
 
 
-def aoa_to_critical_dag(aoa_dag: nx.DiGraph) -> nx.DiGraph:
+def aoa_to_critical_dag(aoa_dag: nx.DiGraph, attr_name: str = "op") -> nx.DiGraph:
     """Convert the AOA DAG to a critical AOA DAG where only critical edges remain.
 
     This function modifies the earliest/latest start/end times of the `Operation`s
@@ -261,16 +281,16 @@ def aoa_to_critical_dag(aoa_dag: nx.DiGraph) -> nx.DiGraph:
     """
     # Clear all earliest/latest start/end times.
     for _, _, edge_attr in aoa_dag.edges(data=True):
-        operation: Operation = edge_attr["op"]
+        operation: Operation = edge_attr[attr_name]
         operation.reset_times()
 
     # Run the forward pass to set earliest start/end times.
     for node_id in nx.topological_sort(aoa_dag):
         for succ_id in aoa_dag.successors(node_id):
-            cur_op: Operation = aoa_dag[node_id][succ_id]["op"]
+            cur_op: Operation = aoa_dag[node_id][succ_id][attr_name]
 
             for succ_succ_id in aoa_dag.successors(succ_id):
-                next_op: Operation = aoa_dag[succ_id][succ_succ_id]["op"]
+                next_op: Operation = aoa_dag[succ_id][succ_succ_id][attr_name]
 
                 next_op.earliest_start = max(
                     next_op.earliest_start,
@@ -288,19 +308,19 @@ def aoa_to_critical_dag(aoa_dag: nx.DiGraph) -> nx.DiGraph:
     sink_node = aoa_dag.graph["sink_node"]
     dag_earliest_finish = 0
     for node_id in aoa_dag.predecessors(sink_node):
-        op: Operation = aoa_dag[node_id][sink_node]["op"]
+        op: Operation = aoa_dag[node_id][sink_node][attr_name]
         dag_earliest_finish = max(dag_earliest_finish, op.earliest_finish)
     for node_id in aoa_dag.predecessors(sink_node):
-        op: Operation = aoa_dag[node_id][sink_node]["op"]
+        op: Operation = aoa_dag[node_id][sink_node][attr_name]
         op.latest_finish = dag_earliest_finish
         op.latest_start = op.latest_finish - op.duration
 
     for node_id in reversed(list(nx.topological_sort(aoa_dag))):
         for pred_id in aoa_dag.predecessors(node_id):
-            cur_op: Operation = aoa_dag[pred_id][node_id]["op"]
+            cur_op: Operation = aoa_dag[pred_id][node_id][attr_name]
 
             for pred_pred_id in aoa_dag.predecessors(pred_id):
-                prev_op: Operation = aoa_dag[pred_pred_id][pred_id]["op"]
+                prev_op: Operation = aoa_dag[pred_pred_id][pred_id][attr_name]
 
                 prev_op.latest_start = min(
                     prev_op.latest_start,
@@ -311,7 +331,7 @@ def aoa_to_critical_dag(aoa_dag: nx.DiGraph) -> nx.DiGraph:
     # Remove all edges that are not on the critical path.
     critical_dag = nx.DiGraph(aoa_dag)
     for u, v, edge_attr in aoa_dag.edges(data=True):
-        op: Operation = edge_attr["op"]
+        op: Operation = edge_attr[attr_name]
         if op.earliest_finish != op.latest_finish:
             critical_dag.remove_edge(u, v)
 
@@ -330,11 +350,13 @@ def aoa_to_critical_dag(aoa_dag: nx.DiGraph) -> nx.DiGraph:
     return critical_dag
 
 
-def get_critical_aoa_dag_total_time(critical_dag: nx.DiGraph) -> int:
+def get_critical_aoa_dag_total_time(
+    critical_dag: nx.DiGraph, attr_name: str = "op"
+) -> int:
     """Find the total execution time of the given critical DAG in AOA form.
 
     Assumptions:
-        - The graph is a DAG with `Operation`s annotated on edges.
+        - The graph is a DAG with `Operation`s annotated on edges with name `attr_name`.
         - The graph only contains operations that are on the critical path.
         - The graph has only one source node, annotated as "source_node" on the graph.
         - The graph has only one sink node, annotated as "sink_node" on the graph.
@@ -346,7 +368,7 @@ def get_critical_aoa_dag_total_time(critical_dag: nx.DiGraph) -> int:
     # traverse in a DFS order and when we reach the sink node, we're done.
     total_time = 0
     for cur_node, next_node in nx.dfs_edges(critical_dag, source_node):
-        op: Operation = critical_dag[cur_node][next_node]["op"]
+        op: Operation = critical_dag[cur_node][next_node][attr_name]
         if not op.is_dummy:
             total_time += op.duration
         if next_node == sink_node:
@@ -355,7 +377,9 @@ def get_critical_aoa_dag_total_time(critical_dag: nx.DiGraph) -> int:
     return total_time
 
 
-def get_critical_aon_dag_total_time(critical_dag: nx.DiGraph) -> int:
+def get_critical_aon_dag_total_time(
+    critical_dag: nx.DiGraph, attr_name: str = "op"
+) -> int:
     """Find the total execution time of the given critical DAG AON form.
 
     Assumptions:
@@ -371,11 +395,11 @@ def get_critical_aon_dag_total_time(critical_dag: nx.DiGraph) -> int:
     # traverse in a DFS order and when we reach the sink node, we're done.
     total_time = 0
     for cur_node, next_node in nx.dfs_edges(critical_dag, source_node):
-        op: Operation = critical_dag.nodes[cur_node]["op"]
+        op: Operation = critical_dag.nodes[cur_node][attr_name]
         if not op.is_dummy:
             total_time += op.duration
         if next_node == sink_node:
-            next_op: Operation = critical_dag.nodes[next_node]["op"]
+            next_op: Operation = critical_dag.nodes[next_node][attr_name]
             if not next_op.is_dummy:
                 total_time += next_op.duration
             break
@@ -384,12 +408,18 @@ def get_critical_aon_dag_total_time(critical_dag: nx.DiGraph) -> int:
 
 
 class DependencyResolver:
-    """Finds whether two operations are dependent.
+    """Finds whether two operations have a direct dependency.
 
     Given a sequence of dependency rules, this class checks whether two
     operations should have a dependency edge between them in the DAG.
     Dependency rules are functions that take two operations and return
     a boolean, True if there is a dependency and False otherwise.
+
+    The dependency rule function is only called on two operations if their
+    types match the type annotations of the dependency rule function. For
+    example, if the dependency rule function is type-annotated as
+    `forward_dep(inst1: Forward, inst2: Forward) -> bool`, then the function
+    will only be called on two `Forward` operations.
     """
 
     def __init__(

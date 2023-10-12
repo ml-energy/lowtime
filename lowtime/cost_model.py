@@ -14,10 +14,10 @@
 
 """Cost models for operations.
 
-When operations have multiple discrete knobs, the cost model fits the
-time-cost Pareto frontier to make the choice continuous. This is an
-approximation that makes the discrete optimization problem solveable
-with the Phillips-Dessouky algorithm.
+When operations have multiple discrete execution options, we fit a cost
+model to the operation's time-cost Pareto frontier to make the choice
+continuous. This is an approximation that makes the discrete optimization
+problem efficiently solveable with the Phillips-Dessouky algorithm.
 """
 
 from __future__ import annotations
@@ -40,12 +40,15 @@ logger = logging.getLogger(__name__)
 
 
 class CostModel(ABC):
-    """A continuous cost model fit from Pareto-optimal execution options."""
+    """A continuous cost model fit from Pareto-optimal execution options.
+
+    Cost model fitting should happen in the constructor (`__init__`).
+    Then, `__call__` predicts the execution cost given quantized time.
+    """
 
     @abstractmethod
     def __call__(self, quant_time: int) -> float:
         """Predict execution cost given quantized time."""
-        ...
 
     def draw(
         self,
@@ -84,10 +87,6 @@ class ExponentialModel(CostModel):
     """An exponential cost model.
 
     cost = a * exp(b * quant_time) + c
-
-    XXX(JW): For Perseus, first filter candidate execution options on measured cost.
-    Then translate them into effective cost (cost - p2p_power * quant_time * unit_time)
-    and fit the cost model on effective cost.
     """
 
     def __init__(
@@ -100,7 +99,7 @@ class ExponentialModel(CostModel):
 
         Args:
             options: Candidate execution options to fit the cost model with.
-            initial_guess: Initial guess for the parameters of the exponential function.
+            initial_guess: Initial guess for the cost model parameters a, b, and c.
                 If None, do a grid search on the initial guesses.
             search_strategy: Strategy to use when doing a grid search on the initial guesses.
                 'first' means to take the first set of parameters that fit.
@@ -150,8 +149,8 @@ class ExponentialModel(CostModel):
         if coefficients is None:
             raise ValueError(
                 "Grid search failed to fit. "
-                "Manually fit the model with `Exponential.run_grid_search` "
-                "and provide an initial guess to `Exponential.__init__`."
+                "Manually fit the model with `ExponentialModel.run_grid_search` "
+                "and provide an initial guess to `ExponentialModel.__init__`."
             )
         self.coefficients = coefficients
 
@@ -163,7 +162,7 @@ class ExponentialModel(CostModel):
         c_candidates: list[float],
         search_strategy: Literal["best", "first"],
     ) -> tuple[float, float, float] | None:
-        """Run a grid search on the initial guesses."""
+        """Run grid search over candidate initial guesses."""
         quant_times = np.array([option.quant_time for option in options.options])
         target_costs = np.array([option.cost for option in options.options])
 

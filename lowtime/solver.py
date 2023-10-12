@@ -69,12 +69,12 @@ class IterationResult:
 class PhillipsDessouky:
     """Implements the Phillips-Dessouky algorithm for the time-cost tradeoff problem."""
 
-    def __init__(self, dag: nx.DiGraph) -> None:
+    def __init__(self, dag: nx.DiGraph, attr_name: str = "op") -> None:
         """Initialize the Phillips-Dessouky solver.
 
         Assumptions:
             - The graph is a Directed Acyclic Graph (DAG).
-            - Computation operations are annotated on the node of the DAG.
+            - Operations are annotated on nodes with name `attr_name`.
             - There is only one source (entry) node. The source node is annotated as
                 `dag.graph["source_node"]`.
             - There is only one sink (exit) node. The sink node is annotated as
@@ -84,7 +84,11 @@ class PhillipsDessouky:
         Args:
             dag: A networkx DiGraph object that represents the computation DAG.
                 The aforementioned assumptions should hold for the DAG.
+            attr_name: The name of the attribute on nodes that holds the operation
+                object. Defaults to "op".
         """
+        self.attr_name = attr_name
+
         # Run checks on the DAG and cache some properties.
         # Check: It's a DAG.
         if not nx.is_directed_acyclic_graph(dag):
@@ -135,15 +139,18 @@ class PhillipsDessouky:
         # Check: The `unit_time` attributes of every operation should be the same.
         unit_time_candidates = set[float]()
         for _, node_attr in dag.nodes(data=True):
-            if "op" in node_attr:
-                op: Operation = node_attr["op"]
+            if self.attr_name in node_attr:
+                op: Operation = node_attr[self.attr_name]
                 if op.is_dummy:
                     continue
                 unit_time_candidates.update(
                     option.unit_time for option in op.spec.options.options
                 )
         if len(unit_time_candidates) == 0:
-            raise ValueError("Found zero operations in the graph.")
+            raise ValueError(
+                "Found zero operations in the graph. Make sure you "
+                f"added operations as node attributes with key `{self.attr_name}`.",
+            )
         if len(unit_time_candidates) > 1:
             raise ValueError(
                 f"Expecting the same `unit_time` across all operations, "
@@ -168,28 +175,32 @@ class PhillipsDessouky:
         # Convert the original activity-on-node DAG to activity-on-arc DAG form.
         # AOA DAGs are purely internal. All public input and output of this class
         # should be in AON form.
-        aoa_dag = aon_dag_to_aoa_dag(self.aon_dag, attr_name="op")
+        aoa_dag = aon_dag_to_aoa_dag(self.aon_dag, attr_name=self.attr_name)
 
         # Estimate the minimum execution time of the DAG by setting every operation
         # to run at its minimum duration.
         for _, _, edge_attr in aoa_dag.edges(data=True):
-            op: Operation = edge_attr["op"]
+            op: Operation = edge_attr[self.attr_name]
             if op.is_dummy:
                 continue
             op.duration = op.min_duration
-        critical_dag = aoa_to_critical_dag(aoa_dag)
-        min_time = get_critical_aoa_dag_total_time(critical_dag)
+        critical_dag = aoa_to_critical_dag(aoa_dag, attr_name=self.attr_name)
+        min_time = get_critical_aoa_dag_total_time(
+            critical_dag, attr_name=self.attr_name
+        )
         logger.info("Expected minimum quantized execution time: %d", min_time)
 
         # Estimated the maximum execution time of the DAG by setting every operation
         # to run at its maximum duration. This is also our initial start point.
         for _, _, edge_attr in aoa_dag.edges(data=True):
-            op: Operation = edge_attr["op"]
+            op: Operation = edge_attr[self.attr_name]
             if op.is_dummy:
                 continue
             op.duration = op.max_duration
-        critical_dag = aoa_to_critical_dag(aoa_dag)
-        max_time = get_critical_aoa_dag_total_time(critical_dag)
+        critical_dag = aoa_to_critical_dag(aoa_dag, attr_name=self.attr_name)
+        max_time = get_critical_aoa_dag_total_time(
+            critical_dag, attr_name=self.attr_name
+        )
         logger.info("Expected maximum quantized execution time: %d", max_time)
 
         num_iters = max_time - min_time + 1
@@ -209,9 +220,9 @@ class PhillipsDessouky:
                 logger.debug("Number of nodes: %d", critical_dag.number_of_nodes())
                 logger.debug("Number of edges: %d", critical_dag.number_of_edges())
                 non_dummy_ops = [
-                    attr["op"]
+                    attr[self.attr_name]
                     for _, _, attr in critical_dag.edges(data=True)
-                    if not attr["op"].is_dummy
+                    if not attr[self.attr_name].is_dummy
                 ]
                 logger.debug("Number of non-dummy operations: %d", len(non_dummy_ops))
                 logger.debug(
@@ -245,15 +256,17 @@ class PhillipsDessouky:
                 break
 
             # Earliest/latest start/finish times on operations also annotated here.
-            critical_dag = aoa_to_critical_dag(aoa_dag)
+            critical_dag = aoa_to_critical_dag(aoa_dag, attr_name=self.attr_name)
 
             # We directly modify operation attributes in the DAG, so after we
             # ran one iteration, the AON DAG holds updated attributes.
             result = IterationResult(
                 iteration=iteration + 1,
                 cost_change=cost_change,
-                cost=get_total_cost(aoa_dag, mode="edge"),
-                quant_time=get_critical_aoa_dag_total_time(critical_dag),
+                cost=get_total_cost(aoa_dag, mode="edge", attr_name=self.attr_name),
+                quant_time=get_critical_aoa_dag_total_time(
+                    critical_dag, attr_name=self.attr_name
+                ),
                 unit_time=self.unit_time,
             )
             logger.info("%s", result)
@@ -267,14 +280,14 @@ class PhillipsDessouky:
         for node_id in s_set:
             for child_id in list(dag.successors(node_id)):
                 if child_id in t_set:
-                    op: Operation = dag[node_id][child_id]["op"]
+                    op: Operation = dag[node_id][child_id][self.attr_name]
                     speed_up_edges.append(op)
 
         slow_down_edges: list[Operation] = []
         for node_id in t_set:
             for child_id in list(dag.successors(node_id)):
                 if child_id in s_set:
-                    op: Operation = dag[node_id][child_id]["op"]
+                    op: Operation = dag[node_id][child_id][self.attr_name]
                     slow_down_edges.append(op)
 
         if not speed_up_edges:
@@ -516,7 +529,7 @@ class PhillipsDessouky:
         # value in `ExecutionOption`s.
         inf = 10000.0
         for _, _, edge_attr in critical_dag.edges(data=True):
-            op: Operation = edge_attr["op"]
+            op: Operation = edge_attr[self.attr_name]
             duration = op.duration
             # Dummy operations don't constrain the flow.
             if op.is_dummy:  # noqa: SIM114
@@ -537,6 +550,6 @@ class PhillipsDessouky:
                 lb = abs(op.get_cost(duration) - op.get_cost(duration + 1))
                 ub = abs(op.get_cost(duration - 1) - op.get_cost(duration)) + FP_ERROR
 
-            # XXX(JW): Why is this rouding needed?
+            # XXX(JW): This roundiing may not be necessary.
             edge_attr["lb"] = lb // FP_ERROR * FP_ERROR
             edge_attr["ub"] = ub // FP_ERROR * FP_ERROR

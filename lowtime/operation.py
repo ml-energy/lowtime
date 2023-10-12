@@ -82,6 +82,9 @@ class ExecutionOption(Generic[KnobT]):
 class CandidateExecutionOptions(Generic[KnobT]):
     """A list of selected candidate execution options for an operation.
 
+    Given a set of execution options that are not necessarily Pareto-optimal,
+    this class filters them to only leave Pareto-optimal options.
+
     Candidate execution options are filtered from execution options given to __init__:
     1. Filter Pareto-optimal options based on `real_time` and `cost`.
     2. Deduplicate `quant_time` by keeping only the option with the largest `cost`.
@@ -97,7 +100,7 @@ class CandidateExecutionOptions(Generic[KnobT]):
     _knob_cache: dict[int, KnobT] = field(init=False, repr=False, factory=dict)
 
     def __attrs_post_init__(self) -> None:
-        """Return a new `ExecutionOptions` object with only Pareto-optimal options."""
+        """Filter `options` to only hold candidate execution options."""
         # Find and only leave Pareto-optimal options.
         orig_options = sorted(self.options, key=lambda x: x.real_time, reverse=True)
         filtered_options: list[ExecutionOption[KnobT]] = []
@@ -163,7 +166,7 @@ class OperationSpec(Generic[KnobT]):
     cost_model: CostModel
 
 
-def knob_setter(self: Operation, _: Attribute, duration: int) -> int:
+def _knob_setter(self: Operation, _: Attribute, duration: int) -> int:
     """Find and assign the slowest `knob` value that still meets `duration`."""
     self.assigned_knob = self.spec.options.get_knob_for(duration)
     return duration
@@ -175,6 +178,9 @@ class Operation(Generic[KnobT]):
 
     `__repr__` will display all object fields, so should only be used for debugging.
     On the other hand, `__str__` is for a human readable representation of the object.
+
+    Setting `duration` will automatically set `assigned_knob` to the knob value
+    that meets the duration.
 
     Attributes:
         spec: The operation spec of this operation.
@@ -192,7 +198,7 @@ class Operation(Generic[KnobT]):
     spec: OperationSpec[KnobT] = field(on_setattr=frozen)
     is_dummy: bool = field(default=False, init=False, on_setattr=frozen)
 
-    duration: int = field(init=False, on_setattr=knob_setter)
+    duration: int = field(init=False, on_setattr=_knob_setter)
     max_duration: int = field(init=False)
     min_duration: int = field(init=False)
     assigned_knob: KnobT = field(init=False)
@@ -251,6 +257,6 @@ class DummyOperation(Operation):
         """Return a readable string representation."""
         return "DummyOperation()"
 
-    def get_cost(self, duration: int | None = None) -> float:
+    def get_cost(self, _: int | None = None) -> float:
         """No cost for dummy operations."""
         raise AttributeError("DummyOperation has no cost.")
