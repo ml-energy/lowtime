@@ -279,6 +279,9 @@ def aoa_to_critical_dag(aoa_dag: nx.DiGraph, attr_name: str = "op") -> nx.DiGrap
         - The graph has only one source node, annotated as "source_node" on the graph.
         - The graph has only one sink node, annotated as "sink_node" on the graph.
     """
+    if not nx.is_directed_acyclic_graph(aoa_dag):
+        raise ValueError("The given graph is not a DAG.")
+
     # Clear all earliest/latest start/end times.
     for _, _, edge_attr in aoa_dag.edges(data=True):
         operation: Operation = edge_attr[attr_name]

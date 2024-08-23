@@ -8,5 +8,5 @@ else
   black --check lowtime
 fi
 
-ruff lowtime
+ruff check lowtime
 pyright lowtime

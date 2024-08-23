@@ -197,6 +197,10 @@ class ExponentialModel(CostModel):
             if error == np.inf:
                 continue
 
+            # The exponential model must be convex.
+            if opt_a < 0.0:
+                continue
+
             # We have coefficients that somewhat fit the data.
             logger.info(
                 "Initial guess %s fit with coefficients %s and error %f.",
@@ -224,6 +228,6 @@ class ExponentialModel(CostModel):
         return best_coefficients
 
     @lru_cache
-    def __call__(self, quant_time: int) -> float:
+    def __call__(self, quant_time: int) -> float:  # pyright: ignore
         """Predict execution cost given quantized time."""
         return self.fn(quant_time, *self.coefficients)

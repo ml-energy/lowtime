@@ -94,9 +94,12 @@ class CandidateExecutionOptions(Generic[KnobT]):
 
     Args:
         options: All candidate execution options of the operation.
+        noise_factor: A factor to multiply `real_time` and `cost` by to allow some slack.
+
     """
 
     options: list[ExecutionOption[KnobT]]
+    noise_factor: float = 1.0
     _knob_cache: dict[int, KnobT] = field(init=False, repr=False, factory=dict)
 
     def __attrs_post_init__(self) -> None:
@@ -105,8 +108,10 @@ class CandidateExecutionOptions(Generic[KnobT]):
         orig_options = sorted(self.options, key=lambda x: x.real_time, reverse=True)
         filtered_options: list[ExecutionOption[KnobT]] = []
         for option in orig_options:
+            real_time = option.real_time * self.noise_factor
+            cost = option.cost * self.noise_factor
             if any(
-                other.real_time < option.real_time and other.cost < option.cost
+                other.real_time < real_time and other.cost < cost
                 for other in orig_options
             ):
                 continue
@@ -215,7 +220,7 @@ class Operation(Generic[KnobT]):
         self.min_duration = min(quant_times)
 
         # By default, execute with the slowest speed. `assigned_knob` will
-        # automatically be set by `duration_setter`.
+        # automatically be set by `_knob_setter`.
         self.duration = self.max_duration
 
     def __str__(self) -> str:
@@ -257,6 +262,6 @@ class DummyOperation(Operation):
         """Return a readable string representation."""
         return "DummyOperation()"
 
-    def get_cost(self, _: int | None = None) -> float:
+    def get_cost(self, _: int | None = None) -> float:  # pyright: ignore
         """No cost for dummy operations."""
         raise AttributeError("DummyOperation has no cost.")

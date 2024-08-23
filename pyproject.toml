@@ -48,6 +48,9 @@ include = ["lowtime*"]
 exclude = ["examples", "scripts", "stubs", "tests"]
 
 [tool.ruff]
+line-length = 120
+
+[tool.ruff.lint]
 select = [
   "E",   # pycodestyle error
   "F",   # pyflakes
@@ -69,12 +72,11 @@ ignore = [
   "SIM115",   # Context manager for opening files
   "E501",     # Line too long
 ]
-line-length = 120
 
-[tool.ruff.pydocstyle]
+[tool.ruff.lint.pydocstyle]
 convention = "google"
 
-[tool.ruff.per-file-ignores]
+[tool.ruff.lint.per-file-ignores]
 "**/__init__.py" = ["F401", "F403"]
 
 [tool.pyright]
