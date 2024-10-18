@@ -1,14 +1,111 @@
 use pyo3::prelude::*;
 
-/// Formats the sum of two numbers as string.
-#[pyfunction]
-fn sum_as_string(a: usize, b: usize) -> PyResult<String> {
-    Ok((a + b).to_string())
+use ordered_float::OrderedFloat;
+use pathfinding::directed::edmonds_karp::{
+    SparseCapacity,
+    Edge,
+    edmonds_karp
+};
+
+// for profiling
+use std::time::{
+    Instant,
+    Duration,
+};
+use log::info;
+
+
+#[pyclass]
+struct PhillipsDessouky {
+    #[pyo3(get)]
+    node_ids: Vec<u32>,
+    source_node_id: u32,
+    sink_node_id: u32,
+    edges_raw: Vec<((u32, u32), f64)>,
 }
 
-/// A Python module implemented in Rust.
+#[pymethods]
+impl PhillipsDessouky {
+    #[new]
+    fn new(
+        node_ids: Vec<u32>,
+        source_node_id: u32,
+        sink_node_id: u32,
+        edges_raw: Vec<((u32, u32), f64)>,
+    ) -> PyResult<Self> {
+        // Note: Intentionally nothing done here to profile data transfer latency
+
+        // ohjun: do we actually need to return this? This is unncessary data transfer from Rust->Python
+        // Instead, why not have a type that stores a pointer to a PhillipsDessouky, and we can just
+        // send the outer type? This way, Python can use the object to call max_flow and things, but
+        // we can avoid returning all this data here?
+        Ok(PhillipsDessouky {
+            node_ids: node_ids,
+            source_node_id: source_node_id,
+            sink_node_id: sink_node_id,
+            edges_raw: edges_raw,
+        })
+    }
+
+    fn max_flow(&self) -> PyResult<Vec<((u32, u32), f64)>> {
+        let mut profiling_start;
+        let mut profiling_end;
+        // let SCALING_FACTOR: f64 = 1000000000.0;
+
+        profiling_start = Instant::now();
+        // let edges_edmonds_karp: Vec<Edge<u32, i64>> = self.edges_raw.iter().map(|((from, to), cap)| {
+        //     ((*from, *to), (*cap * SCALING_FACTOR) as i64)
+        // }).collect();
+        let edges_edmonds_karp: Vec<Edge<u32, OrderedFloat<f64>>> = self.edges_raw.iter().map(|((from, to), cap)| {
+            ((*from, *to), OrderedFloat(*cap))
+        }).collect();
+        profiling_end = Instant::now();
+        // info!("PROFILING Rust_PhillipsDessouky::max_flow scaling to i64 time: {:.10}s", PhillipsDessouky::profile_duration(profiling_start, profiling_end));
+        info!("PROFILING Rust_PhillipsDessouky::max_flow scaling to OrderedFloat time: {:.10}s", PhillipsDessouky::profile_duration(profiling_start, profiling_end));
+
+        profiling_start = Instant::now();
+        let (flows, _max_flow, _min_cut) = edmonds_karp::<_, _, _, SparseCapacity<_>>(
+            &self.node_ids,
+            &self.source_node_id,
+            &self.sink_node_id,
+            edges_edmonds_karp,
+        );
+        profiling_end = Instant::now();
+        info!("PROFILING Rust_PhillipsDessouky::max_flow edmonds_karp time: {:.10}s", PhillipsDessouky::profile_duration(profiling_start, profiling_end));
+
+        profiling_start = Instant::now();
+        // let flows_f64: Vec<((u32, u32), f64)> = flows.iter().map(|((from, to), flow)| {
+        //     ((*from, *to), *flow as f64 / SCALING_FACTOR)
+        // }).collect();
+        let flows_f64: Vec<((u32, u32), f64)> = flows.iter().map(|((from, to), flow)| {
+            ((*from, *to), flow.into_inner())
+        }).collect();
+        profiling_end = Instant::now();
+        // info!("PROFILING Rust_PhillipsDessouky::max_flow reformat i64 to f64 time: {:.10}s", PhillipsDessouky::profile_duration(profiling_start, profiling_end));
+        info!("PROFILING Rust_PhillipsDessouky::max_flow reformat OrderedFloat to f64 time: {:.10}s", PhillipsDessouky::profile_duration(profiling_start, profiling_end));
+
+        Ok(flows_f64)
+    }
+}
+
+// Private to Rust, not exposed to Python
+impl PhillipsDessouky {
+    fn profile_duration(start: Instant, end: Instant) -> f64 {
+        let duration: Duration = end.duration_since(start);
+        let seconds = duration.as_secs();
+        let subsec_nanos = duration.subsec_nanos();
+
+        let fractional_seconds = subsec_nanos as f64 / 1_000_000_000.0;
+        let total_seconds = seconds as f64 + fractional_seconds;
+
+        return total_seconds;
+    }
+}
+
+// A Python module implemented in Rust.
 #[pymodule]
 fn lowtime_rust(m: &Bound<'_, PyModule>) -> PyResult<()> {
-    m.add_function(wrap_pyfunction!(sum_as_string, m)?)?;
+    pyo3_log::init();  // send Rust logs to Python logging system
+    m.add_class::<PhillipsDessouky>()?;
     Ok(())
 }
