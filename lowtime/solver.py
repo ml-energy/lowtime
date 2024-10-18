@@ -210,7 +210,9 @@ class PhillipsDessouky:
         logger.info("Expected number of PD iterations: %d", num_iters)
 
         profiling_setup = time.time() - profiling_setup
-        logger.info("PROFILING PhillipsDessouky::run set up time: %.10fs", profiling_setup)
+        logger.info(
+            "PROFILING PhillipsDessouky::run set up time: %.10fs", profiling_setup
+        )
 
         # Iteratively reduce the execution time of the DAG.
         for iteration in range(sys.maxsize):
@@ -240,7 +242,10 @@ class PhillipsDessouky:
             profiling_annotate = time.time()
             self.annotate_capacities(critical_dag)
             profiling_annotate = time.time() - profiling_annotate
-            logger.info("PROFILING PhillipsDessouky::annotate_capacities time: %.10fs", profiling_annotate)
+            logger.info(
+                "PROFILING PhillipsDessouky::annotate_capacities time: %.10fs",
+                profiling_annotate,
+            )
 
             if logger.isEnabledFor(logging.DEBUG):
                 logger.debug("Capacity DAG:")
@@ -257,7 +262,10 @@ class PhillipsDessouky:
                 profiling_min_cut = time.time()
                 s_set, t_set = self.find_min_cut(critical_dag)
                 profiling_min_cut = time.time() - profiling_min_cut
-                logger.info("PROFILING PhillipsDessouky::find_min_cut time: %.10fs", profiling_min_cut)
+                logger.info(
+                    "PROFILING PhillipsDessouky::find_min_cut time: %.10fs",
+                    profiling_min_cut,
+                )
             except LowtimeFlowError as e:
                 logger.info("Could not find minimum cut: %s", e.message)
                 logger.info("Terminating PD iteration.")
@@ -266,7 +274,10 @@ class PhillipsDessouky:
             profiling_reduce = time.time()
             cost_change = self.reduce_durations(critical_dag, s_set, t_set)
             profiling_reduce = time.time() - profiling_reduce
-            logger.info("PROFILING PhillipsDessouky::reduce_durations time: %.10fs", profiling_reduce)
+            logger.info(
+                "PROFILING PhillipsDessouky::reduce_durations time: %.10fs",
+                profiling_reduce,
+            )
 
             if cost_change == float("inf") or abs(cost_change) < FP_ERROR:
                 logger.info("No further time reduction possible.")
@@ -289,7 +300,10 @@ class PhillipsDessouky:
             )
             logger.info("%s", result)
             profiling_iter = time.time() - profiling_iter
-            logger.info("PROFILING PhillipsDessouky::run single iteration time: %.10fs", profiling_iter)
+            logger.info(
+                "PROFILING PhillipsDessouky::run single iteration time: %.10fs",
+                profiling_iter,
+            )
             yield result
 
     def reduce_durations(
@@ -416,7 +430,10 @@ class PhillipsDessouky:
         )
 
         profiling_min_cut_setup = time.time() - profiling_min_cut_setup
-        logger.info("PROFILING PhillipsDessouky::find_min_cut setup time: %.10fs", profiling_min_cut_setup)
+        logger.info(
+            "PROFILING PhillipsDessouky::find_min_cut setup time: %.10fs",
+            profiling_min_cut_setup,
+        )
 
         # We're done with constructing the DAG with only flow upper bounds.
         # Find the maximum flow on this DAG.
@@ -424,12 +441,22 @@ class PhillipsDessouky:
             profiling_max_flow = time.time()
             # ohjun: convert to Rust types
             nodes = unbound_dag.nodes
-            edges = [((u, v), cap) for (u, v), cap in nx.get_edge_attributes(unbound_dag, "capacity").items()]
-           
-            profiling_data_transfer = time.time() 
-            rust_dag = lowtime_rust.PhillipsDessouky(nodes, s_prime_id, t_prime_id, edges)
+            edges = [
+                ((u, v), cap)
+                for (u, v), cap in nx.get_edge_attributes(
+                    unbound_dag, "capacity"
+                ).items()
+            ]
+
+            profiling_data_transfer = time.time()
+            rust_dag = lowtime_rust.PhillipsDessouky(
+                nodes, s_prime_id, t_prime_id, edges
+            )
             profiling_data_transfer = time.time() - profiling_data_transfer
-            logger.info("PROFILING PhillipsDessouky::find_min_cut data transfer time: %.10fs", profiling_data_transfer)
+            logger.info(
+                "PROFILING PhillipsDessouky::find_min_cut data transfer time: %.10fs",
+                profiling_data_transfer,
+            )
 
             rust_flow_vec = rust_dag.max_flow()
             # _, flow_dict = nx.maximum_flow(
@@ -452,7 +479,10 @@ class PhillipsDessouky:
                 flow_dict[u][v] = cap
 
             profiling_max_flow = time.time() - profiling_max_flow
-            logger.info("PROFILING PhillipsDessouky::find_min_cut maximum_flow_1 time: %.10fs", profiling_max_flow)
+            logger.info(
+                "PROFILING PhillipsDessouky::find_min_cut maximum_flow_1 time: %.10fs",
+                profiling_max_flow,
+            )
         except nx.NetworkXUnbounded as e:
             raise LowtimeFlowError("ERROR: Infinite flow for unbounded DAG.") from e
 
@@ -516,8 +546,13 @@ class PhillipsDessouky:
             else:
                 residual_graph.add_edge(v, u, capacity=capacity)
 
-        profiling_min_cut_between_max_flows = time.time() - profiling_min_cut_between_max_flows
-        logger.info("PROFILING PhillipsDessouky::find_min_cut between max flows time: %.10fs", profiling_min_cut_between_max_flows)
+        profiling_min_cut_between_max_flows = (
+            time.time() - profiling_min_cut_between_max_flows
+        )
+        logger.info(
+            "PROFILING PhillipsDessouky::find_min_cut between max flows time: %.10fs",
+            profiling_min_cut_between_max_flows,
+        )
 
         # Run max flow on the new residual graph.
         try:
@@ -530,7 +565,10 @@ class PhillipsDessouky:
                 flow_func=edmonds_karp,
             )
             profiling_max_flow = time.time() - profiling_max_flow
-            logger.info("PROFILING PhillipsDessouky::find_min_cut maximum_flow_2 time: %.10fs", profiling_max_flow)
+            logger.info(
+                "PROFILING PhillipsDessouky::find_min_cut maximum_flow_2 time: %.10fs",
+                profiling_max_flow,
+            )
         except nx.NetworkXUnbounded as e:
             raise LowtimeFlowError(
                 "ERROR: Infinite flow on capacity residual graph."
@@ -577,8 +615,13 @@ class PhillipsDessouky:
                     q.append(child_id)
         t_set = set(new_residual.nodes) - s_set
 
-        profiling_min_cut_after_max_flows = time.time() - profiling_min_cut_after_max_flows
-        logger.info("PROFILING PhillipsDessouky::find_min_cut after max flows time: %.10fs", profiling_min_cut_after_max_flows)
+        profiling_min_cut_after_max_flows = (
+            time.time() - profiling_min_cut_after_max_flows
+        )
+        logger.info(
+            "PROFILING PhillipsDessouky::find_min_cut after max flows time: %.10fs",
+            profiling_min_cut_after_max_flows,
+        )
 
         return s_set, t_set
 
