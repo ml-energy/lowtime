@@ -35,6 +35,7 @@ from lowtime.graph_utils import (
     get_total_cost,
 )
 from lowtime.exceptions import LowtimeFlowError
+import lowtime_rust
 
 FP_ERROR = 1e-6
 
@@ -421,13 +422,35 @@ class PhillipsDessouky:
         # Find the maximum flow on this DAG.
         try:
             profiling_max_flow = time.time()
-            _, flow_dict = nx.maximum_flow(
-                unbound_dag,
-                s_prime_id,
-                t_prime_id,
-                capacity="capacity",
-                flow_func=edmonds_karp,
-            )
+            # ohjun: convert to Rust types
+            nodes = unbound_dag.nodes
+            edges = [((u, v), cap) for (u, v), cap in nx.get_edge_attributes(unbound_dag, "capacity").items()]
+           
+            profiling_data_transfer = time.time() 
+            rust_dag = lowtime_rust.PhillipsDessouky(nodes, s_prime_id, t_prime_id, edges)
+            profiling_data_transfer = time.time() - profiling_data_transfer
+            logger.info("PROFILING PhillipsDessouky::find_min_cut data transfer time: %.10fs", profiling_data_transfer)
+
+            rust_flow_vec = rust_dag.max_flow()
+            # _, flow_dict = nx.maximum_flow(
+            #     unbound_dag,
+            #     s_prime_id,
+            #     t_prime_id,
+            #     capacity="capacity",
+            #     flow_func=edmonds_karp,
+            # )
+            flow_dict = dict()
+            # ohjun: technicality. Rust's pathfinding::edmonds_karp doesn't
+            # return edges with 0 flow, but nx.max_flow does. So we fill in
+            # the 0s and empty nodes.
+            for u in unbound_dag.nodes:
+                flow_dict[u] = dict()
+                for v in unbound_dag.successors(u):
+                    flow_dict[u][v] = 0.0
+
+            for (u, v), cap in rust_flow_vec:
+                flow_dict[u][v] = cap
+
             profiling_max_flow = time.time() - profiling_max_flow
             logger.info("PROFILING PhillipsDessouky::find_min_cut maximum_flow_1 time: %.10fs", profiling_max_flow)
         except nx.NetworkXUnbounded as e:
