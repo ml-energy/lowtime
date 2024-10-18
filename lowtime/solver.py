@@ -436,7 +436,9 @@ class PhillipsDessouky:
         )
 
         # Helper function for Rust interop
-        def format_rust_inputs(dag: nx.DiGraph) -> tuple[nx.NodeView, list[tuple[tuple[int, int], np.float64]]]:
+        def format_rust_inputs(
+            dag: nx.DiGraph,
+        ) -> tuple[nx.NodeView, list[tuple[tuple[int, int], np.float64]]]:
             nodes = unbound_dag.nodes
             edges = [
                 ((u, v), cap)
@@ -447,7 +449,9 @@ class PhillipsDessouky:
 
         # Helper function for Rust interop
         # Note: this returns flows as float, not np.float64
-        def reformat_rust_flow_to_dict(flow_vec: list[tuple[tuple[int, int], float]], dag: nx.DiGraph) -> dict[int, dict[int, float]]:
+        def reformat_rust_flow_to_dict(
+            flow_vec: list[tuple[tuple[int, int], float]], dag: nx.DiGraph
+        ) -> dict[int, dict[int, float]]:
             # ohjun: technicality. Rust's pathfinding::edmonds_karp doesn't
             # return edges with 0 flow, but nx.max_flow does. So we fill in
             # the 0s and empty nodes.
@@ -459,7 +463,7 @@ class PhillipsDessouky:
 
             for (u, v), cap in flow_vec:
                 flow_dict[u][v] = cap
-            
+
             return flow_dict
 
         # We're done with constructing the DAG with only flow upper bounds.
