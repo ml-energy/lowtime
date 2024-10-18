@@ -469,6 +469,19 @@ class PhillipsDessouky:
         # We're done with constructing the DAG with only flow upper bounds.
         # Find the maximum flow on this DAG.
         try:
+            # profiling_max_flow = time.time()
+            # _, flow_dict = nx.maximum_flow(
+            #     unbound_dag,
+            #     s_prime_id,
+            #     t_prime_id,
+            #     capacity="capacity",
+            #     flow_func=edmonds_karp,
+            # )
+            # profiling_max_flow = time.time() - profiling_max_flow
+            # logger.info(
+            #     "PROFILING PhillipsDessouky::find_min_cut maximum_flow_1 time: %.10fs",
+            #     profiling_max_flow,
+            # )
             profiling_max_flow = time.time()
             nodes, edges = format_rust_inputs(unbound_dag)
 
