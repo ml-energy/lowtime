@@ -40,10 +40,10 @@ impl PhillipsDessouky {
         // send the outer type? This way, Python can use the object to call max_flow and things, but
         // we can avoid returning all this data here?
         Ok(PhillipsDessouky {
-            node_ids: node_ids,
-            source_node_id: source_node_id,
-            sink_node_id: sink_node_id,
-            edges_raw: edges_raw,
+            node_ids,
+            source_node_id,
+            sink_node_id,
+            edges_raw,
         })
     }
 
