@@ -578,40 +578,40 @@ class PhillipsDessouky:
 
         # Run max flow on the new residual graph.
         try:
-            # profiling_max_flow = time.time()
-            # _, flow_dict = nx.maximum_flow(
-            #     residual_graph,
-            #     source_node,
-            #     sink_node,
-            #     capacity="capacity",
-            #     flow_func=edmonds_karp,
-            # )
-            # profiling_max_flow = time.time() - profiling_max_flow
-            # logger.info(
-            #     "PROFILING PhillipsDessouky::find_min_cut maximum_flow_2 time: %.10fs",
-            #     profiling_max_flow,
-            # )
             profiling_max_flow = time.time()
-            nodes, edges = format_rust_inputs(residual_graph)
-
-            profiling_data_transfer = time.time()
-            rust_dag = lowtime_rust.PhillipsDessouky(
-                nodes, source_node, sink_node, edges
+            _, flow_dict = nx.maximum_flow(
+                residual_graph,
+                source_node,
+                sink_node,
+                capacity="capacity",
+                flow_func=edmonds_karp,
             )
-            profiling_data_transfer = time.time() - profiling_data_transfer
-            logger.info(
-                "PROFILING PhillipsDessouky::find_min_cut data transfer 2 time: %.10fs",
-                profiling_data_transfer,
-            )
-
-            rust_flow_vec = rust_dag.max_flow()
-            flow_dict = reformat_rust_flow_to_dict(rust_flow_vec, residual_graph)
-
             profiling_max_flow = time.time() - profiling_max_flow
             logger.info(
                 "PROFILING PhillipsDessouky::find_min_cut maximum_flow_2 time: %.10fs",
                 profiling_max_flow,
             )
+            # profiling_max_flow = time.time()
+            # nodes, edges = format_rust_inputs(residual_graph)
+
+            # profiling_data_transfer = time.time()
+            # rust_dag = lowtime_rust.PhillipsDessouky(
+            #     nodes, source_node, sink_node, edges
+            # )
+            # profiling_data_transfer = time.time() - profiling_data_transfer
+            # logger.info(
+            #     "PROFILING PhillipsDessouky::find_min_cut data transfer 2 time: %.10fs",
+            #     profiling_data_transfer,
+            # )
+
+            # rust_flow_vec = rust_dag.max_flow()
+            # flow_dict = reformat_rust_flow_to_dict(rust_flow_vec, residual_graph)
+
+            # profiling_max_flow = time.time() - profiling_max_flow
+            # logger.info(
+            #     "PROFILING PhillipsDessouky::find_min_cut maximum_flow_2 time: %.10fs",
+            #     profiling_max_flow,
+            # )
         # TODO(ohjun): replace to handle Rust-side pyo3 exception
         except nx.NetworkXUnbounded as e:
             raise LowtimeFlowError(
