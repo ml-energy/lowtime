@@ -48,40 +48,28 @@ impl PhillipsDessouky {
     }
 
     fn max_flow(&self) -> PyResult<Vec<((u32, u32), f64)>> {
-        let mut profiling_start;
-        let mut profiling_end;
-        // let SCALING_FACTOR: f64 = 1000000000.0;
-
-        profiling_start = Instant::now();
-        // let edges_edmonds_karp: Vec<Edge<u32, i64>> = self.edges_raw.iter().map(|((from, to), cap)| {
-        //     ((*from, *to), (*cap * SCALING_FACTOR) as i64)
-        // }).collect();
+        let profiling_start = Instant::now();
         let edges_edmonds_karp: Vec<Edge<u32, OrderedFloat<f64>>> = self.edges_raw.iter().map(|((from, to), cap)| {
             ((*from, *to), OrderedFloat(*cap))
         }).collect();
-        profiling_end = Instant::now();
-        // info!("PROFILING Rust_PhillipsDessouky::max_flow scaling to i64 time: {:.10}s", PhillipsDessouky::profile_duration(profiling_start, profiling_end));
+        let profiling_end = Instant::now();
         info!("PROFILING Rust_PhillipsDessouky::max_flow scaling to OrderedFloat time: {:.10}s", PhillipsDessouky::profile_duration(profiling_start, profiling_end));
 
-        profiling_start = Instant::now();
+        let profiling_start = Instant::now();
         let (flows, _max_flow, _min_cut) = edmonds_karp::<_, _, _, SparseCapacity<_>>(
             &self.node_ids,
             &self.source_node_id,
             &self.sink_node_id,
             edges_edmonds_karp,
         );
-        profiling_end = Instant::now();
+        let profiling_end = Instant::now();
         info!("PROFILING Rust_PhillipsDessouky::max_flow edmonds_karp time: {:.10}s", PhillipsDessouky::profile_duration(profiling_start, profiling_end));
 
-        profiling_start = Instant::now();
-        // let flows_f64: Vec<((u32, u32), f64)> = flows.iter().map(|((from, to), flow)| {
-        //     ((*from, *to), *flow as f64 / SCALING_FACTOR)
-        // }).collect();
+        let profiling_start = Instant::now();
         let flows_f64: Vec<((u32, u32), f64)> = flows.iter().map(|((from, to), flow)| {
             ((*from, *to), flow.into_inner())
         }).collect();
-        profiling_end = Instant::now();
-        // info!("PROFILING Rust_PhillipsDessouky::max_flow reformat i64 to f64 time: {:.10}s", PhillipsDessouky::profile_duration(profiling_start, profiling_end));
+        let profiling_end = Instant::now();
         info!("PROFILING Rust_PhillipsDessouky::max_flow reformat OrderedFloat to f64 time: {:.10}s", PhillipsDessouky::profile_duration(profiling_start, profiling_end));
 
         Ok(flows_f64)
