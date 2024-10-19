@@ -439,13 +439,14 @@ class PhillipsDessouky:
         def format_rust_inputs(
             dag: nx.DiGraph,
         ) -> tuple[nx.NodeView, list[tuple[tuple[int, int], np.float64]]]:
-            nodes = unbound_dag.nodes
+            nodes = dag.nodes
             edges = [
                 ((u, v), cap)
                 for (u, v), cap in nx.get_edge_attributes(
-                    unbound_dag, "capacity"
+                    dag, "capacity"
                 ).items()
             ]
+            return nodes, edges
 
         # Helper function for Rust interop
         # Note: this returns flows as float, not np.float64
@@ -604,7 +605,7 @@ class PhillipsDessouky:
             )
 
             rust_flow_vec = rust_dag.max_flow()
-            flow_dict = reformat_rust_flow_to_dict(rust_flow_vec, unbound_dag)
+            flow_dict = reformat_rust_flow_to_dict(rust_flow_vec, residual_graph)
 
             profiling_max_flow = time.time() - profiling_max_flow
             logger.info(
