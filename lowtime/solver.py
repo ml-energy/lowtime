@@ -24,7 +24,6 @@ from collections import deque
 from collections.abc import Generator
 
 import networkx as nx
-from networkx.algorithms.flow import edmonds_karp
 from attrs import define, field
 
 from lowtime.operation import Operation
@@ -438,7 +437,7 @@ class PhillipsDessouky:
         # Helper function for Rust interop
         def format_rust_inputs(
             dag: nx.DiGraph,
-        ) -> tuple[nx.NodeView, list[tuple[tuple[int, int], np.float64]]]:
+        ) -> tuple[nx.NodeView, list[tuple[tuple[int, int], float]]]:
             nodes = dag.nodes
             edges = [
                 ((u, v), cap)
@@ -447,13 +446,11 @@ class PhillipsDessouky:
             return nodes, edges
 
         # Helper function for Rust interop
-        # Note: this returns flows as float, not np.float64
+        # Rust's pathfinding::edmonds_karp does not return edges with 0 flow,
+        # but nx.max_flow does. So we fill in the 0s and empty nodes.
         def reformat_rust_flow_to_dict(
             flow_vec: list[tuple[tuple[int, int], float]], dag: nx.DiGraph
         ) -> dict[int, dict[int, float]]:
-            # ohjun: technicality. Rust's pathfinding::edmonds_karp doesn't
-            # return edges with 0 flow, but nx.max_flow does. So we fill in
-            # the 0s and empty nodes.
             flow_dict = dict()
             for u in dag.nodes:
                 flow_dict[u] = dict()

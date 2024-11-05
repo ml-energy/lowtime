@@ -7,7 +7,6 @@ use pathfinding::directed::edmonds_karp::{
     edmonds_karp
 };
 
-// for profiling
 use std::time::{
     Instant,
     Duration,
@@ -33,12 +32,6 @@ impl PhillipsDessouky {
         sink_node_id: u32,
         edges_raw: Vec<((u32, u32), f64)>,
     ) -> PyResult<Self> {
-        // Note: Intentionally nothing done here to profile data transfer latency
-
-        // ohjun: do we actually need to return this? This is unncessary data transfer from Rust->Python
-        // Instead, why not have a type that stores a pointer to a PhillipsDessouky, and we can just
-        // send the outer type? This way, Python can use the object to call max_flow and things, but
-        // we can avoid returning all this data here?
         Ok(PhillipsDessouky {
             node_ids,
             source_node_id,
@@ -93,7 +86,7 @@ impl PhillipsDessouky {
 // A Python module implemented in Rust.
 #[pymodule]
 fn lowtime_rust(m: &Bound<'_, PyModule>) -> PyResult<()> {
-    pyo3_log::init();  // send Rust logs to Python logging system
+    pyo3_log::init();  // send Rust logs to Python logger
     m.add_class::<PhillipsDessouky>()?;
     Ok(())
 }
