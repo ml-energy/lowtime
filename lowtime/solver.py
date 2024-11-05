@@ -34,7 +34,7 @@ from lowtime.graph_utils import (
     get_total_cost,
 )
 from lowtime.exceptions import LowtimeFlowError
-import lowtime_rs
+from lowtime import _lowtime_rs
 
 FP_ERROR = 1e-6
 
@@ -468,7 +468,7 @@ class PhillipsDessouky:
         nodes, edges = format_rust_inputs(unbound_dag)
 
         profiling_data_transfer = time.time()
-        rust_dag = lowtime_rs.PhillipsDessouky(nodes, s_prime_id, t_prime_id, edges)
+        rust_dag = _lowtime_rs.PhillipsDessouky(nodes, s_prime_id, t_prime_id, edges)
         profiling_data_transfer = time.time() - profiling_data_transfer
         logger.info(
             "PROFILING PhillipsDessouky::find_min_cut data transfer time: %.10fs",
@@ -562,7 +562,7 @@ class PhillipsDessouky:
         nodes, edges = format_rust_inputs(residual_graph)
 
         profiling_data_transfer = time.time()
-        rust_dag = lowtime_rs.PhillipsDessouky(nodes, source_node, sink_node, edges)
+        rust_dag = _lowtime_rs.PhillipsDessouky(nodes, source_node, sink_node, edges)
         profiling_data_transfer = time.time() - profiling_data_transfer
         logger.info(
             "PROFILING PhillipsDessouky::find_min_cut data transfer 2 time: %.10fs",
