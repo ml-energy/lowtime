@@ -437,7 +437,9 @@ class PhillipsDessouky:
         # Helper function for Rust interop
         def format_rust_inputs(
             dag: nx.DiGraph,
-        ) -> tuple[nx.NodeView, list[tuple[tuple[int, int], float]]]:
+        ) -> tuple[
+            nx.classes.reportviews.NodeView, list[tuple[tuple[int, int], float]]
+        ]:
             nodes = dag.nodes
             edges = [
                 ((u, v), cap)
