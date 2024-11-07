@@ -83,7 +83,6 @@ impl PhillipsDessouky {
     }
 }
 
-// A Python module implemented in Rust.
 #[pymodule]
 fn _lowtime_rs(m: &Bound<'_, PyModule>) -> PyResult<()> {
     pyo3_log::init();  // send Rust logs to Python logger
