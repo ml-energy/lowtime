@@ -1,5 +1,6 @@
 use pyo3::prelude::*;
 
+mod utils;
 mod phillips_dessouky;
 use phillips_dessouky::PhillipsDessouky;
 
