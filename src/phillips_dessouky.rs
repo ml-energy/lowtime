@@ -16,7 +16,6 @@ use log::info;
 
 #[pyclass]
 pub struct PhillipsDessouky {
-    #[pyo3(get)]
     node_ids: Vec<u32>,
     source_node_id: u32,
     sink_node_id: u32,
