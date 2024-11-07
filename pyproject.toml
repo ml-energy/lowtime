@@ -9,6 +9,7 @@ readme = "README.md"
 authors = [
     {name = "Jae-Won Chung", email = "jwnchung@umich.edu"},
     {name = "Yile Gu", email = "yilegu@umich.edu"},
+    {name = "Oh Jun Kweon", email = "ohjun@umich.edu"},
 ]
 license = {text = "Apache 2.0"}
 classifiers = [
