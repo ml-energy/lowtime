@@ -7,10 +7,7 @@ use pathfinding::directed::edmonds_karp::{
     edmonds_karp
 };
 
-use std::time::{
-    Instant,
-    Duration,
-};
+use std::time::{Instant, Duration};
 use log::info;
 
 
