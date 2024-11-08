@@ -17,13 +17,13 @@
 
 from __future__ import annotations
 
+import time
 import sys
 import logging
 from collections import deque
 from collections.abc import Generator
 
 import networkx as nx
-from networkx.algorithms.flow import edmonds_karp
 from attrs import define, field
 
 from lowtime.operation import Operation
@@ -34,6 +34,7 @@ from lowtime.graph_utils import (
     get_total_cost,
 )
 from lowtime.exceptions import LowtimeFlowError
+from lowtime import _lowtime_rs
 
 FP_ERROR = 1e-6
 
@@ -171,6 +172,7 @@ class PhillipsDessouky:
         of all operations are up to date w.r.t. the `duration` of each operation.
         """
         logger.info("Starting Phillips-Dessouky solver.")
+        profiling_setup = time.time()
 
         # Convert the original activity-on-node DAG to activity-on-arc DAG form.
         # AOA DAGs are purely internal. All public input and output of this class
@@ -206,9 +208,15 @@ class PhillipsDessouky:
         num_iters = max_time - min_time + 1
         logger.info("Expected number of PD iterations: %d", num_iters)
 
+        profiling_setup = time.time() - profiling_setup
+        logger.info(
+            "PROFILING PhillipsDessouky::run set up time: %.10fs", profiling_setup
+        )
+
         # Iteratively reduce the execution time of the DAG.
         for iteration in range(sys.maxsize):
             logger.info(">>> Beginning iteration %d/%d", iteration + 1, num_iters)
+            profiling_iter = time.time()
 
             # At this point, `critical_dag` always exists and is what we want.
             # For the first iteration, the critical DAG is computed before the for
@@ -230,7 +238,14 @@ class PhillipsDessouky:
                     sum(op.duration for op in non_dummy_ops),
                 )
 
+            profiling_annotate = time.time()
             self.annotate_capacities(critical_dag)
+            profiling_annotate = time.time() - profiling_annotate
+            logger.info(
+                "PROFILING PhillipsDessouky::annotate_capacities time: %.10fs",
+                profiling_annotate,
+            )
+
             if logger.isEnabledFor(logging.DEBUG):
                 logger.debug("Capacity DAG:")
                 logger.debug(
@@ -243,13 +258,26 @@ class PhillipsDessouky:
                 )
 
             try:
+                profiling_min_cut = time.time()
                 s_set, t_set = self.find_min_cut(critical_dag)
+                profiling_min_cut = time.time() - profiling_min_cut
+                logger.info(
+                    "PROFILING PhillipsDessouky::find_min_cut time: %.10fs",
+                    profiling_min_cut,
+                )
             except LowtimeFlowError as e:
                 logger.info("Could not find minimum cut: %s", e.message)
                 logger.info("Terminating PD iteration.")
                 break
 
+            profiling_reduce = time.time()
             cost_change = self.reduce_durations(critical_dag, s_set, t_set)
+            profiling_reduce = time.time() - profiling_reduce
+            logger.info(
+                "PROFILING PhillipsDessouky::reduce_durations time: %.10fs",
+                profiling_reduce,
+            )
+
             if cost_change == float("inf") or abs(cost_change) < FP_ERROR:
                 logger.info("No further time reduction possible.")
                 logger.info("Terminating PD iteration.")
@@ -270,6 +298,11 @@ class PhillipsDessouky:
                 unit_time=self.unit_time,
             )
             logger.info("%s", result)
+            profiling_iter = time.time() - profiling_iter
+            logger.info(
+                "PROFILING PhillipsDessouky::run single iteration time: %.10fs",
+                profiling_iter,
+            )
             yield result
 
     def reduce_durations(
@@ -341,6 +374,7 @@ class PhillipsDessouky:
         Raises:
             LowtimeFlowError: When no feasible flow exists.
         """
+        profiling_min_cut_setup = time.time()
         source_node = dag.graph["source_node"]
         sink_node = dag.graph["sink_node"]
 
@@ -394,18 +428,63 @@ class PhillipsDessouky:
             capacity=float("inf"),
         )
 
+        profiling_min_cut_setup = time.time() - profiling_min_cut_setup
+        logger.info(
+            "PROFILING PhillipsDessouky::find_min_cut setup time: %.10fs",
+            profiling_min_cut_setup,
+        )
+
+        # Helper function for Rust interop
+        def format_rust_inputs(
+            dag: nx.DiGraph,
+        ) -> tuple[
+            nx.classes.reportviews.NodeView, list[tuple[tuple[int, int], float]]
+        ]:
+            nodes = dag.nodes
+            edges = [
+                ((u, v), cap)
+                for (u, v), cap in nx.get_edge_attributes(dag, "capacity").items()
+            ]
+            return nodes, edges
+
+        # Helper function for Rust interop
+        # Rust's pathfinding::edmonds_karp does not return edges with 0 flow,
+        # but nx.max_flow does. So we fill in the 0s and empty nodes.
+        def reformat_rust_flow_to_dict(
+            flow_vec: list[tuple[tuple[int, int], float]], dag: nx.DiGraph
+        ) -> dict[int, dict[int, float]]:
+            flow_dict = dict()
+            for u in dag.nodes:
+                flow_dict[u] = dict()
+                for v in dag.successors(u):
+                    flow_dict[u][v] = 0.0
+
+            for (u, v), cap in flow_vec:
+                flow_dict[u][v] = cap
+
+            return flow_dict
+
         # We're done with constructing the DAG with only flow upper bounds.
         # Find the maximum flow on this DAG.
-        try:
-            _, flow_dict = nx.maximum_flow(
-                unbound_dag,
-                s_prime_id,
-                t_prime_id,
-                capacity="capacity",
-                flow_func=edmonds_karp,
-            )
-        except nx.NetworkXUnbounded as e:
-            raise LowtimeFlowError("ERROR: Infinite flow for unbounded DAG.") from e
+        profiling_max_flow = time.time()
+        nodes, edges = format_rust_inputs(unbound_dag)
+
+        profiling_data_transfer = time.time()
+        rust_dag = _lowtime_rs.PhillipsDessouky(nodes, s_prime_id, t_prime_id, edges)
+        profiling_data_transfer = time.time() - profiling_data_transfer
+        logger.info(
+            "PROFILING PhillipsDessouky::find_min_cut data transfer time: %.10fs",
+            profiling_data_transfer,
+        )
+
+        rust_flow_vec = rust_dag.max_flow()
+        flow_dict = reformat_rust_flow_to_dict(rust_flow_vec, unbound_dag)
+
+        profiling_max_flow = time.time() - profiling_max_flow
+        logger.info(
+            "PROFILING PhillipsDessouky::find_min_cut maximum_flow_1 time: %.10fs",
+            profiling_max_flow,
+        )
 
         if logger.isEnabledFor(logging.DEBUG):
             logger.debug("After first max flow")
@@ -414,6 +493,8 @@ class PhillipsDessouky:
                 for flow in d.values():
                     total_flow += flow
             logger.debug("Sum of all flow values: %f", total_flow)
+
+        profiling_min_cut_between_max_flows = time.time()
 
         # Check if residual graph is saturated. If so, we have a feasible flow.
         for u in unbound_dag.successors(s_prime_id):
@@ -456,28 +537,50 @@ class PhillipsDessouky:
         # u -> v capacity `ub - flow` and v -> u capacity `flow - lb`.
         residual_graph = nx.DiGraph(dag)
         for u, v in dag.edges:
-            residual_graph[u][v]["capacity"] = (
-                residual_graph[u][v]["ub"] - residual_graph[u][v]["flow"]
-            )
-            capacity = residual_graph[u][v]["flow"] - residual_graph[u][v]["lb"]
+            # Rounding small negative values to 0.0 avoids Rust-side
+            # pathfinding::edmonds_karp from entering unreachable code.
+            # This edge case did not exist in Python-side nx.max_flow call.
+            uv_capacity = residual_graph[u][v]["ub"] - residual_graph[u][v]["flow"]
+            uv_capacity = 0.0 if abs(uv_capacity) < FP_ERROR else uv_capacity
+            residual_graph[u][v]["capacity"] = uv_capacity
+
+            vu_capacity = residual_graph[u][v]["flow"] - residual_graph[u][v]["lb"]
+            vu_capacity = 0.0 if abs(vu_capacity) < FP_ERROR else vu_capacity
             if dag.has_edge(v, u):
-                residual_graph[v][u]["capacity"] = capacity
+                residual_graph[v][u]["capacity"] = vu_capacity
             else:
-                residual_graph.add_edge(v, u, capacity=capacity)
+                residual_graph.add_edge(v, u, capacity=vu_capacity)
+
+        profiling_min_cut_between_max_flows = (
+            time.time() - profiling_min_cut_between_max_flows
+        )
+        logger.info(
+            "PROFILING PhillipsDessouky::find_min_cut between max flows time: %.10fs",
+            profiling_min_cut_between_max_flows,
+        )
 
         # Run max flow on the new residual graph.
-        try:
-            _, flow_dict = nx.maximum_flow(
-                residual_graph,
-                source_node,
-                sink_node,
-                capacity="capacity",
-                flow_func=edmonds_karp,
-            )
-        except nx.NetworkXUnbounded as e:
-            raise LowtimeFlowError(
-                "ERROR: Infinite flow on capacity residual graph."
-            ) from e
+        profiling_max_flow = time.time()
+        nodes, edges = format_rust_inputs(residual_graph)
+
+        profiling_data_transfer = time.time()
+        rust_dag = _lowtime_rs.PhillipsDessouky(nodes, source_node, sink_node, edges)
+        profiling_data_transfer = time.time() - profiling_data_transfer
+        logger.info(
+            "PROFILING PhillipsDessouky::find_min_cut data transfer 2 time: %.10fs",
+            profiling_data_transfer,
+        )
+
+        rust_flow_vec = rust_dag.max_flow()
+        flow_dict = reformat_rust_flow_to_dict(rust_flow_vec, residual_graph)
+
+        profiling_max_flow = time.time() - profiling_max_flow
+        logger.info(
+            "PROFILING PhillipsDessouky::find_min_cut maximum_flow_2 time: %.10fs",
+            profiling_max_flow,
+        )
+
+        profiling_min_cut_after_max_flows = time.time()
 
         # Add additional flow we get to the original graph
         for u, v in dag.edges:
@@ -517,6 +620,14 @@ class PhillipsDessouky:
                 ):
                     q.append(child_id)
         t_set = set(new_residual.nodes) - s_set
+
+        profiling_min_cut_after_max_flows = (
+            time.time() - profiling_min_cut_after_max_flows
+        )
+        logger.info(
+            "PROFILING PhillipsDessouky::find_min_cut after max flows time: %.10fs",
+            profiling_min_cut_after_max_flows,
+        )
 
         return s_set, t_set
 

@@ -1,14 +1,16 @@
 [build-system]
-requires = ["setuptools>=61.0.0", "wheel"]
-build-backend = "setuptools.build_meta"
+requires = ["maturin>=1.7,<2.0"]
+build-backend = "maturin"
 
 [project]
 name = "lowtime"
 description = "A library for solving the time-cost tradeoff problem."
+version="0.2.0"  # keep synced with __init__.py, Cargo.toml
 readme = "README.md"
 authors = [
     {name = "Jae-Won Chung", email = "jwnchung@umich.edu"},
     {name = "Yile Gu", email = "yilegu@umich.edu"},
+    {name = "Oh Jun Kweon", email = "ohjun@umich.edu"},
 ]
 license = {text = "Apache 2.0"}
 classifiers = [
@@ -17,6 +19,8 @@ classifiers = [
     "Programming Language :: Python :: 3.8",
     "Programming Language :: Python :: 3.9",
     "Programming Language :: Python :: 3.10",
+    "Programming Language :: Rust",
+    "Programming Language :: Python :: Implementation :: CPython",
 ]
 keywords = ["optimization", "tradeoff", "DAG"]
 requires-python = ">=3.8"
@@ -27,7 +31,10 @@ dependencies = [
     "numpy",
     "networkx",
 ]
-dynamic = ["version"]
+
+[tool.maturin]
+module-name = "lowtime._lowtime_rs"
+features = ["pyo3/extension-module"]
 
 [project.urls]
 Repository = "https://github.com/ml-energy/lowtime"
@@ -36,16 +43,6 @@ Repository = "https://github.com/ml-energy/lowtime"
 lint = ["ruff", "black"]
 test = ["pytest"]
 dev = ["ruff", "black", "pytest", "tyro", "pandas", "pyright"]
-
-[tool.setuptools]
-include-package-data = false
-
-[tool.setuptools.dynamic]
-version = {attr = "lowtime.__version__"}
-
-[tool.setuptools.packages.find]
-include = ["lowtime*"]
-exclude = ["examples", "scripts", "stubs", "tests"]
 
 [tool.ruff]
 line-length = 120
