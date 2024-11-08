@@ -55,8 +55,8 @@ impl PhillipsDessouky {
         info!("PROFILING Rust_PhillipsDessouky::max_flow edmonds_karp time: {:.10}s", PhillipsDessouky::profile_duration(profiling_start, profiling_end));
 
         let profiling_start = Instant::now();
-        let flows_f64: Vec<((u32, u32), f64)> = flows.iter().map(|((from, to), flow)| {
-            ((*from, *to), flow.into_inner())
+        let flows_f64: Vec<((u32, u32), f64)> = flows.into_iter().map(|(edge, flow)| {
+            (edge, flow.into_inner())
         }).collect();
         let profiling_end = Instant::now();
         info!("PROFILING Rust_PhillipsDessouky::max_flow reformat OrderedFloat to f64 time: {:.10}s", PhillipsDessouky::profile_duration(profiling_start, profiling_end));
