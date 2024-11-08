@@ -68,7 +68,7 @@ impl PhillipsDessouky {
 // Private to Rust, not exposed to Python
 impl PhillipsDessouky {
     fn profile_duration(start: Instant, end: Instant) -> f64 {
-        let duration: Duration = end.duration_since(start);
+        let duration = end.duration_since(start);
         let seconds = duration.as_secs();
         let subsec_nanos = duration.subsec_nanos();
 
