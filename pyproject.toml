@@ -5,6 +5,7 @@ build-backend = "maturin"
 [project]
 name = "lowtime"
 description = "A library for solving the time-cost tradeoff problem."
+version="0.2.0"  # keep synced with __init__.py, Cargo.toml
 readme = "README.md"
 authors = [
     {name = "Jae-Won Chung", email = "jwnchung@umich.edu"},
@@ -30,7 +31,6 @@ dependencies = [
     "numpy",
     "networkx",
 ]
-dynamic = ["version"]
 
 [tool.maturin]
 module-name = "lowtime._lowtime_rs"

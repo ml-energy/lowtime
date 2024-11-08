@@ -1,5 +1,7 @@
 .envrc
 .env
+.test
+temp*
 results
 figures
 workloads*
