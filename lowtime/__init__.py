@@ -14,4 +14,4 @@
 
 """A library for solving the time-cost tradeoff problem."""
 
-__version__ = "0.2.0"
+__version__ = "0.2.0"  # keep synced with pyproject.toml, Cargo.toml

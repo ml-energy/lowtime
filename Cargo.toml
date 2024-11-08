@@ -1,0 +1,16 @@
+[package]
+name = "_lowtime_rs"
+version = "0.2.0"  # keep synced with __init__.py, pyproject.toml
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+[lib]
+name = "_lowtime_rs"
+crate-type = ["cdylib"]
+
+[dependencies]
+pyo3 = "0.22.0"
+pyo3-log = "0.11.0"
+log = "0.4"
+ordered-float = { version = "4.0", default-features = false }
+pathfinding = "4.11.0"
