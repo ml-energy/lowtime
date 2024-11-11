@@ -23,10 +23,10 @@ where
         }
     }
 
-    pub fn get_nodes(&self) -> Vec<u32> {
-        let mut nodes: Vec<u32> = self.edges.keys().cloned().collect();
-        nodes.sort();
-        nodes
+    pub fn get_node_ids(&self) -> Vec<u32> {
+        let mut node_ids: Vec<u32> = self.edges.keys().cloned().collect();
+        node_ids.sort();
+        node_ids
     }
 
     pub fn add_edge(&mut self, from: u32, to: u32, op: Operation<C>) -> () {
