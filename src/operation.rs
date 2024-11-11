@@ -52,6 +52,8 @@ struct ExponentialModel {
     a: f64,
     b: f64,
     c: f64,
+    // TODO(ohjun): consider impact of manual caching
+    // cache: HashMap<u32, f64>
 }
 
 impl ExponentialModel {
