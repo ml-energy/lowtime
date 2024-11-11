@@ -1,20 +1,21 @@
-use pyo3::prelude::*;
-
 use std::collections::HashMap;
-use ordered_float::OrderedFloat;
 
 use std::time::Instant;
 use log::info;
 
+use crate::operation::{Operation, CostModel};
 use crate::utils;
 
 
-pub struct LowtimeGraph {
-    edges: HashMap<u32, HashMap<u32, Operation>>,
+pub struct LowtimeGraph<C: CostModel> {
+    edges: HashMap<u32, HashMap<u32, Operation<C>>>,
     preds: HashMap<u32, u32>,
 }
 
-impl LowtimeGraph {
+impl<C> LowtimeGraph<C>
+where
+    C: CostModel
+{
     pub fn new() -> Self {
         LowtimeGraph {
             edges: HashMap::new(),
@@ -28,7 +29,7 @@ impl LowtimeGraph {
         nodes
     }
 
-    pub fn add_edge(&mut self, from: u32, to: u32, op: Operation) -> () {
+    pub fn add_edge(&mut self, from: u32, to: u32, op: Operation<C>) -> () {
         self.edges
             .entry(from)
             .or_insert_with(HashMap::new)
@@ -36,24 +37,15 @@ impl LowtimeGraph {
         self.preds.insert(to, from);
     }
 
-    pub fn get_op(&self, from: u32, to: u32) -> Option<&Operation> {
+    pub fn get_op(&self, from: u32, to: u32) -> Option<&Operation<C>> {
         self.edges
             .get(&from)
             .and_then(|ops| ops.get(&to))
     }
 
-    pub fn get_mut_op(&mut self, from: u32, to: u32) -> Option<&mut Operation> {
+    pub fn get_mut_op(&mut self, from: u32, to: u32) -> Option<&mut Operation<C>> {
         self.edges
             .get_mut(&from)
             .and_then(|ops| ops.get_mut(&to))
     }
-
-
-}
-
-struct Operation {
-    capacity: OrderedFloat<f64>,
-    flow: OrderedFloat<f64>,
-    ub: OrderedFloat<f64>,
-    lb: OrderedFloat<f64>,
 }
