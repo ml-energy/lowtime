@@ -13,7 +13,7 @@ pub struct Operation {
 }
 
 impl Operation {
-    fn new(capacity: f64, flow: f64, ub: f64, lb: f64, duration: u32, cost_model: C) -> Self {
+    fn new(capacity: f64, flow: f64, ub: f64, lb: f64, duration: u32, cost_model: CostModel) -> Self {
         Operation {
             capacity: OrderedFloat(capacity),
             flow: OrderedFloat(flow),
