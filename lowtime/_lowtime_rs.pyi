@@ -8,14 +8,14 @@ class PhillipsDessouky:
         node_ids: list[int] | nx.classes.reportviews.NodeView,
         source_node_id: int,
         sink_node_id: int,
-        edges_raw: list[tuple[tuple[int, int], float]],
+        edges_raw: list[
+            tuple[
+                tuple[int, int],
+                tuple[float, float, float, float],
+                tuple[bool, int, int, int, int, int, int, int] | None,
+            ]
+        ],
     ) -> None: ...
-    def max_flow(self) -> list[
-        tuple[
-            tuple[int, int],
-            tuple[float, float, float, float],
-            tuple[bool, int, int, int, int, int, int, int] | None,
-        ]
-    ]: ...
+    def max_flow(self) -> list[tuple[int, int], float]: ...
 
 # TODO(ohjun): add CostModel interface
