@@ -508,7 +508,8 @@ class PhillipsDessouky:
             profiling_data_transfer,
         )
 
-        rust_flow_vec = rust_dag.max_flow()
+        # ohjun: FIRST MAX FLOW
+        rust_flow_vec = rust_dag.max_flow_bak()
         flow_dict = reformat_rust_flow_to_dict(rust_flow_vec, unbound_dag)
 
         profiling_max_flow = time.time() - profiling_max_flow
@@ -602,7 +603,8 @@ class PhillipsDessouky:
             profiling_data_transfer,
         )
 
-        rust_flow_vec = rust_dag.max_flow()
+        # ohjun: SECOND MAX FLOW
+        rust_flow_vec = rust_dag.max_flow_bak()
         flow_dict = reformat_rust_flow_to_dict(rust_flow_vec, residual_graph)
 
         profiling_max_flow = time.time() - profiling_max_flow

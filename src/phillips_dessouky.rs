@@ -1,5 +1,7 @@
 use pyo3::prelude::*;
 
+use std::collections::HashSet;
+
 use ordered_float::OrderedFloat;
 use pathfinding::directed::edmonds_karp::{
     SparseCapacity,
@@ -38,7 +40,25 @@ impl PhillipsDessouky {
         })
     }
 
-    fn max_flow(&self) -> Vec<((u32, u32), f64)> {
-        self.graph.max_flow()
+    // TODO(ohjun): this is backup, remove when obsolete
+    fn max_flow_bak(&self) -> Vec<((u32, u32), f64)> {
+        self.graph.max_flow_bak()
     }
+
+    // TODO(ohjun): iteratively implement/verify in _wip until done,
+    //              then replace with this function
+    // fn find_min_cut(&self) -> (HashSet, HashSet) {
+    // }
+
+    // fn find_min_cut_wip(&self) -> Vec<((u32, u32), f64)> {
+
+    // }
+}
+
+// not exposed to Python
+impl PhillipsDessouky {
+
+    // fn max_flow(&self) -> Vec<((u32, u32), f64)> {
+    //     self.graph.max_flow()
+    // }
 }
