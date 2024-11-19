@@ -10,6 +10,12 @@ class PhillipsDessouky:
         sink_node_id: int,
         edges_raw: list[tuple[tuple[int, int], float]],
     ) -> None: ...
-    def max_flow(self) -> list[tuple[tuple[int, int], float]]: ...
+    def max_flow(self) -> list[
+        tuple[
+            tuple[int, int],
+            tuple[float, float, float, float],
+            tuple[bool, int, int, int, int, int, int, int] | None,
+        ]
+    ]: ...
 
 # TODO(ohjun): add CostModel interface

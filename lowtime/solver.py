@@ -438,13 +438,44 @@ class PhillipsDessouky:
         def format_rust_inputs(
             dag: nx.DiGraph,
         ) -> tuple[
-            nx.classes.reportviews.NodeView, list[tuple[tuple[int, int], float]]
+            nx.classes.reportviews.NodeView,
+            list[
+                tuple[
+                    tuple[int, int],
+                    tuple[float, float, float, float],
+                    tuple[bool, int, int, int, int, int, int, int] | None,
+                ]
+            ],
         ]:
             nodes = dag.nodes
-            edges = [
-                ((u, v), cap)
-                for (u, v), cap in nx.get_edge_attributes(dag, "capacity").items()
-            ]
+            edges = []
+            for from_, to_, edge_attrs in dag.edges(data=True):
+                op_details = (
+                    None
+                    if self.attr_name not in edge_attrs
+                    else (
+                        edge_attrs[self.attr_name].is_dummy,
+                        edge_attrs[self.attr_name].duration,
+                        edge_attrs[self.attr_name].max_duration,
+                        edge_attrs[self.attr_name].min_duration,
+                        edge_attrs[self.attr_name].earliest_start,
+                        edge_attrs[self.attr_name].latest_start,
+                        edge_attrs[self.attr_name].earliest_finish,
+                        edge_attrs[self.attr_name].latest_finish,
+                    )
+                )
+                edges.append(
+                    (
+                        (from_, to_),
+                        (
+                            edge_attrs["capacity"],
+                            edge_attrs.get("flow", 0),
+                            edge_attrs.get("ub", 0),
+                            edge_attrs.get("lb", 0),
+                        ),
+                        op_details,
+                    )
+                )
             return nodes, edges
 
         # Helper function for Rust interop
