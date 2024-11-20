@@ -146,6 +146,12 @@ impl PhillipsDessouky {
         );
 
         // Update source and sink on unbound_dag
+        // Note: This part is not in original Python solver, because the original solver
+        //       never explicitly updates the source and sink; it simply passes in the
+        //       new node_ids directly to max_flow. However, in this codebase, it makes
+        //       sense to have LowtimeGraph be responsible for tracking its source/sink.
+        //       I am noting this because it resulted in an extremely hard-to-find bug,
+        //       and in the course of rewriting further a similar bug may appear again.
         unbound_dag.set_source_node_id(s_prime_id);
         unbound_dag.set_sink_node_id(t_prime_id);
 
@@ -160,7 +166,8 @@ impl PhillipsDessouky {
             debug!("Sum of all flow values: {}", total_flow);
         }
 
-        
+        // TODO(ohjun): rewrite up to 2nd max flow
+
         let flows_f64: Vec<((u32, u32), f64)> = flows.iter().map(|((from, to), flow)| {
             ((*from, *to), flow.into_inner())
         }).collect();
