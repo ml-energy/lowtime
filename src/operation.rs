@@ -1,6 +1,7 @@
 // use crate::cost_model::CostModel;
 
 
+#[derive(Clone)]
 pub struct Operation {
     is_dummy: bool,
 

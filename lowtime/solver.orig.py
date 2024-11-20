@@ -509,8 +509,14 @@ class PhillipsDessouky:
         )
 
         # ohjun: FIRST MAX FLOW
-        rust_flow_vec = rust_dag.max_flow_bak()
+        rust_flow_vec = rust_dag.max_flow_depr()
         flow_dict = reformat_rust_flow_to_dict(rust_flow_vec, unbound_dag)
+        def print_dict(d):
+            for from_, inner in d.items():
+                for to_, flow in inner.items():
+                    logger.info(f'{from_} -> {to_}: {flow}')
+        logger.info('correct flow_dict:')
+        print_dict(flow_dict)
 
         profiling_max_flow = time.time() - profiling_max_flow
         logger.info(
@@ -604,7 +610,7 @@ class PhillipsDessouky:
         )
 
         # ohjun: SECOND MAX FLOW
-        rust_flow_vec = rust_dag.max_flow_bak()
+        rust_flow_vec = rust_dag.max_flow_depr()
         flow_dict = reformat_rust_flow_to_dict(rust_flow_vec, residual_graph)
 
         profiling_max_flow = time.time() - profiling_max_flow
