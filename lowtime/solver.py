@@ -533,43 +533,6 @@ class PhillipsDessouky:
         rust_flow_vec = rust_dag.max_flow_depr()
         flow_dict = reformat_rust_flow_to_dict(rust_flow_vec, unbound_dag)
 
-        ############# NEW #############
-        # TEMP(ohjun): in current wip version, do everything until after 1st max flow in Rust
-        ohjun_rust_flow_vec = ohjun_rust_runner.find_min_cut_wip()
-        ohjun_flow_dict = reformat_rust_flow_to_dict(ohjun_rust_flow_vec, unbound_dag)
-
-        depr_node_ids = rust_dag.get_dag_node_ids()
-        depr_edges = rust_dag.get_dag_ek_processed_edges()
-        new_node_ids = ohjun_rust_runner.get_unbound_dag_node_ids()
-        new_edges = ohjun_rust_runner.get_unbound_dag_ek_processed_edges()
-        print(f"depr_node_ids: {depr_node_ids}")
-        print(f"new_node_ids: {new_node_ids}")
-        assert len(depr_node_ids) == len(new_node_ids), "LENGTH MISMATCH in node_ids"
-        assert depr_node_ids == new_node_ids, "DIFF in node_ids"
-        assert len(depr_edges) == len(new_edges), "LENGTH MISMATCH in edges"
-        if sorted(depr_edges) != sorted(new_edges):
-            for depr_edge, new_edge in zip(sorted(depr_edges), sorted(new_edges)):
-                if depr_edge == new_edge:
-                    logger.info("edges EQUAL")
-                    logger.info(f"depr_edge: {depr_edge}")
-                    logger.info(f"new_edge : {new_edge}")
-                else:
-                    logger.info("edges DIFFERENT")
-                    logger.info(f"depr_edge: {depr_edge}")
-                    logger.info(f"new_edge : {new_edge}")
-        assert sorted(depr_edges) == sorted(new_edges), "DIFF in edges"
-
-        def print_dict(d):
-            for from_, inner in d.items():
-                for to_, flow in inner.items():
-                    logger.info(f'{from_} -> {to_}: {flow}')
-        logger.info('flow_dict:')
-        # print_dict(flow_dict)
-        logger.info('ohjun_flow_dict:')
-        # print_dict(ohjun_flow_dict) 
-        assert flow_dict == ohjun_flow_dict, "flow dicts were different :("
-        ############# NEW #############
-
         profiling_max_flow = time.time() - profiling_max_flow
         logger.info(
             "PROFILING PhillipsDessouky::find_min_cut maximum_flow_1 time: %.10fs",
@@ -664,6 +627,44 @@ class PhillipsDessouky:
         # ohjun: SECOND MAX FLOW
         rust_flow_vec = rust_dag.max_flow_depr()
         flow_dict = reformat_rust_flow_to_dict(rust_flow_vec, residual_graph)
+
+        ############# NEW #############
+        # TEMP(ohjun): in current wip version, do everything until after 1st max flow in Rust
+        ohjun_rust_flow_vec = ohjun_rust_runner.find_min_cut_wip()
+        ohjun_flow_dict = reformat_rust_flow_to_dict(ohjun_rust_flow_vec, residual_graph)
+
+        depr_node_ids = rust_dag.get_dag_node_ids()
+        depr_edges = rust_dag.get_dag_ek_processed_edges()
+        new_node_ids = ohjun_rust_runner.get_unbound_dag_node_ids()
+        new_edges = ohjun_rust_runner.get_unbound_dag_ek_processed_edges()
+
+        # print(f"depr_node_ids: {depr_node_ids}")
+        # print(f"new_node_ids: {new_node_ids}")
+        assert len(depr_node_ids) == len(new_node_ids), "LENGTH MISMATCH in node_ids"
+        assert depr_node_ids == new_node_ids, "DIFF in node_ids"
+        assert len(depr_edges) == len(new_edges), "LENGTH MISMATCH in edges"
+        # if sorted(depr_edges) != sorted(new_edges):
+        #     for depr_edge, new_edge in zip(sorted(depr_edges), sorted(new_edges)):
+        #         if depr_edge == new_edge:
+        #             logger.info("edges EQUAL")
+        #             logger.info(f"depr_edge: {depr_edge}")
+        #             logger.info(f"new_edge : {new_edge}")
+        #         else:
+        #             logger.info("edges DIFFERENT")
+        #             logger.info(f"depr_edge: {depr_edge}")
+                    # logger.info(f"new_edge : {new_edge}")
+        assert sorted(depr_edges) == sorted(new_edges), "DIFF in edges"
+
+        # def print_dict(d):
+        #     for from_, inner in d.items():
+        #         for to_, flow in inner.items():
+        #             logger.info(f'{from_} -> {to_}: {flow}')
+        # logger.info('flow_dict:')
+        # print_dict(flow_dict)
+        # logger.info('ohjun_flow_dict:')
+        # print_dict(ohjun_flow_dict) 
+        assert flow_dict == ohjun_flow_dict, "flow dicts were different :("
+        ############# NEW #############
 
         profiling_max_flow = time.time() - profiling_max_flow
         logger.info(
