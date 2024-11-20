@@ -521,14 +521,6 @@ class PhillipsDessouky:
             profiling_data_transfer,
         )
 
-        ##### TESTING print all edges and capacities
-        # logger.info(f"s_prime_id: {s_prime_id}")
-        # logger.info(f"t_prime_id: {t_prime_id}")
-        # logger.info("Python Printing graph:")
-        # logger.info(f"Num edges: {len(unbound_dag.edges())}")
-        # for from_, to_, edge_attrs in unbound_dag.edges(data=True):
-        #     logger.info(f"{from_} -> {to_}: {edge_attrs["capacity"]}")
-
         # ohjun: FIRST MAX FLOW
         rust_flow_vec = rust_dag.max_flow_depr()
         flow_dict = reformat_rust_flow_to_dict(rust_flow_vec, unbound_dag)
@@ -629,7 +621,15 @@ class PhillipsDessouky:
         flow_dict = reformat_rust_flow_to_dict(rust_flow_vec, residual_graph)
 
         ############# NEW #############
-        # TEMP(ohjun): in current wip version, do everything until after 1st max flow in Rust
+        ##### TESTING print all edges and capacities
+        # logger.info(f"s_prime_id: {s_prime_id}")
+        # logger.info(f"t_prime_id: {t_prime_id}")
+        # logger.info("Python Printing graph:")
+        # logger.info(f"Num edges: {len(unbound_dag.edges())}")
+        # for from_, to_, edge_attrs in unbound_dag.edges(data=True):
+        #     logger.info(f"{from_} -> {to_}: {edge_attrs["capacity"]}")
+
+        # TEMP(ohjun): in current wip version, do everything until after 2nd max flow in Rust
         ohjun_rust_flow_vec = ohjun_rust_runner.find_min_cut_wip()
         ohjun_flow_dict = reformat_rust_flow_to_dict(ohjun_rust_flow_vec, residual_graph)
 
