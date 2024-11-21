@@ -1,6 +1,6 @@
 use pyo3::prelude::*;
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 use ordered_float::OrderedFloat;
 use pathfinding::directed::edmonds_karp::{
@@ -10,7 +10,7 @@ use pathfinding::directed::edmonds_karp::{
 };
 
 use std::time::Instant;
-use log::{info, debug, Level};
+use log::{info, debug, error, Level};
 
 use crate::lowtime_graph::{LowtimeGraph, LowtimeEdge};
 use crate::utils;
@@ -19,13 +19,16 @@ use crate::utils;
 #[pyclass]
 pub struct PhillipsDessouky {
    dag: LowtimeGraph,
+   fp_error: f64,
    unbound_dag_temp: LowtimeGraph, // TESTING(ohjun)
+   residual_graph_temp: LowtimeGraph, // TESTING(ohjun)
 }
 
 #[pymethods]
 impl PhillipsDessouky {
     #[new]
     fn new(
+        fp_error: f64,
         node_ids: Vec<u32>,
         source_node_id: u32,
         sink_node_id: u32,
@@ -38,7 +41,9 @@ impl PhillipsDessouky {
                 sink_node_id,
                 edges_raw,
             ),
+            fp_error,
             unbound_dag_temp: LowtimeGraph::new(), // TESTING(ohjun)
+            residual_graph_temp: LowtimeGraph::new(), // TESTING(ohjun)
         })
     }
 
@@ -64,6 +69,20 @@ impl PhillipsDessouky {
     // TESTING ohjun
     fn get_unbound_dag_ek_processed_edges(&self) -> Vec<((u32, u32), f64)> {
         let rs_edges = self.unbound_dag_temp.get_ek_preprocessed_edges();
+        let py_edges: Vec<((u32, u32), f64)> = rs_edges.iter().map(|((from, to), cap)| {
+            ((*from, *to), cap.into_inner())
+        }).collect();
+        py_edges
+    }
+
+    // TESTING ohjun
+    fn get_residual_graph_node_ids(&self) -> Vec<u32> {
+        self.residual_graph_temp.get_node_ids().clone()
+    }
+
+    // TESTING ohjun
+    fn get_residual_graph_ek_processed_edges(&self) -> Vec<((u32, u32), f64)> {
+        let rs_edges = self.residual_graph_temp.get_ek_preprocessed_edges();
         let py_edges: Vec<((u32, u32), f64)> = rs_edges.iter().map(|((from, to), cap)| {
             ((*from, *to), cap.into_inner())
         }).collect();
@@ -155,9 +174,14 @@ impl PhillipsDessouky {
         unbound_dag.set_source_node_id(s_prime_id);
         unbound_dag.set_sink_node_id(t_prime_id);
 
-        // First Max Flow
-        info!("CALLING MAX FLOW FROM find_min_cut_wip"); // TESTING(ohjun)
-        let (flows, _, _) = unbound_dag.max_flow();
+
+        // We're done with constructing the DAG with only flow upper bounds.
+        // Find the maximum flow on this DAG.
+        let (flows, _max_flow, _min_cut): (
+            Vec<((u32, u32), OrderedFloat<f64>)>,
+            OrderedFloat<f64>,
+            Vec<((u32, u32), OrderedFloat<f64>)>,
+        ) = unbound_dag.max_flow();
 
         if log::log_enabled!(Level::Debug) {
             debug!("After first max flow");
@@ -166,7 +190,98 @@ impl PhillipsDessouky {
             debug!("Sum of all flow values: {}", total_flow);
         }
 
-        // TODO(ohjun): rewrite up to 2nd max flow
+        // Convert flows to dict for faster lookup
+        let flow_dict = flows.iter().fold(
+            HashMap::new(),
+            |mut acc: HashMap<u32, HashMap<u32, OrderedFloat<f64>>>, ((from, to), flow)| {
+                acc.entry(*from)
+                    .or_insert_with(HashMap::new)
+                    .insert(*to, *flow);
+                acc
+            }
+        );
+
+        // Check if residual graph is saturated. If so, we have a feasible flow.
+        if let Some(succs) = unbound_dag.successors(s_prime_id) {
+            for u in succs {
+                let flow = flow_dict.get(&s_prime_id)
+                    .and_then(|inner| inner.get(u))
+                    .unwrap_or(&OrderedFloat(0.0));
+                let cap = unbound_dag.get_edge(s_prime_id, *u).get_capacity();
+                let diff = (flow - cap).into_inner().abs();
+                if diff > self.fp_error {
+                    error!(
+                        "s' -> {} unsaturated (flow: {}, capacity: {})",
+                        u,
+                        flow_dict[&s_prime_id][u],
+                        unbound_dag.get_edge(s_prime_id, *u).get_capacity(),
+                    );
+                    // TODO(ohjun): integrate with pyo3 exceptions
+                    panic!("ERROR: Max flow on unbounded DAG didn't saturate.");
+                }
+            }
+        }
+        if let Some(preds) = unbound_dag.predecessors(t_prime_id) {
+            for u in preds {
+                let flow = flow_dict.get(u)
+                    .and_then(|inner| inner.get(&t_prime_id))
+                    .unwrap_or(&OrderedFloat(0.0));
+                let cap = unbound_dag.get_edge(*u, t_prime_id).get_capacity();
+                let diff = (flow - cap).into_inner().abs();
+                if diff > self.fp_error {
+                    error!(
+                        "{} -> t' unsaturated (flow: {}, capacity: {})",
+                        u,
+                        flow_dict[u][&t_prime_id],
+                        unbound_dag.get_edge(*u, t_prime_id).get_capacity(),
+                    );
+                    // TODO(ohjun): integrate with pyo3 exceptions
+                    panic!("ERROR: Max flow on unbounded DAG didn't saturate.");
+                }
+            }
+        }
+
+        // We have a feasible flow. Construct a new residual graph with the same
+        // shape as the capacity DAG so that we can find the min cut.
+        // First, retrieve the flow amounts to the original capacity graph, where for
+        // each edge u -> v, the flow amount is `flow + lb`.
+        for (u, v, edge) in self.dag.edges_mut() {
+            let flow = flow_dict.get(u)
+                .and_then(|inner| inner.get(v))
+                .unwrap_or(&OrderedFloat(0.0));
+            edge.set_flow(flow + edge.get_lb());
+        }
+
+        // Construct a new residual graph (same shape as capacity DAG) with
+        // u -> v capacity `ub - flow` and v -> u capacity `flow - lb`.
+        let mut residual_graph = self.dag.clone();
+        for (u, v, _dag_edge) in self.dag.edges() {
+            // Rounding small negative values to 0.0 avoids pathfinding::edmonds_karp
+            // from entering unreachable code. Has no impact on correctness in test runs.
+            let residual_uv_edge = residual_graph.get_edge_mut(*u, *v);
+            let mut uv_capacity = residual_uv_edge.get_ub() - residual_uv_edge.get_flow();
+            if uv_capacity.into_inner().abs() < self.fp_error {
+                uv_capacity = OrderedFloat(0.0);
+            }
+            residual_uv_edge.set_capacity(uv_capacity);
+
+            let mut vu_capacity = residual_uv_edge.get_flow() - residual_uv_edge.get_lb();
+            if vu_capacity.into_inner().abs() < self.fp_error {
+                vu_capacity = OrderedFloat(0.0);
+            }
+
+            match self.dag.has_edge(*v, *u) {
+                true => residual_graph.get_edge_mut(*v, *u).set_capacity(vu_capacity),
+                false => residual_graph.add_edge(*v, *u, LowtimeEdge::new_only_capacity(vu_capacity)),
+            }
+        }
+
+        // Run max flow on the new residual graph.
+        let (flows, _max_flow, _min_cut): (
+            Vec<((u32, u32), OrderedFloat<f64>)>,
+            OrderedFloat<f64>,
+            Vec<((u32, u32), OrderedFloat<f64>)>,
+        ) = residual_graph.max_flow();
 
         let flows_f64: Vec<((u32, u32), f64)> = flows.iter().map(|((from, to), flow)| {
             ((*from, *to), flow.into_inner())
@@ -174,6 +289,7 @@ impl PhillipsDessouky {
 
         //// TESTING(ohjun)
         self.unbound_dag_temp = unbound_dag;
+        self.residual_graph_temp = residual_graph;
 
         flows_f64
     }

@@ -424,6 +424,7 @@ class PhillipsDessouky:
         # print(ohjun_nodes)
         # print(ohjun_edges)
         ohjun_rust_runner = _lowtime_rs.PhillipsDessouky(
+            FP_ERROR,
             ohjun_nodes,
             dag.graph["source_node"],
             dag.graph["sink_node"],
@@ -514,7 +515,7 @@ class PhillipsDessouky:
         nodes, edges = format_rust_inputs(unbound_dag)
 
         profiling_data_transfer = time.time()
-        rust_dag = _lowtime_rs.PhillipsDessouky(nodes, s_prime_id, t_prime_id, edges)
+        rust_dag = _lowtime_rs.PhillipsDessouky(FP_ERROR, nodes, s_prime_id, t_prime_id, edges)
         profiling_data_transfer = time.time() - profiling_data_transfer
         logger.info(
             "PROFILING PhillipsDessouky::find_min_cut data transfer time: %.10fs",
@@ -609,7 +610,7 @@ class PhillipsDessouky:
         nodes, edges = format_rust_inputs(residual_graph)
 
         profiling_data_transfer = time.time()
-        rust_dag = _lowtime_rs.PhillipsDessouky(nodes, source_node, sink_node, edges)
+        rust_dag = _lowtime_rs.PhillipsDessouky(FP_ERROR, nodes, source_node, sink_node, edges)
         profiling_data_transfer = time.time() - profiling_data_transfer
         logger.info(
             "PROFILING PhillipsDessouky::find_min_cut data transfer 2 time: %.10fs",
@@ -635,8 +636,8 @@ class PhillipsDessouky:
 
         depr_node_ids = rust_dag.get_dag_node_ids()
         depr_edges = rust_dag.get_dag_ek_processed_edges()
-        new_node_ids = ohjun_rust_runner.get_unbound_dag_node_ids()
-        new_edges = ohjun_rust_runner.get_unbound_dag_ek_processed_edges()
+        new_node_ids = ohjun_rust_runner.get_residual_graph_node_ids()
+        new_edges = ohjun_rust_runner.get_residual_graph_ek_processed_edges()
 
         # print(f"depr_node_ids: {depr_node_ids}")
         # print(f"new_node_ids: {new_node_ids}")

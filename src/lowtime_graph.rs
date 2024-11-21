@@ -133,7 +133,7 @@ impl LowtimeGraph {
         self.preds.get(&node_id).map(|preds| preds.iter())
     }
 
-    pub fn edges(&mut self) -> impl Iterator<Item = (&u32, &u32, &LowtimeEdge)> {
+    pub fn edges(&self) -> impl Iterator<Item = (&u32, &u32, &LowtimeEdge)> {
         self.edges.iter().flat_map(|(from, inner)| {
             inner.iter().map(move |(to, edge)| (from, to, edge))
         })
@@ -154,8 +154,23 @@ impl LowtimeGraph {
         self.node_ids.push(node_id)
     }
 
+    pub fn has_edge(&self, from: u32, to: u32) -> bool {
+        match self.edges.get(&from).and_then(|inner| inner.get(&to)) {
+            Some(_) => true,
+            None => false,
+        }
+    }
+
     pub fn get_edge(&self, from: u32, to: u32) -> &LowtimeEdge {
-        self.edges.get(&from).unwrap().get(&to).unwrap()
+        self.edges.get(&from)
+            .and_then(|inner| inner.get(&to))
+            .expect(&format!("Edge {} to {} not found", from, to))
+    }
+
+    pub fn get_edge_mut(&mut self, from: u32, to: u32) -> &mut LowtimeEdge {
+        self.edges.get_mut(&from)
+            .and_then(|inner| inner.get_mut(&to))
+            .expect(&format!("Edge {} to {} not found", from, to))
     }
 
     pub fn add_edge(&mut self, from: u32, to: u32, edge: LowtimeEdge) -> () {
@@ -164,11 +179,11 @@ impl LowtimeGraph {
         self.num_edges += 1;
     }
 
-    fn get_mut_op(&mut self, from: u32, to: u32) -> Option<&mut LowtimeEdge> {
-        self.edges
-            .get_mut(&from)
-            .and_then(|to_edges| to_edges.get_mut(&to))
-    }
+    // fn get_mut_op(&mut self, from: u32, to: u32) -> Option<&mut LowtimeEdge> {
+    //     self.edges
+    //         .get_mut(&from)
+    //         .and_then(|to_edges| to_edges.get_mut(&to))
+    // }
 
     // TESTING(ohjun): should make private when testing functions are deleted
     pub fn get_ek_preprocessed_edges(&self, ) -> Vec<Edge<u32, OrderedFloat<f64>>> {
@@ -184,8 +199,8 @@ impl LowtimeGraph {
     // TESTING(ohjun)
     pub fn print_all_capacities(&self) -> () {
         let mut processed_edges = self.get_ek_preprocessed_edges();
-        processed_edges.sort_by(|((a_from, a_to), a_cap): &((u32, u32), OrderedFloat<f64>),
-                                 ((b_from, b_to), b_cap): &((u32, u32), OrderedFloat<f64>)| {
+        processed_edges.sort_by(|((a_from, a_to), _a_cap): &((u32, u32), OrderedFloat<f64>),
+                                 ((b_from, b_to), _b_cap): &((u32, u32), OrderedFloat<f64>)| {
             // a_from < b_from || (a_from == b_from && a_to < b_to)
             let from_cmp = a_from.cmp(&b_from);
             if from_cmp == Ordering::Equal {
@@ -253,6 +268,10 @@ impl LowtimeEdge {
 
     pub fn get_flow(&self) -> OrderedFloat<f64> {
         self.flow
+    }
+
+    pub fn set_flow(&mut self, new_flow: OrderedFloat<f64>) -> () {
+        self.flow = new_flow;
     }
 
     pub fn get_ub(&self) -> OrderedFloat<f64> {
