@@ -20,9 +20,6 @@ use crate::utils;
 pub struct PhillipsDessouky {
    dag: LowtimeGraph,
    fp_error: f64,
-   unbound_dag_temp: LowtimeGraph, // TESTING(ohjun)
-   residual_graph_temp: LowtimeGraph, // TESTING(ohjun)
-   new_residual_temp: LowtimeGraph, // TESTING(ohjun)
 }
 
 #[pymethods]
@@ -43,76 +40,7 @@ impl PhillipsDessouky {
                 edges_raw,
             ),
             fp_error,
-            unbound_dag_temp: LowtimeGraph::new(), // TESTING(ohjun)
-            residual_graph_temp: LowtimeGraph::new(), // TESTING(ohjun)
-            new_residual_temp: LowtimeGraph::new(), // TESTING(ohjun)
         })
-    }
-
-    // TESTING ohjun
-    fn get_dag_node_ids(&self) -> Vec<u32> {
-        self.dag.get_node_ids().clone()
-    }
-
-    // TESTING ohjun
-    fn get_dag_ek_processed_edges(&self) -> Vec<((u32, u32), f64)> {
-        let rs_edges = self.dag.get_ek_preprocessed_edges();
-        let py_edges: Vec<((u32, u32), f64)> = rs_edges.iter().map(|((from, to), cap)| {
-            ((*from, *to), cap.into_inner())
-        }).collect();
-        py_edges
-    }
-
-    // TESTING ohjun
-    fn get_unbound_dag_node_ids(&self) -> Vec<u32> {
-        self.unbound_dag_temp.get_node_ids().clone()
-    }
-
-    // TESTING ohjun
-    fn get_unbound_dag_ek_processed_edges(&self) -> Vec<((u32, u32), f64)> {
-        let rs_edges = self.unbound_dag_temp.get_ek_preprocessed_edges();
-        let py_edges: Vec<((u32, u32), f64)> = rs_edges.iter().map(|((from, to), cap)| {
-            ((*from, *to), cap.into_inner())
-        }).collect();
-        py_edges
-    }
-
-    // TESTING ohjun
-    fn get_residual_graph_node_ids(&self) -> Vec<u32> {
-        self.residual_graph_temp.get_node_ids().clone()
-    }
-
-    // TESTING ohjun
-    fn get_residual_graph_ek_processed_edges(&self) -> Vec<((u32, u32), f64)> {
-        let rs_edges = self.residual_graph_temp.get_ek_preprocessed_edges();
-        let py_edges: Vec<((u32, u32), f64)> = rs_edges.iter().map(|((from, to), cap)| {
-            ((*from, *to), cap.into_inner())
-        }).collect();
-        py_edges
-    }
-
-    // TESTING ohjun
-    fn get_new_residual_node_ids(&self) -> Vec<u32> {
-        self.new_residual_temp.get_node_ids().clone()
-    }
-
-    // TESTING ohjun
-    fn get_new_residual_ek_processed_edges(&self) -> Vec<((u32, u32), f64)> {
-        let rs_edges = self.new_residual_temp.get_ek_preprocessed_edges();
-        let py_edges: Vec<((u32, u32), f64)> = rs_edges.iter().map(|((from, to), cap)| {
-            ((*from, *to), cap.into_inner())
-        }).collect();
-        py_edges
-    }
-
-    // TESTING(ohjun)
-    fn max_flow_depr(&self) -> Vec<((u32, u32), f64)> {
-        info!("CALLING MAX FLOW FROM max_flow_depr");
-        let (flows, _, _) = self.dag.max_flow();
-        let flows_f64: Vec<((u32, u32), f64)> = flows.iter().map(|((from, to), flow)| {
-            ((*from, *to), flow.into_inner())
-        }).collect();
-        flows_f64
     }
 
     /// Find the min cut of the DAG annotated with lower/upper bound flow capacities.
@@ -370,19 +298,12 @@ impl PhillipsDessouky {
         }
         let all_nodes: HashSet<u32> = new_residual.get_node_ids().into_iter().copied().collect();
         let t_set: HashSet<u32> = all_nodes.difference(&s_set).copied().collect();
-
-        //// TESTING(ohjun)
-        self.unbound_dag_temp = unbound_dag;
-        self.residual_graph_temp = residual_graph;
-        self.new_residual_temp = new_residual;
-
         (s_set, t_set)
     }
 }
 
 // not exposed to Python
 impl PhillipsDessouky {
-
     // fn max_flow(&self) -> Vec<((u32, u32), f64)> {
     //     self.graph.max_flow()
     // }
