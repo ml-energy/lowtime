@@ -408,7 +408,7 @@ class PhillipsDessouky:
                     (
                         (from_, to_),
                         (
-                            edge_attrs.get("capacity", 0), # TODO(ohjun): suss
+                            edge_attrs.get("capacity", 0),
                             edge_attrs.get("flow", 0),
                             edge_attrs.get("ub", 0),
                             edge_attrs.get("lb", 0),
@@ -418,16 +418,306 @@ class PhillipsDessouky:
                 )
             return nodes, edges
 
+        ########### NEW ###########
         # Construct Rust runner with input (critical) dag
-        nodes, edges = format_rust_inputs(dag)
-        rust_runner = _lowtime_rs.PhillipsDessouky(
-            nodes,
+        ohjun_nodes, ohjun_edges = format_rust_inputs(dag)
+        # print(ohjun_nodes)
+        # print(ohjun_edges)
+        ohjun_rust_runner = _lowtime_rs.PhillipsDessouky(
+            FP_ERROR,
+            ohjun_nodes,
             dag.graph["source_node"],
             dag.graph["sink_node"],
-            edges
+            ohjun_edges
         )
-        s_set, t_set = rust_runner.find_min_cut()
+        ########### NEW ###########
 
+        profiling_min_cut_setup = time.time()
+        source_node = dag.graph["source_node"]
+        sink_node = dag.graph["sink_node"]
+
+        # In order to solve max flow on edges with both lower and upper bounds,
+        # we first need to convert it to another DAG that only has upper bounds.
+        unbound_dag = nx.DiGraph(dag)
+
+        # For every edge, capacity = ub - lb.
+        for _, _, edge_attrs in unbound_dag.edges(data=True):
+            edge_attrs["capacity"] = edge_attrs["ub"] - edge_attrs["lb"]
+
+        # Add a new node s', which will become the new source node.
+        # We constructed the AOA DAG, so we know that node IDs are integers.
+        node_ids: list[int] = list(unbound_dag.nodes)
+        s_prime_id = max(node_ids) + 1
+        unbound_dag.add_node(s_prime_id)
+
+        # For every node u in the original graph, add an edge (s', u) with capacity
+        # equal to the sum of all lower bounds of u's parents.
+        for u in dag.nodes:
+            capacity = 0.0
+            for pred_id in dag.predecessors(u):
+                capacity += dag[pred_id][u]["lb"]
+            unbound_dag.add_edge(s_prime_id, u, capacity=capacity)
+
+        # Add a new node t', which will become the new sink node.
+        t_prime_id = s_prime_id + 1
+        unbound_dag.add_node(t_prime_id)
+
+        # For every node u in the original graph, add an edge (u, t') with capacity
+        # equal to the sum of all lower bounds of u's children.
+        for u in dag.nodes:
+            capacity = 0.0
+            for succ_id in dag.successors(u):
+                capacity += dag[u][succ_id]["lb"]
+            unbound_dag.add_edge(u, t_prime_id, capacity=capacity)
+
+        if logger.isEnabledFor(logging.DEBUG):
+            logger.debug("Unbound DAG")
+            logger.debug("Number of nodes: %d", unbound_dag.number_of_nodes())
+            logger.debug("Number of edges: %d", unbound_dag.number_of_edges())
+            logger.debug(
+                "Sum of capacities: %f",
+                sum(attr["capacity"] for _, _, attr in unbound_dag.edges(data=True)),
+            )
+
+        # Add an edge from t to s with infinite capacity.
+        unbound_dag.add_edge(
+            sink_node,
+            source_node,
+            capacity=float("inf"),
+        )
+
+        profiling_min_cut_setup = time.time() - profiling_min_cut_setup
+        logger.info(
+            "PROFILING PhillipsDessouky::find_min_cut setup time: %.10fs",
+            profiling_min_cut_setup,
+        )
+
+        # Helper function for Rust interop
+        # Rust's pathfinding::edmonds_karp does not return edges with 0 flow,
+        # but nx.max_flow does. So we fill in the 0s and empty nodes.
+        def reformat_rust_flow_to_dict(
+            flow_vec: list[tuple[tuple[int, int], float]], dag: nx.DiGraph
+        ) -> dict[int, dict[int, float]]:
+            flow_dict = dict()
+            for u in dag.nodes:
+                flow_dict[u] = dict()
+                for v in dag.successors(u):
+                    flow_dict[u][v] = 0.0
+
+            for (u, v), cap in flow_vec:
+                flow_dict[u][v] = cap
+
+            return flow_dict
+
+        # We're done with constructing the DAG with only flow upper bounds.
+        # Find the maximum flow on this DAG.
+        profiling_max_flow = time.time()
+        nodes, edges = format_rust_inputs(unbound_dag)
+
+        profiling_data_transfer = time.time()
+        rust_dag = _lowtime_rs.PhillipsDessouky(FP_ERROR, nodes, s_prime_id, t_prime_id, edges)
+        profiling_data_transfer = time.time() - profiling_data_transfer
+        logger.info(
+            "PROFILING PhillipsDessouky::find_min_cut data transfer time: %.10fs",
+            profiling_data_transfer,
+        )
+
+        # ohjun: FIRST MAX FLOW
+        rust_flow_vec = rust_dag.max_flow_depr()
+        flow_dict = reformat_rust_flow_to_dict(rust_flow_vec, unbound_dag)
+
+        profiling_max_flow = time.time() - profiling_max_flow
+        logger.info(
+            "PROFILING PhillipsDessouky::find_min_cut maximum_flow_1 time: %.10fs",
+            profiling_max_flow,
+        )
+
+        if logger.isEnabledFor(logging.DEBUG):
+            logger.debug("After first max flow")
+            total_flow = 0.0
+            for d in flow_dict.values():
+                for flow in d.values():
+                    total_flow += flow
+            logger.debug("Sum of all flow values: %f", total_flow)
+
+        profiling_min_cut_between_max_flows = time.time()
+
+        # Check if residual graph is saturated. If so, we have a feasible flow.
+        for u in unbound_dag.successors(s_prime_id):
+            if (
+                abs(flow_dict[s_prime_id][u] - unbound_dag[s_prime_id][u]["capacity"])
+                > FP_ERROR
+            ):
+                logger.error(
+                    "s' -> %s unsaturated (flow: %s, capacity: %s)",
+                    u,
+                    flow_dict[s_prime_id][u],
+                    unbound_dag[s_prime_id][u]["capacity"],
+                )
+                raise LowtimeFlowError(
+                    "ERROR: Max flow on unbounded DAG didn't saturate."
+                )
+        for u in unbound_dag.predecessors(t_prime_id):
+            if (
+                abs(flow_dict[u][t_prime_id] - unbound_dag[u][t_prime_id]["capacity"])
+                > FP_ERROR
+            ):
+                logger.error(
+                    "%s -> t' unsaturated (flow: %s, capacity: %s)",
+                    u,
+                    flow_dict[u][t_prime_id],
+                    unbound_dag[u][t_prime_id]["capacity"],
+                )
+                raise LowtimeFlowError(
+                    "ERROR: Max flow on unbounded DAG didn't saturate."
+                )
+
+        # We have a feasible flow. Construct a new residual graph with the same
+        # shape as the capacity DAG so that we can find the min cut.
+        # First, retrieve the flow amounts to the original capacity graph, where for
+        # each edge u -> v, the flow amount is `flow + lb`.
+        for u, v in dag.edges:
+            dag[u][v]["flow"] = flow_dict[u][v] + dag[u][v]["lb"]
+
+        # Construct a new residual graph (same shape as capacity DAG) with
+        # u -> v capacity `ub - flow` and v -> u capacity `flow - lb`.
+        residual_graph = nx.DiGraph(dag)
+        for u, v in dag.edges:
+            # Rounding small negative values to 0.0 avoids Rust-side
+            # pathfinding::edmonds_karp from entering unreachable code.
+            # This edge case did not exist in Python-side nx.max_flow call.
+            uv_capacity = residual_graph[u][v]["ub"] - residual_graph[u][v]["flow"]
+            uv_capacity = 0.0 if abs(uv_capacity) < FP_ERROR else uv_capacity
+            residual_graph[u][v]["capacity"] = uv_capacity
+
+            vu_capacity = residual_graph[u][v]["flow"] - residual_graph[u][v]["lb"]
+            vu_capacity = 0.0 if abs(vu_capacity) < FP_ERROR else vu_capacity
+            if dag.has_edge(v, u):
+                residual_graph[v][u]["capacity"] = vu_capacity
+            else:
+                residual_graph.add_edge(v, u, capacity=vu_capacity)
+
+        profiling_min_cut_between_max_flows = (
+            time.time() - profiling_min_cut_between_max_flows
+        )
+        logger.info(
+            "PROFILING PhillipsDessouky::find_min_cut between max flows time: %.10fs",
+            profiling_min_cut_between_max_flows,
+        )
+
+        # Run max flow on the new residual graph.
+        profiling_max_flow = time.time()
+        nodes, edges = format_rust_inputs(residual_graph)
+
+        profiling_data_transfer = time.time()
+        rust_dag = _lowtime_rs.PhillipsDessouky(FP_ERROR, nodes, source_node, sink_node, edges)
+        profiling_data_transfer = time.time() - profiling_data_transfer
+        logger.info(
+            "PROFILING PhillipsDessouky::find_min_cut data transfer 2 time: %.10fs",
+            profiling_data_transfer,
+        )
+
+        # ohjun: SECOND MAX FLOW
+        rust_flow_vec = rust_dag.max_flow_depr()
+        flow_dict = reformat_rust_flow_to_dict(rust_flow_vec, residual_graph)
+
+        profiling_max_flow = time.time() - profiling_max_flow
+        logger.info(
+            "PROFILING PhillipsDessouky::find_min_cut maximum_flow_2 time: %.10fs",
+            profiling_max_flow,
+        )
+
+        profiling_min_cut_after_max_flows = time.time()
+
+        # Add additional flow we get to the original graph
+        for u, v in dag.edges:
+            dag[u][v]["flow"] += flow_dict[u][v]
+            dag[u][v]["flow"] -= flow_dict[v][u]
+
+        # Construct the new residual graph.
+        new_residual = nx.DiGraph(dag)
+        for u, v in dag.edges:
+            new_residual[u][v]["flow"] = dag[u][v]["ub"] - dag[u][v]["flow"]
+            new_residual.add_edge(v, u, flow=dag[u][v]["flow"] - dag[u][v]["lb"])
+
+        if logger.isEnabledFor(logging.DEBUG):
+            logger.debug("New residual graph")
+            logger.debug("Number of nodes: %d", new_residual.number_of_nodes())
+            logger.debug("Number of edges: %d", new_residual.number_of_edges())
+            logger.debug(
+                "Sum of flow: %f",
+                sum(attr["flow"] for _, _, attr in new_residual.edges(data=True)),
+            )
+
+        # Find the s-t cut induced by the second maximum flow above.
+        # Only following `flow > 0` edges, find the set of nodes reachable from
+        # source node. That's the s-set, and the rest is the t-set.
+        s_set = set[int]()
+        q: deque[int] = deque()
+        q.append(source_node)
+        while q:
+            cur_id = q.pop()
+            s_set.add(cur_id)
+            if cur_id == sink_node:
+                break
+            for child_id in list(new_residual.successors(cur_id)):
+                if (
+                    child_id not in s_set
+                    and abs(new_residual[cur_id][child_id]["flow"]) > FP_ERROR
+                ):
+                    q.append(child_id)
+        t_set = set(new_residual.nodes) - s_set
+
+        profiling_min_cut_after_max_flows = (
+            time.time() - profiling_min_cut_after_max_flows
+        )
+        logger.info(
+            "PROFILING PhillipsDessouky::find_min_cut after max flows time: %.10fs",
+            profiling_min_cut_after_max_flows,
+        )
+
+        ############# NEW #############
+        ##### TESTING print all edges and capacities
+        # logger.info(f"s_prime_id: {s_prime_id}")
+        # logger.info(f"t_prime_id: {t_prime_id}")
+        # logger.info("Python Printing graph:")
+        # logger.info(f"Num edges: {len(unbound_dag.edges())}")
+        # for from_, to_, edge_attrs in unbound_dag.edges(data=True):
+        #     logger.info(f"{from_} -> {to_}: {edge_attrs["capacity"]}")
+
+        # TEMP(ohjun): in current wip version, do everything until after 2nd max flow in Rust
+        ohjun_s_set, ohjun_t_set = ohjun_rust_runner.find_min_cut()
+
+        depr_node_ids = list(new_residual.nodes)
+        depr_edges = list(new_residual.edges(data=False))
+        new_node_ids = ohjun_rust_runner.get_new_residual_node_ids()
+        new_edges = ohjun_rust_runner.get_new_residual_ek_processed_edges()
+        new_edges = [from_to for (from_to, cap) in new_edges]
+
+        # print(f"depr_node_ids: {depr_node_ids}")
+        # print(f"new_node_ids: {new_node_ids}")
+        assert len(depr_node_ids) == len(new_node_ids), "LENGTH MISMATCH in node_ids"
+        assert depr_node_ids == new_node_ids, "DIFF in node_ids"
+        assert len(depr_edges) == len(new_edges), "LENGTH MISMATCH in edges"
+        # for depr_edge, new_edge in zip(sorted(depr_edges), sorted(new_edges)):
+        #     if depr_edge == new_edge:
+        #         print("same:")
+        #     else:
+        #         print("DIFF:")
+        #     print(f"    depr_edge: {depr_edge}")
+        #     print(f"    new_edge: {new_edge}")
+        assert sorted(depr_edges) == sorted(new_edges), "DIFF in edges"
+
+        # print(f"s_set: {s_set}")
+        # print(f"t_set: {t_set}")
+        # print(f"ohjun_s_set: {ohjun_s_set}")
+        # print(f"ohjun_t_set: {ohjun_t_set}")
+        assert len(s_set) == len(ohjun_s_set), "LENGTH MISMATCH in s_set"
+        assert len(t_set) == len(ohjun_t_set), "LENGTH MISMATCH in t_set"
+        assert s_set == ohjun_s_set, "DIFF in s_set"
+        assert t_set == ohjun_t_set, "DIFF in t_set"
+
+        ############# NEW #############
         return s_set, t_set
 
     def annotate_capacities(self, critical_dag: nx.DiGraph) -> None:

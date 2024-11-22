@@ -244,6 +244,7 @@ impl LowtimeEdge {
         }
     }
 
+    // TODO(ohjun): there's probably a better way to do this with default args
     pub fn new_only_capacity(capacity: OrderedFloat<f64>) -> Self {
         LowtimeEdge {
             op: None,
@@ -254,8 +255,15 @@ impl LowtimeEdge {
         }
     }
 
-    pub fn get_op(&self) -> Option<&Operation> {
-        self.op.as_ref()
+    // TODO(ohjun): there's probably a better way to do this with default args
+    pub fn new_only_flow(flow: OrderedFloat<f64>) -> Self {
+        LowtimeEdge {
+            op: None,
+            capacity: OrderedFloat(0.0),
+            flow,
+            ub: OrderedFloat(0.0),
+            lb: OrderedFloat(0.0),
+        }
     }
 
     pub fn get_capacity(&self) -> OrderedFloat<f64> {
@@ -272,6 +280,14 @@ impl LowtimeEdge {
 
     pub fn set_flow(&mut self, new_flow: OrderedFloat<f64>) -> () {
         self.flow = new_flow;
+    }
+
+    pub fn incr_flow(&mut self, flow: OrderedFloat<f64>) -> () {
+        self.flow += flow;
+    }
+
+    pub fn decr_flow(&mut self, flow: OrderedFloat<f64>) -> () {
+        self.flow -= flow;
     }
 
     pub fn get_ub(&self) -> OrderedFloat<f64> {

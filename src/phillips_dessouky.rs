@@ -1,6 +1,6 @@
 use pyo3::prelude::*;
 
-use std::collections::{HashMap, HashSet};
+use std::collections::{HashMap, HashSet, VecDeque};
 
 use ordered_float::OrderedFloat;
 use pathfinding::directed::edmonds_karp::{
@@ -22,6 +22,7 @@ pub struct PhillipsDessouky {
    fp_error: f64,
    unbound_dag_temp: LowtimeGraph, // TESTING(ohjun)
    residual_graph_temp: LowtimeGraph, // TESTING(ohjun)
+   new_residual_temp: LowtimeGraph, // TESTING(ohjun)
 }
 
 #[pymethods]
@@ -44,6 +45,7 @@ impl PhillipsDessouky {
             fp_error,
             unbound_dag_temp: LowtimeGraph::new(), // TESTING(ohjun)
             residual_graph_temp: LowtimeGraph::new(), // TESTING(ohjun)
+            new_residual_temp: LowtimeGraph::new(), // TESTING(ohjun)
         })
     }
 
@@ -89,6 +91,20 @@ impl PhillipsDessouky {
         py_edges
     }
 
+    // TESTING ohjun
+    fn get_new_residual_node_ids(&self) -> Vec<u32> {
+        self.new_residual_temp.get_node_ids().clone()
+    }
+
+    // TESTING ohjun
+    fn get_new_residual_ek_processed_edges(&self) -> Vec<((u32, u32), f64)> {
+        let rs_edges = self.new_residual_temp.get_ek_preprocessed_edges();
+        let py_edges: Vec<((u32, u32), f64)> = rs_edges.iter().map(|((from, to), cap)| {
+            ((*from, *to), cap.into_inner())
+        }).collect();
+        py_edges
+    }
+
     // TESTING(ohjun)
     fn max_flow_depr(&self) -> Vec<((u32, u32), f64)> {
         info!("CALLING MAX FLOW FROM max_flow_depr");
@@ -99,12 +115,22 @@ impl PhillipsDessouky {
         flows_f64
     }
 
-    // TODO(ohjun): iteratively implement/verify in _wip until done,
-    //              then replace with this function
-    // fn find_min_cut(&self) -> (HashSet, HashSet) {
-    // }
-
-    fn find_min_cut_wip(&mut self) -> Vec<((u32, u32), f64)> {      
+    /// Find the min cut of the DAG annotated with lower/upper bound flow capacities.
+    ///
+    /// Assumptions:
+    ///     - The capacity DAG is in AOA form.
+    ///     - The capacity DAG has been annotated with `lb` and `ub` attributes on edges,
+    ///         representing the lower and upper bounds of the flow on the edge.
+    ///
+    /// Returns:
+    ///     A tuple of (s_set, t_set) where s_set is the set of nodes on the source side
+    ///     of the min cut and t_set is the set of nodes on the sink side of the min cut.
+    ///     Returns None if no feasible flow exists.
+    ///
+    /// Raises:
+    ///     LowtimeFlowError: When no feasible flow exists.
+    // TODO(ohjun): fix documentation comment above to match rust version
+    fn find_min_cut(&mut self) -> (HashSet<u32>, HashSet<u32>) {
         // In order to solve max flow on edges with both lower and upper bounds,
         // we first need to convert it to another DAG that only has upper bounds.
         let mut unbound_dag: LowtimeGraph = self.dag.clone();
@@ -283,15 +309,74 @@ impl PhillipsDessouky {
             Vec<((u32, u32), OrderedFloat<f64>)>,
         ) = residual_graph.max_flow();
 
-        let flows_f64: Vec<((u32, u32), f64)> = flows.iter().map(|((from, to), flow)| {
-            ((*from, *to), flow.into_inner())
-        }).collect();
+        // Convert flows to dict for faster lookup
+        let flow_dict = flows.iter().fold(
+            HashMap::new(),
+            |mut acc: HashMap<u32, HashMap<u32, OrderedFloat<f64>>>, ((from, to), flow)| {
+                acc.entry(*from)
+                    .or_insert_with(HashMap::new)
+                    .insert(*to, *flow);
+                acc
+            }
+        ); 
+
+        // Add additional flow we get to the original graph
+        for (u, v, edge) in self.dag.edges_mut() {
+            edge.incr_flow(*flow_dict.get(u)
+                .and_then(|inner| inner.get(v))
+                .unwrap_or(&OrderedFloat(0.0)));
+            edge.decr_flow(*flow_dict.get(v)
+                .and_then(|inner| inner.get(u))
+                .unwrap_or(&OrderedFloat(0.0)));
+        }
+
+        // Construct the new residual graph.
+        let mut new_residual = self.dag.clone();
+        for (u, v, edge) in self.dag.edges() {
+            new_residual.get_edge_mut(*u, *v).set_flow(edge.get_ub() - edge.get_flow());
+            new_residual.add_edge(*v, *u,
+                LowtimeEdge::new_only_flow(edge.get_flow() - edge.get_lb()));
+        }
+
+        if log::log_enabled!(Level::Debug) {
+            debug!("New residual graph");
+            debug!("Number of nodes: {}", new_residual.num_nodes());
+            debug!("Number of edges: {}", new_residual.num_edges());
+            let total_flow = unbound_dag.edges()
+                .fold(OrderedFloat(0.0), |acc, (_from, _to, edge)| acc + edge.get_flow());
+            debug!("Sum of capacities: {}", total_flow);
+        }
+
+        // Find the s-t cut induced by the second maximum flow above.
+        // Only following `flow > 0` edges, find the set of nodes reachable from
+        // source node. That's the s-set, and the rest is the t-set.
+        let mut s_set: HashSet<u32> = HashSet::new();
+        let mut q: VecDeque<u32> = VecDeque::new();
+        q.push_back(new_residual.get_source_node_id());
+        while !q.is_empty() {
+            let cur_id = q.pop_back().unwrap();
+            s_set.insert(cur_id);
+            if cur_id == new_residual.get_sink_node_id() {
+                break;
+            }
+            if let Some(succs) = new_residual.successors(cur_id) {
+                for child_id in succs {
+                    let flow = new_residual.get_edge(cur_id, *child_id).get_flow().into_inner();
+                    if !s_set.contains(child_id) && flow.abs() > self.fp_error {
+                        q.push_back(*child_id);
+                    }
+                }
+            }
+        }
+        let all_nodes: HashSet<u32> = new_residual.get_node_ids().into_iter().copied().collect();
+        let t_set: HashSet<u32> = all_nodes.difference(&s_set).copied().collect();
 
         //// TESTING(ohjun)
         self.unbound_dag_temp = unbound_dag;
         self.residual_graph_temp = residual_graph;
+        self.new_residual_temp = new_residual;
 
-        flows_f64
+        (s_set, t_set)
     }
 }
 
