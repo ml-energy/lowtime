@@ -363,10 +363,10 @@ class PhillipsDessouky:
             aoa_sink_node = aoa_dag.graph["sink_node"]
             self.rust_runner.temp_aoa_to_critical_dag(aoa_nodes, aoa_source_node, aoa_sink_node, aoa_edges)
             # ohjun: compare whether python vs rust versions are consistent
-            py_node_ids = critical_dag.get_dag_node_ids()
-            py_edges = critical_dag.get_dag_ek_processed_edges()
-            rs_node_ids = self.rust_runner.get_temp_crit_dag_node_ids()
-            rs_edges = self.rust_runner.get_temp_crit_dag_processed_edges()
+            py_node_ids = critical_dag.nodes
+            py_edges = critical_dag.edges(data="capacity")
+            rs_node_ids = self.rust_runner.get_dag_node_ids()
+            rs_edges = self.rust_runner.get_dag_ek_processed_edges()
 
             assert len(py_node_ids) == len(rs_node_ids), "LENGTH MISMATCH in node_ids"
             assert py_node_ids == rs_node_ids, "DIFF in node_ids"

@@ -12,6 +12,7 @@ use pathfinding::directed::edmonds_karp::{
 use std::time::Instant;
 use log::{info, debug, error, Level};
 
+use crate::graph_utils;
 use crate::lowtime_graph::{LowtimeGraph, LowtimeEdge};
 use crate::utils;
 
@@ -42,6 +43,21 @@ impl PhillipsDessouky {
             fp_error,
         })
     }
+
+    // TESTING ohjun
+    fn get_dag_node_ids(&self) -> Vec<u32> {
+        self.dag.get_node_ids().clone()
+    }
+
+    // TESTING ohjun
+    fn get_dag_ek_processed_edges(&self) -> Vec<((u32, u32), f64)> {
+        let rs_edges = self.dag.get_ek_preprocessed_edges();
+        let py_edges: Vec<((u32, u32), f64)> = rs_edges.iter().map(|((from, to), cap)| {
+            ((*from, *to), cap.into_inner())
+        }).collect();
+        py_edges
+    }
+
 
     /// Find the min cut of the DAG annotated with lower/upper bound flow capacities.
     ///
@@ -300,11 +316,23 @@ impl PhillipsDessouky {
         let t_set: HashSet<u32> = all_nodes.difference(&s_set).copied().collect();
         (s_set, t_set)
     }
+
+    fn temp_aoa_to_critical_dag(&mut self,
+        aoa_node_ids: Vec<u32>,
+        aoa_source_node_id: u32,
+        aoa_sink_node_id: u32,
+        aoa_edges_raw: Vec<((u32, u32), (f64, f64, f64, f64), Option<(bool, u64, u64, u64, u64, u64, u64, u64)>)>,
+    ) -> () {
+        let aoa_dag = LowtimeGraph::of_python(
+            aoa_node_ids,
+            aoa_source_node_id,
+            aoa_sink_node_id,
+            aoa_edges_raw,
+        );
+        self.dag = graph_utils::aoa_to_critical_dag(aoa_dag);
+    }
 }
 
-// not exposed to Python
-impl PhillipsDessouky {
-    // fn max_flow(&self) -> Vec<((u32, u32), f64)> {
-    //     self.graph.max_flow()
-    // }
-}
+// // not exposed to Python
+// impl PhillipsDessouky {
+// }
