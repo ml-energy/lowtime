@@ -361,7 +361,12 @@ class PhillipsDessouky:
             aoa_nodes, aoa_edges = self.format_rust_inputs(aoa_dag)
             aoa_source_node = aoa_dag.graph["source_node"]
             aoa_sink_node = aoa_dag.graph["sink_node"]
-            self.rust_runner.temp_aoa_to_critical_dag(aoa_nodes, aoa_source_node, aoa_sink_node, aoa_edges)
+            self.rust_runner.temp_aoa_to_critical_dag(
+                aoa_nodes,
+                aoa_source_node,
+                aoa_sink_node,
+                aoa_edges,
+            )
             # ohjun: compare whether python vs rust versions are consistent
             py_node_ids = critical_dag.nodes
             py_edges = critical_dag.edges(data="capacity")
