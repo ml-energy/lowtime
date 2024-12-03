@@ -260,10 +260,31 @@ class PhillipsDessouky:
             "PROFILING PhillipsDessouky::run set up time: %.10fs", profiling_setup
         )
 
+        # TODO(ohjun): this should be here once all functions are implemented
+        # # Preprocesses graph for Rust runner
+        # nodes, edges = self.format_rust_inputs(critical_dag)
+        # self.rust_runner = _lowtime_rs.PhillipsDessouky(
+        #     FP_ERROR,
+        #     nodes,
+        #     critical_dag.graph["source_node"],
+        #     critical_dag.graph["sink_node"],
+        #     edges
+        # )
+
         # Iteratively reduce the execution time of the DAG.
         for iteration in range(sys.maxsize):
             logger.info(">>> Beginning iteration %d/%d", iteration + 1, num_iters)
             profiling_iter = time.time()
+
+            # Preprocesses graph for Rust runner
+            nodes, edges = self.format_rust_inputs(critical_dag)
+            self.rust_runner = _lowtime_rs.PhillipsDessouky(
+                FP_ERROR,
+                nodes,
+                critical_dag.graph["source_node"],
+                critical_dag.graph["sink_node"],
+                edges
+            )
 
             # At this point, `critical_dag` always exists and is what we want.
             # For the first iteration, the critical DAG is computed before the for
@@ -287,6 +308,7 @@ class PhillipsDessouky:
 
             profiling_annotate = time.time()
             self.annotate_capacities(critical_dag)
+            # self.rust_runner.annotate_capacities()
             profiling_annotate = time.time() - profiling_annotate
             logger.info(
                 "PROFILING PhillipsDessouky::annotate_capacities time: %.10fs",
@@ -304,16 +326,6 @@ class PhillipsDessouky:
                     sum([critical_dag[u][v]["ub"] for u, v in critical_dag.edges]),
                 )
 
-            # Preprocesses graph for Rust runner
-            nodes, edges = self.format_rust_inputs(critical_dag)
-            self.rust_runner = _lowtime_rs.PhillipsDessouky(
-                FP_ERROR,
-                nodes,
-                critical_dag.graph["source_node"],
-                critical_dag.graph["sink_node"],
-                edges
-            )
-
             try:
                 profiling_min_cut = time.time()
                 s_set, t_set = self.rust_runner.find_min_cut()
@@ -328,8 +340,8 @@ class PhillipsDessouky:
                 break
 
             profiling_reduce = time.time()
-            # cost_change = self.reduce_durations(critical_dag, s_set, t_set)
-            cost_change = self.rust_runner.reduce_durations()
+            cost_change = self.reduce_durations(critical_dag, s_set, t_set)
+            # cost_change = self.rust_runner.reduce_durations()
             profiling_reduce = time.time() - profiling_reduce
             logger.info(
                 "PROFILING PhillipsDessouky::reduce_durations time: %.10fs",
@@ -343,6 +355,35 @@ class PhillipsDessouky:
 
             # Earliest/latest start/finish times on operations also annotated here.
             critical_dag = aoa_to_critical_dag(aoa_dag, attr_name=self.attr_name)
+            #######################################
+            ##########  NEW OHJUN START  ##########
+            # ohjun: rust version of aoa_to_critical_dag
+            aoa_nodes, aoa_edges = self.format_rust_inputs(aoa_dag)
+            aoa_source_node = aoa_dag.graph["source_node"]
+            aoa_sink_node = aoa_dag.graph["sink_node"]
+            self.rust_runner.temp_aoa_to_critical_dag(aoa_nodes, aoa_source_node, aoa_sink_node, aoa_edges)
+            # ohjun: compare whether python vs rust versions are consistent
+            py_node_ids = critical_dag.get_dag_node_ids()
+            py_edges = critical_dag.get_dag_ek_processed_edges()
+            rs_node_ids = self.rust_runner.get_temp_crit_dag_node_ids()
+            rs_edges = self.rust_runner.get_temp_crit_dag_processed_edges()
+
+            assert len(py_node_ids) == len(rs_node_ids), "LENGTH MISMATCH in node_ids"
+            assert py_node_ids == rs_node_ids, "DIFF in node_ids"
+            assert len(py_edges) == len(rs_edges), "LENGTH MISMATCH in edges"
+            # if sorted(py_edges) != sorted(rs_edges):
+            #     for depr_edge, new_edge in zip(sorted(py_edges), sorted(rs_edges)):
+            #         if depr_edge == new_edge:
+            #             logger.info("edges EQUAL")
+            #             logger.info(f"depr_edge: {depr_edge}")
+            #             logger.info(f"new_edge : {new_edge}")
+            #         else:
+            #             logger.info("edges DIFFERENT")
+            #             logger.info(f"depr_edge: {depr_edge}")
+                        # logger.info(f"new_edge : {new_edge}")
+            assert sorted(py_edges) == sorted(rs_edges), "DIFF in edges"
+            ##########  NEW OHJUN  END   ##########
+            #######################################
 
             # We directly modify operation attributes in the DAG, so after we
             # ran one iteration, the AON DAG holds updated attributes.
