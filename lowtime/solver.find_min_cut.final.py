@@ -1,0 +1,446 @@
+# Copyright (C) 2023 Jae-Won Chung <jwnchung@umich.edu>
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+"""A time-cost trade-off solver based on the Phillips-Dessouky algorithm."""
+
+
+from __future__ import annotations
+
+import time
+import sys
+import logging
+from collections import deque
+from collections.abc import Generator
+
+import networkx as nx
+from attrs import define, field
+
+from lowtime.operation import Operation
+from lowtime.graph_utils import (
+    aon_dag_to_aoa_dag,
+    aoa_to_critical_dag,
+    get_critical_aoa_dag_total_time,
+    get_total_cost,
+)
+from lowtime.exceptions import LowtimeFlowError
+from lowtime import _lowtime_rs
+
+FP_ERROR = 1e-6
+
+logger = logging.getLogger(__name__)
+
+
+@define
+class IterationResult:
+    """Holds results after one PD iteration.
+
+    Attributes:
+        iteration: The number of optimization iterations experienced by the DAG.
+        cost_change: The increase in cost from reducing the DAG's
+            quantized execution time by 1.
+        cost: The current total cost of the DAG.
+        quant_time: The current quantized total execution time of the DAG.
+        unit_time: The unit time used for time quantization.
+        real_time: The current real (de-quantized) total execution time of the DAG.
+    """
+
+    iteration: int
+    cost_change: float
+    cost: float
+    quant_time: int
+    unit_time: float
+    real_time: float = field(init=False)
+
+    def __attrs_post_init__(self) -> None:
+        """Set `real_time` after initialization."""
+        self.real_time = self.quant_time * self.unit_time
+
+
+class PhillipsDessouky:
+    """Implements the Phillips-Dessouky algorithm for the time-cost tradeoff problem."""
+
+    def __init__(self, dag: nx.DiGraph, attr_name: str = "op") -> None:
+        """Initialize the Phillips-Dessouky solver.
+
+        Assumptions:
+            - The graph is a Directed Acyclic Graph (DAG).
+            - Operations are annotated on nodes with name `attr_name`.
+            - There is only one source (entry) node. The source node is annotated as
+                `dag.graph["source_node"]`.
+            - There is only one sink (exit) node. The sink node is annotated as
+                `dag.graph["sink_node"]`.
+            - The `unit_time` attribute of every operation is the same.
+
+        Args:
+            dag: A networkx DiGraph object that represents the computation DAG.
+                The aforementioned assumptions should hold for the DAG.
+            attr_name: The name of the attribute on nodes that holds the operation
+                object. Defaults to "op".
+        """
+        self.attr_name = attr_name
+
+        # Run checks on the DAG and cache some properties.
+        # Check: It's a DAG.
+        if not nx.is_directed_acyclic_graph(dag):
+            raise ValueError("The graph should be a Directed Acyclic Graph.")
+
+        # Check: Only one source node that matches annotation.
+        if (source_node := dag.graph.get("source_node")) is None:
+            raise ValueError("The graph should have a `source_node` attribute.")
+        source_node_candidates = []
+        for node_id, in_degree in dag.in_degree():
+            if in_degree == 0:
+                source_node_candidates.append(node_id)
+        if len(source_node_candidates) == 0:
+            raise ValueError(
+                "Found zero nodes with in-degree 0. Cannot determine source node."
+            )
+        if len(source_node_candidates) > 1:
+            raise ValueError(
+                f"Expecting only one source node, found {source_node_candidates}."
+            )
+        if (detected_source_node := source_node_candidates[0]) != source_node:
+            raise ValueError(
+                f"Detected source node ({detected_source_node}) does not match "
+                f"the annotated source node ({source_node})."
+            )
+
+        # Check: Only one sink node that matches annotation.
+        if (sink_node := dag.graph.get("sink_node")) is None:
+            raise ValueError("The graph should have a `sink_node` attribute.")
+        sink_node_candidates = []
+        for node_id, out_degree in dag.out_degree():
+            if out_degree == 0:
+                sink_node_candidates.append(node_id)
+        if len(sink_node_candidates) == 0:
+            raise ValueError(
+                "Found zero nodes with out-degree 0. Cannot determine sink node."
+            )
+        if len(sink_node_candidates) > 1:
+            raise ValueError(
+                f"Expecting only one sink node, found {sink_node_candidates}."
+            )
+        if (detected_sink_node := sink_node_candidates[0]) != sink_node:
+            raise ValueError(
+                f"Detected sink node ({detected_sink_node}) does not match "
+                f"the annotated sink node ({sink_node})."
+            )
+
+        # Check: The `unit_time` attributes of every operation should be the same.
+        unit_time_candidates = set[float]()
+        for _, node_attr in dag.nodes(data=True):
+            if self.attr_name in node_attr:
+                op: Operation = node_attr[self.attr_name]
+                if op.is_dummy:
+                    continue
+                unit_time_candidates.update(
+                    option.unit_time for option in op.spec.options.options
+                )
+        if len(unit_time_candidates) == 0:
+            raise ValueError(
+                "Found zero operations in the graph. Make sure you "
+                f"added operations as node attributes with key `{self.attr_name}`.",
+            )
+        if len(unit_time_candidates) > 1:
+            raise ValueError(
+                f"Expecting the same `unit_time` across all operations, "
+                f"found {unit_time_candidates}."
+            )
+
+        self.aon_dag = dag
+        self.unit_time = unit_time_candidates.pop()
+
+    # Helper function for Rust interop
+    def format_rust_inputs(
+        self,
+        dag: nx.DiGraph,
+    ) -> tuple[
+        nx.classes.reportviews.NodeView,
+        list[
+            tuple[
+                tuple[int, int],
+                tuple[float, float, float, float],
+                tuple[bool, int, int, int, int, int, int, int] | None,
+            ]
+        ],
+    ]:
+        nodes = dag.nodes
+        edges = []
+        for from_, to_, edge_attrs in dag.edges(data=True):
+            op_details = (
+                None
+                if self.attr_name not in edge_attrs
+                else (
+                    edge_attrs[self.attr_name].is_dummy,
+                    edge_attrs[self.attr_name].duration,
+                    edge_attrs[self.attr_name].max_duration,
+                    edge_attrs[self.attr_name].min_duration,
+                    edge_attrs[self.attr_name].earliest_start,
+                    edge_attrs[self.attr_name].latest_start,
+                    edge_attrs[self.attr_name].earliest_finish,
+                    edge_attrs[self.attr_name].latest_finish,
+                )
+            )
+            edges.append(
+                (
+                    (from_, to_),
+                    (
+                        edge_attrs.get("capacity", 0),
+                        edge_attrs.get("flow", 0),
+                        edge_attrs.get("ub", 0),
+                        edge_attrs.get("lb", 0),
+                    ),
+                    op_details,
+                )
+            )
+        return nodes, edges
+
+    def run(self) -> Generator[IterationResult, None, None]:
+        """Run the algorithm and yield a DAG after each iteration.
+
+        The solver will not deepcopy operations on the DAG but rather in-place modify
+        them for speed. The caller should deepcopy the operations or the DAG if needed
+        before running the next iteration.
+
+        Upon yield, it is guaranteed that the earliest/latest start/finish time values
+        of all operations are up to date w.r.t. the `duration` of each operation.
+        """
+        logger.info("Starting Phillips-Dessouky solver.")
+        profiling_setup = time.time()
+
+        # Convert the original activity-on-node DAG to activity-on-arc DAG form.
+        # AOA DAGs are purely internal. All public input and output of this class
+        # should be in AON form.
+        aoa_dag = aon_dag_to_aoa_dag(self.aon_dag, attr_name=self.attr_name)
+
+        # Estimate the minimum execution time of the DAG by setting every operation
+        # to run at its minimum duration.
+        for _, _, edge_attr in aoa_dag.edges(data=True):
+            op: Operation = edge_attr[self.attr_name]
+            if op.is_dummy:
+                continue
+            op.duration = op.min_duration
+        critical_dag = aoa_to_critical_dag(aoa_dag, attr_name=self.attr_name)
+        min_time = get_critical_aoa_dag_total_time(
+            critical_dag, attr_name=self.attr_name
+        )
+        logger.info("Expected minimum quantized execution time: %d", min_time)
+
+        # Estimated the maximum execution time of the DAG by setting every operation
+        # to run at its maximum duration. This is also our initial start point.
+        for _, _, edge_attr in aoa_dag.edges(data=True):
+            op: Operation = edge_attr[self.attr_name]
+            if op.is_dummy:
+                continue
+            op.duration = op.max_duration
+        critical_dag = aoa_to_critical_dag(aoa_dag, attr_name=self.attr_name)
+        max_time = get_critical_aoa_dag_total_time(
+            critical_dag, attr_name=self.attr_name
+        )
+        logger.info("Expected maximum quantized execution time: %d", max_time)
+
+        num_iters = max_time - min_time + 1
+        logger.info("Expected number of PD iterations: %d", num_iters)
+
+        profiling_setup = time.time() - profiling_setup
+        logger.info(
+            "PROFILING PhillipsDessouky::run set up time: %.10fs", profiling_setup
+        )
+
+        # Iteratively reduce the execution time of the DAG.
+        for iteration in range(sys.maxsize):
+            logger.info(">>> Beginning iteration %d/%d", iteration + 1, num_iters)
+            profiling_iter = time.time()
+
+            # At this point, `critical_dag` always exists and is what we want.
+            # For the first iteration, the critical DAG is computed before the for
+            # loop in order to estimate the number of iterations. For subsequent
+            # iterations, the critcal DAG is computed after each iteration in
+            # in order to construct `IterationResult`.
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug("Critical DAG:")
+                logger.debug("Number of nodes: %d", critical_dag.number_of_nodes())
+                logger.debug("Number of edges: %d", critical_dag.number_of_edges())
+                non_dummy_ops = [
+                    attr[self.attr_name]
+                    for _, _, attr in critical_dag.edges(data=True)
+                    if not attr[self.attr_name].is_dummy
+                ]
+                logger.debug("Number of non-dummy operations: %d", len(non_dummy_ops))
+                logger.debug(
+                    "Sum of non-dummy durations: %d",
+                    sum(op.duration for op in non_dummy_ops),
+                )
+
+            profiling_annotate = time.time()
+            self.annotate_capacities(critical_dag)
+            profiling_annotate = time.time() - profiling_annotate
+            logger.info(
+                "PROFILING PhillipsDessouky::annotate_capacities time: %.10fs",
+                profiling_annotate,
+            )
+
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug("Capacity DAG:")
+                logger.debug(
+                    "Total lb value: %f",
+                    sum([critical_dag[u][v]["lb"] for u, v in critical_dag.edges]),
+                )
+                logger.debug(
+                    "Total ub value: %f",
+                    sum([critical_dag[u][v]["ub"] for u, v in critical_dag.edges]),
+                )
+
+            try:
+                profiling_min_cut = time.time()
+                nodes, edges = self.format_rust_inputs(critical_dag)
+                rust_runner = _lowtime_rs.PhillipsDessouky(
+                    FP_ERROR,
+                    nodes,
+                    critical_dag.graph["source_node"],
+                    critical_dag.graph["sink_node"],
+                    edges
+                )
+                s_set, t_set = rust_runner.find_min_cut()
+                profiling_min_cut = time.time() - profiling_min_cut
+                logger.info(
+                    "PROFILING PhillipsDessouky::find_min_cut time: %.10fs",
+                    profiling_min_cut,
+                )
+            except LowtimeFlowError as e:
+                logger.info("Could not find minimum cut: %s", e.message)
+                logger.info("Terminating PD iteration.")
+                break
+
+            profiling_reduce = time.time()
+            cost_change = self.reduce_durations(critical_dag, s_set, t_set)
+            profiling_reduce = time.time() - profiling_reduce
+            logger.info(
+                "PROFILING PhillipsDessouky::reduce_durations time: %.10fs",
+                profiling_reduce,
+            )
+
+            if cost_change == float("inf") or abs(cost_change) < FP_ERROR:
+                logger.info("No further time reduction possible.")
+                logger.info("Terminating PD iteration.")
+                break
+
+            # Earliest/latest start/finish times on operations also annotated here.
+            critical_dag = aoa_to_critical_dag(aoa_dag, attr_name=self.attr_name)
+
+            # We directly modify operation attributes in the DAG, so after we
+            # ran one iteration, the AON DAG holds updated attributes.
+            result = IterationResult(
+                iteration=iteration + 1,
+                cost_change=cost_change,
+                cost=get_total_cost(aoa_dag, mode="edge", attr_name=self.attr_name),
+                quant_time=get_critical_aoa_dag_total_time(
+                    critical_dag, attr_name=self.attr_name
+                ),
+                unit_time=self.unit_time,
+            )
+            logger.info("%s", result)
+            profiling_iter = time.time() - profiling_iter
+            logger.info(
+                "PROFILING PhillipsDessouky::run single iteration time: %.10fs",
+                profiling_iter,
+            )
+            yield result
+
+    def reduce_durations(
+        self, dag: nx.DiGraph, s_set: set[int], t_set: set[int]
+    ) -> float:
+        """Modify operation durations to reduce the DAG's execution time by 1."""
+        speed_up_edges: list[Operation] = []
+        for node_id in s_set:
+            for child_id in list(dag.successors(node_id)):
+                if child_id in t_set:
+                    op: Operation = dag[node_id][child_id][self.attr_name]
+                    speed_up_edges.append(op)
+
+        slow_down_edges: list[Operation] = []
+        for node_id in t_set:
+            for child_id in list(dag.successors(node_id)):
+                if child_id in s_set:
+                    op: Operation = dag[node_id][child_id][self.attr_name]
+                    slow_down_edges.append(op)
+
+        if not speed_up_edges:
+            logger.info("No speed up candidate operations.")
+            return 0.0
+
+        cost_change = 0.0
+
+        # Reduce the duration of edges (speed up) by quant_time 1.
+        for op in speed_up_edges:
+            if op.is_dummy:
+                logger.info("Cannot speed up dummy operation.")
+                return float("inf")
+            if op.duration - 1 < op.min_duration:
+                logger.info("Operation %s has reached the limit of speed up", op)
+                return float("inf")
+            cost_change += abs(op.get_cost(op.duration - 1) - op.get_cost(op.duration))
+            op_before_str = str(op)
+            op.duration -= 1
+            logger.info("Sped up %s to %s", op_before_str, op)
+
+        # Increase the duration of edges (slow down) by quant_time 1.
+        for op in slow_down_edges:
+            # Dummy edges can always be slowed down.
+            if op.is_dummy:
+                logger.info("Slowed down DummyOperation (didn't really slowdown).")
+                continue
+            elif op.duration + 1 > op.max_duration:
+                logger.info("Operation %s has reached the limit of slow down", op)
+                return float("inf")
+            cost_change -= abs(op.get_cost(op.duration) - op.get_cost(op.duration + 1))
+            before_op_str = str(op)
+            op.duration += 1
+            logger.info("Slowed down %s to %s", before_op_str, op)
+
+        return cost_change
+
+    def annotate_capacities(self, critical_dag: nx.DiGraph) -> None:
+        """In-place annotate the critical DAG with flow capacities."""
+        # XXX(JW): Is this always large enough?
+        # It is necessary to monitor the `cost_change` value in `IterationResult`
+        # and make sure they are way smaller than this value. Even if the cost
+        # change is close or larger than this, users can scale down their cost
+        # value in `ExecutionOption`s.
+        inf = 10000.0
+        for _, _, edge_attr in critical_dag.edges(data=True):
+            op: Operation = edge_attr[self.attr_name]
+            duration = op.duration
+            # Dummy operations don't constrain the flow.
+            if op.is_dummy:  # noqa: SIM114
+                lb, ub = 0.0, inf
+            # Cannot be sped up or down.
+            elif duration == op.min_duration == op.max_duration:
+                lb, ub = 0.0, inf
+            # Cannot be sped up.
+            elif duration - 1 < op.min_duration:
+                lb = abs(op.get_cost(duration) - op.get_cost(duration + 1))
+                ub = inf
+            # Cannot be slowed down.
+            elif duration + 1 > op.max_duration:
+                lb = 0.0
+                ub = abs(op.get_cost(duration - 1) - op.get_cost(duration))
+            else:
+                # In case the cost model is almost linear, give this edge some room.
+                lb = abs(op.get_cost(duration) - op.get_cost(duration + 1))
+                ub = abs(op.get_cost(duration - 1) - op.get_cost(duration)) + FP_ERROR
+
+            # XXX(JW): This roundiing may not be necessary.
+            edge_attr["lb"] = lb // FP_ERROR * FP_ERROR
+            edge_attr["ub"] = ub // FP_ERROR * FP_ERROR
