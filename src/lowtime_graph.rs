@@ -6,8 +6,9 @@ use pathfinding::directed::edmonds_karp::{
     SparseCapacity,
     Edge,
     EKFlows,
-    edmonds_karp
+    edmonds_karp,
 };
+use pathfinding::prelude::topological_sort;
 
 use std::time::Instant;
 use log::{info, debug, Level};
@@ -129,6 +130,10 @@ impl LowtimeGraph {
         self.edges.get(&node_id).map(|succs| succs.keys())
     }
 
+    // pub fn successors_mut(&mut self, node_id: u32) -> Option<impl Iterator<Item = &u32>> {
+    //     self.edges.get(&node_id).map(|succs| succs.keys())
+    // }
+
     pub fn predecessors(&self, node_id: u32) -> Option<impl Iterator<Item = &u32>> {
         self.preds.get(&node_id).map(|preds| preds.iter())
     }
@@ -147,6 +152,15 @@ impl LowtimeGraph {
 
     pub fn get_node_ids(&self) -> &Vec<u32> {
         &self.node_ids
+    }
+
+    pub fn get_topological_sorted_node_ids(&self) -> Vec<u32> {
+        topological_sort(&vec![self.get_source_node_id()], | node_id | {
+            match self.edges.get(&node_id) {
+                None => vec![],
+                Some(succs) => succs.keys().cloned().collect(),
+            }
+        }).unwrap()
     }
 
     pub fn add_node_id(&mut self, node_id: u32) -> () {
@@ -264,6 +278,14 @@ impl LowtimeEdge {
             ub: OrderedFloat(0.0),
             lb: OrderedFloat(0.0),
         }
+    }
+
+    pub fn get_op(&self) -> &Operation {
+        self.op.as_ref().unwrap()
+    }
+
+    pub fn get_op_mut(&mut self) -> &mut Operation {
+        self.op.as_mut().unwrap()
     }
 
     pub fn get_capacity(&self) -> OrderedFloat<f64> {

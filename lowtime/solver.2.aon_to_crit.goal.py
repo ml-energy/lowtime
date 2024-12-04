@@ -276,16 +276,6 @@ class PhillipsDessouky:
             logger.info(">>> Beginning iteration %d/%d", iteration + 1, num_iters)
             profiling_iter = time.time()
 
-            # Preprocesses graph for Rust runner
-            nodes, edges = self.format_rust_inputs(critical_dag)
-            self.rust_runner = _lowtime_rs.PhillipsDessouky(
-                FP_ERROR,
-                nodes,
-                critical_dag.graph["source_node"],
-                critical_dag.graph["sink_node"],
-                edges
-            )
-
             # At this point, `critical_dag` always exists and is what we want.
             # For the first iteration, the critical DAG is computed before the for
             # loop in order to estimate the number of iterations. For subsequent
@@ -326,6 +316,15 @@ class PhillipsDessouky:
                     sum([critical_dag[u][v]["ub"] for u, v in critical_dag.edges]),
                 )
 
+            # Preprocesses graph for Rust runner
+            nodes, edges = self.format_rust_inputs(critical_dag)
+            self.rust_runner = _lowtime_rs.PhillipsDessouky(
+                FP_ERROR,
+                nodes,
+                critical_dag.graph["source_node"],
+                critical_dag.graph["sink_node"],
+                edges
+            )
             try:
                 profiling_min_cut = time.time()
                 s_set, t_set = self.rust_runner.find_min_cut()
@@ -361,12 +360,17 @@ class PhillipsDessouky:
             aoa_nodes, aoa_edges = self.format_rust_inputs(aoa_dag)
             aoa_source_node = aoa_dag.graph["source_node"]
             aoa_sink_node = aoa_dag.graph["sink_node"]
-            self.rust_runner.temp_aoa_to_critical_dag(aoa_nodes, aoa_source_node, aoa_sink_node, aoa_edges)
+            self.rust_runner.temp_aoa_to_critical_dag(
+                aoa_nodes,
+                aoa_source_node,
+                aoa_sink_node,
+                aoa_edges,
+            )
             # ohjun: compare whether python vs rust versions are consistent
-            py_node_ids = critical_dag.get_dag_node_ids()
-            py_edges = critical_dag.get_dag_ek_processed_edges()
-            rs_node_ids = self.rust_runner.get_temp_crit_dag_node_ids()
-            rs_edges = self.rust_runner.get_temp_crit_dag_processed_edges()
+            py_node_ids = critical_dag.nodes
+            py_edges = critical_dag.edges(data="capacity")
+            rs_node_ids = self.rust_runner.get_dag_node_ids()
+            rs_edges = self.rust_runner.get_dag_ek_processed_edges()
 
             assert len(py_node_ids) == len(rs_node_ids), "LENGTH MISMATCH in node_ids"
             assert py_node_ids == rs_node_ids, "DIFF in node_ids"

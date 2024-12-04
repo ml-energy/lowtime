@@ -276,16 +276,6 @@ class PhillipsDessouky:
             logger.info(">>> Beginning iteration %d/%d", iteration + 1, num_iters)
             profiling_iter = time.time()
 
-            # Preprocesses graph for Rust runner
-            nodes, edges = self.format_rust_inputs(critical_dag)
-            self.rust_runner = _lowtime_rs.PhillipsDessouky(
-                FP_ERROR,
-                nodes,
-                critical_dag.graph["source_node"],
-                critical_dag.graph["sink_node"],
-                edges
-            )
-
             # At this point, `critical_dag` always exists and is what we want.
             # For the first iteration, the critical DAG is computed before the for
             # loop in order to estimate the number of iterations. For subsequent
@@ -326,6 +316,15 @@ class PhillipsDessouky:
                     sum([critical_dag[u][v]["ub"] for u, v in critical_dag.edges]),
                 )
 
+            # Preprocesses graph for Rust runner
+            nodes, edges = self.format_rust_inputs(critical_dag)
+            self.rust_runner = _lowtime_rs.PhillipsDessouky(
+                FP_ERROR,
+                nodes,
+                critical_dag.graph["source_node"],
+                critical_dag.graph["sink_node"],
+                edges
+            )
             try:
                 profiling_min_cut = time.time()
                 s_set, t_set = self.rust_runner.find_min_cut()

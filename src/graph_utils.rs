@@ -1,3 +1,7 @@
+use std::cmp;
+
+use log::{info, debug, Level};
+
 use crate::lowtime_graph::{LowtimeGraph, LowtimeEdge};
 
 
@@ -11,16 +15,32 @@ use crate::lowtime_graph::{LowtimeGraph, LowtimeEdge};
 ///     - The graph has only one source node, annotated as "source_node" on the graph.
 ///     - The graph has only one sink node, annotated as "sink_node" on the graph.
 // TODO(ohjun): adapt comment above for Rust version
-pub fn aoa_to_critical_dag(aoa_dag: LowtimeGraph) -> LowtimeGraph {
-    // if not nx.is_directed_acyclic_graph(aoa_dag):
-    //     raise ValueError("The given graph is not a DAG.")
+pub fn aoa_to_critical_dag(mut aoa_dag: LowtimeGraph) -> LowtimeGraph {
+    // Note: Python version checked whether aoa_dag is a dag; this Rust version does
+    // not. This extra check could be added in the future.
 
-    // # Clear all earliest/latest start/end times.
-    // for _, _, edge_attr in aoa_dag.edges(data=True):
-    //     operation: Operation = edge_attr[attr_name]
-    //     operation.reset_times()
+    // Clear all earliest/latest start/end times.
+    aoa_dag.edges_mut().for_each(|(_, _, edge)| edge.get_op_mut().reset_times());
 
-    // # Run the forward pass to set earliest start/end times.
+    // Run the forward pass to set earliest start/end times.
+    for node_id in aoa_dag.get_topological_sorted_node_ids() {
+        if let Some(succs) = aoa_dag.successors(node_id) {
+            // let succs: Vec<u32> = succs.cloned().collect();
+            for succ_id in succs {
+                let cur_op = aoa_dag.get_edge(node_id, *succ_id).get_op();
+                if let Some(succ_succs) = aoa_dag.successors(*succ_id) {
+                    // let succ_succs: Vec<u32> = succ_succs.cloned().collect();
+                    for succ_succ_id in succ_succs {
+                        {
+                        let next_op = aoa_dag.get_edge_mut(*succ_id, *succ_succ_id).get_op_mut();
+                        next_op.earliest_start = cmp::max(next_op.earliest_start, cur_op.earliest_finish);
+                        next_op.earliest_finish = next_op.earliest_start + next_op.duration;
+                        }
+                    }
+                }
+            }
+        }
+    }
     // for node_id in nx.topological_sort(aoa_dag):
     //     for succ_id in aoa_dag.successors(node_id):
     //         cur_op: Operation = aoa_dag[node_id][succ_id][attr_name]
@@ -84,4 +104,6 @@ pub fn aoa_to_critical_dag(aoa_dag: LowtimeGraph) -> LowtimeGraph {
     //     )
 
     // return critical_dag
+
+    return aoa_dag;
 }
