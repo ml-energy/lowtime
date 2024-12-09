@@ -89,8 +89,6 @@ class PhillipsDessouky:
                 object. Defaults to "op".
         """
         self.attr_name = attr_name
-        # Set up Rust runner, will be initialized once critical DAG is formed
-        self.rust_runner = None
 
         # Run checks on the DAG and cache some properties.
         # Check: It's a DAG.
@@ -173,27 +171,12 @@ class PhillipsDessouky:
             tuple[
                 tuple[int, int],
                 tuple[float, float, float, float],
-                tuple[bool, int, int, int, int, int, int, int] | None,
             ]
         ],
     ]:
         nodes = dag.nodes
         edges = []
         for from_, to_, edge_attrs in dag.edges(data=True):
-            op_details = (
-                None
-                if self.attr_name not in edge_attrs
-                else (
-                    edge_attrs[self.attr_name].is_dummy,
-                    edge_attrs[self.attr_name].duration,
-                    edge_attrs[self.attr_name].max_duration,
-                    edge_attrs[self.attr_name].min_duration,
-                    edge_attrs[self.attr_name].earliest_start,
-                    edge_attrs[self.attr_name].latest_start,
-                    edge_attrs[self.attr_name].earliest_finish,
-                    edge_attrs[self.attr_name].latest_finish,
-                )
-            )
             edges.append(
                 (
                     (from_, to_),
@@ -203,7 +186,6 @@ class PhillipsDessouky:
                         edge_attrs.get("ub", 0),
                         edge_attrs.get("lb", 0),
                     ),
-                    op_details,
                 )
             )
         return nodes, edges
@@ -260,17 +242,6 @@ class PhillipsDessouky:
             "PROFILING PhillipsDessouky::run set up time: %.10fs", profiling_setup
         )
 
-        # TODO(ohjun): this should be here once all functions are implemented
-        # # Preprocesses graph for Rust runner
-        # nodes, edges = self.format_rust_inputs(critical_dag)
-        # self.rust_runner = _lowtime_rs.PhillipsDessouky(
-        #     FP_ERROR,
-        #     nodes,
-        #     critical_dag.graph["source_node"],
-        #     critical_dag.graph["sink_node"],
-        #     edges
-        # )
-
         # Iteratively reduce the execution time of the DAG.
         for iteration in range(sys.maxsize):
             logger.info(">>> Beginning iteration %d/%d", iteration + 1, num_iters)
@@ -298,7 +269,6 @@ class PhillipsDessouky:
 
             profiling_annotate = time.time()
             self.annotate_capacities(critical_dag)
-            # self.rust_runner.annotate_capacities()
             profiling_annotate = time.time() - profiling_annotate
             logger.info(
                 "PROFILING PhillipsDessouky::annotate_capacities time: %.10fs",
@@ -316,18 +286,17 @@ class PhillipsDessouky:
                     sum([critical_dag[u][v]["ub"] for u, v in critical_dag.edges]),
                 )
 
-            # Preprocesses graph for Rust runner
-            nodes, edges = self.format_rust_inputs(critical_dag)
-            self.rust_runner = _lowtime_rs.PhillipsDessouky(
-                FP_ERROR,
-                nodes,
-                critical_dag.graph["source_node"],
-                critical_dag.graph["sink_node"],
-                edges
-            )
             try:
                 profiling_min_cut = time.time()
-                s_set, t_set = self.rust_runner.find_min_cut()
+                nodes, edges = self.format_rust_inputs(critical_dag)
+                rust_runner = _lowtime_rs.PhillipsDessouky(
+                    FP_ERROR,
+                    nodes,
+                    critical_dag.graph["source_node"],
+                    critical_dag.graph["sink_node"],
+                    edges
+                )
+                s_set, t_set = rust_runner.find_min_cut()
                 profiling_min_cut = time.time() - profiling_min_cut
                 logger.info(
                     "PROFILING PhillipsDessouky::find_min_cut time: %.10fs",
@@ -340,7 +309,6 @@ class PhillipsDessouky:
 
             profiling_reduce = time.time()
             cost_change = self.reduce_durations(critical_dag, s_set, t_set)
-            # cost_change = self.rust_runner.reduce_durations()
             profiling_reduce = time.time() - profiling_reduce
             logger.info(
                 "PROFILING PhillipsDessouky::reduce_durations time: %.10fs",
@@ -354,40 +322,6 @@ class PhillipsDessouky:
 
             # Earliest/latest start/finish times on operations also annotated here.
             critical_dag = aoa_to_critical_dag(aoa_dag, attr_name=self.attr_name)
-            #######################################
-            ##########  NEW OHJUN START  ##########
-            # ohjun: rust version of aoa_to_critical_dag
-            aoa_nodes, aoa_edges = self.format_rust_inputs(aoa_dag)
-            aoa_source_node = aoa_dag.graph["source_node"]
-            aoa_sink_node = aoa_dag.graph["sink_node"]
-            self.rust_runner.temp_aoa_to_critical_dag(
-                aoa_nodes,
-                aoa_source_node,
-                aoa_sink_node,
-                aoa_edges,
-            )
-            # ohjun: compare whether python vs rust versions are consistent
-            py_node_ids = critical_dag.nodes
-            py_edges = critical_dag.edges(data="capacity")
-            rs_node_ids = self.rust_runner.get_dag_node_ids()
-            rs_edges = self.rust_runner.get_dag_ek_processed_edges()
-
-            assert len(py_node_ids) == len(rs_node_ids), "LENGTH MISMATCH in node_ids"
-            assert py_node_ids == rs_node_ids, "DIFF in node_ids"
-            assert len(py_edges) == len(rs_edges), "LENGTH MISMATCH in edges"
-            # if sorted(py_edges) != sorted(rs_edges):
-            #     for depr_edge, new_edge in zip(sorted(py_edges), sorted(rs_edges)):
-            #         if depr_edge == new_edge:
-            #             logger.info("edges EQUAL")
-            #             logger.info(f"depr_edge: {depr_edge}")
-            #             logger.info(f"new_edge : {new_edge}")
-            #         else:
-            #             logger.info("edges DIFFERENT")
-            #             logger.info(f"depr_edge: {depr_edge}")
-                        # logger.info(f"new_edge : {new_edge}")
-            assert sorted(py_edges) == sorted(rs_edges), "DIFF in edges"
-            ##########  NEW OHJUN  END   ##########
-            #######################################
 
             # We directly modify operation attributes in the DAG, so after we
             # ran one iteration, the AON DAG holds updated attributes.

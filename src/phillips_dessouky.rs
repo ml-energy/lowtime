@@ -1,20 +1,10 @@
 use pyo3::prelude::*;
 
 use std::collections::{HashMap, HashSet, VecDeque};
-
+use log::{debug, error, Level};
 use ordered_float::OrderedFloat;
-use pathfinding::directed::edmonds_karp::{
-    SparseCapacity,
-    Edge,
-    edmonds_karp
-};
 
-use std::time::Instant;
-use log::{info, debug, error, Level};
-
-use crate::graph_utils;
 use crate::lowtime_graph::{LowtimeGraph, LowtimeEdge};
-use crate::utils;
 
 
 #[pyclass]
@@ -31,7 +21,7 @@ impl PhillipsDessouky {
         node_ids: Vec<u32>,
         source_node_id: u32,
         sink_node_id: u32,
-        edges_raw: Vec<((u32, u32), (f64, f64, f64, f64), Option<(bool, u64, u64, u64, u64, u64, u64, u64)>)>,
+        edges_raw: Vec<((u32, u32), (f64, f64, f64, f64))>,
     ) -> PyResult<Self> {
         Ok(PhillipsDessouky {
             dag: LowtimeGraph::of_python(
@@ -44,21 +34,6 @@ impl PhillipsDessouky {
         })
     }
 
-    // TESTING ohjun
-    fn get_dag_node_ids(&self) -> Vec<u32> {
-        self.dag.get_node_ids().clone()
-    }
-
-    // TESTING ohjun
-    fn get_dag_ek_processed_edges(&self) -> Vec<((u32, u32), f64)> {
-        let rs_edges = self.dag.get_ek_preprocessed_edges();
-        let py_edges: Vec<((u32, u32), f64)> = rs_edges.iter().map(|((from, to), cap)| {
-            ((*from, *to), cap.into_inner())
-        }).collect();
-        py_edges
-    }
-
-
     /// Find the min cut of the DAG annotated with lower/upper bound flow capacities.
     ///
     /// Assumptions:
@@ -69,11 +44,10 @@ impl PhillipsDessouky {
     /// Returns:
     ///     A tuple of (s_set, t_set) where s_set is the set of nodes on the source side
     ///     of the min cut and t_set is the set of nodes on the sink side of the min cut.
-    ///     Returns None if no feasible flow exists.
-    ///
-    /// Raises:
-    ///     LowtimeFlowError: When no feasible flow exists.
-    // TODO(ohjun): fix documentation comment above to match rust version
+    /// 
+    /// Panics if:
+    ///     - Any of the assumptions are not true.
+    ///     - No feasible flow exists.
     fn find_min_cut(&mut self) -> (HashSet<u32>, HashSet<u32>) {
         // In order to solve max flow on edges with both lower and upper bounds,
         // we first need to convert it to another DAG that only has upper bounds.
@@ -99,7 +73,12 @@ impl PhillipsDessouky {
                     acc + unbound_dag.get_edge(*pred_id, *u).get_lb()
                 });
             }
-            unbound_dag.add_edge(s_prime_id, *u, LowtimeEdge::new_only_capacity(capacity));
+            unbound_dag.add_edge(s_prime_id, *u, LowtimeEdge::new(
+                capacity,
+                OrderedFloat(0.0), // flow
+                OrderedFloat(0.0), // ub
+                OrderedFloat(0.0), // lb
+            ));
         }
 
         // Add a new node t', which will become the new sink node.
@@ -115,7 +94,12 @@ impl PhillipsDessouky {
                     acc + unbound_dag.get_edge(*u, *succ_id).get_lb()
                 });
             }
-            unbound_dag.add_edge(*u, t_prime_id, LowtimeEdge::new_only_capacity(capacity));
+            unbound_dag.add_edge(*u, t_prime_id, LowtimeEdge::new(
+                capacity,
+                OrderedFloat(0.0), // flow
+                OrderedFloat(0.0), // ub
+                OrderedFloat(0.0), // lb
+            ));
         }
 
         if log::log_enabled!(Level::Debug) {
@@ -131,19 +115,17 @@ impl PhillipsDessouky {
         unbound_dag.add_edge(
             unbound_dag.get_sink_node_id(),
             unbound_dag.get_source_node_id(),
-            LowtimeEdge::new_only_capacity(OrderedFloat(f64::INFINITY)),
+            LowtimeEdge::new(
+                OrderedFloat(f64::INFINITY), // capacity
+                OrderedFloat(0.0), // flow
+                OrderedFloat(0.0), // ub
+                OrderedFloat(0.0), // lb
+            ),
         );
 
         // Update source and sink on unbound_dag
-        // Note: This part is not in original Python solver, because the original solver
-        //       never explicitly updates the source and sink; it simply passes in the
-        //       new node_ids directly to max_flow. However, in this codebase, it makes
-        //       sense to have LowtimeGraph be responsible for tracking its source/sink.
-        //       I am noting this because it resulted in an extremely hard-to-find bug,
-        //       and in the course of rewriting further a similar bug may appear again.
         unbound_dag.set_source_node_id(s_prime_id);
         unbound_dag.set_sink_node_id(t_prime_id);
-
 
         // We're done with constructing the DAG with only flow upper bounds.
         // Find the maximum flow on this DAG.
@@ -186,7 +168,6 @@ impl PhillipsDessouky {
                         flow_dict[&s_prime_id][u],
                         unbound_dag.get_edge(s_prime_id, *u).get_capacity(),
                     );
-                    // TODO(ohjun): integrate with pyo3 exceptions
                     panic!("ERROR: Max flow on unbounded DAG didn't saturate.");
                 }
             }
@@ -205,7 +186,6 @@ impl PhillipsDessouky {
                         flow_dict[u][&t_prime_id],
                         unbound_dag.get_edge(*u, t_prime_id).get_capacity(),
                     );
-                    // TODO(ohjun): integrate with pyo3 exceptions
                     panic!("ERROR: Max flow on unbounded DAG didn't saturate.");
                 }
             }
@@ -242,7 +222,12 @@ impl PhillipsDessouky {
 
             match self.dag.has_edge(*v, *u) {
                 true => residual_graph.get_edge_mut(*v, *u).set_capacity(vu_capacity),
-                false => residual_graph.add_edge(*v, *u, LowtimeEdge::new_only_capacity(vu_capacity)),
+                false => residual_graph.add_edge(*v, *u, LowtimeEdge::new(
+                    vu_capacity,
+                    OrderedFloat(0.0), // flow
+                    OrderedFloat(0.0), // ub
+                    OrderedFloat(0.0), // lb
+                )),
             }
         }
 
@@ -278,8 +263,12 @@ impl PhillipsDessouky {
         let mut new_residual = self.dag.clone();
         for (u, v, edge) in self.dag.edges() {
             new_residual.get_edge_mut(*u, *v).set_flow(edge.get_ub() - edge.get_flow());
-            new_residual.add_edge(*v, *u,
-                LowtimeEdge::new_only_flow(edge.get_flow() - edge.get_lb()));
+            new_residual.add_edge(*v, *u, LowtimeEdge::new(
+                OrderedFloat(0.0), // capacity
+                edge.get_flow() - edge.get_lb(), // flow
+                OrderedFloat(0.0), // ub
+                OrderedFloat(0.0), // lb
+            ));
         }
 
         if log::log_enabled!(Level::Debug) {
@@ -316,23 +305,4 @@ impl PhillipsDessouky {
         let t_set: HashSet<u32> = all_nodes.difference(&s_set).copied().collect();
         (s_set, t_set)
     }
-
-    fn temp_aoa_to_critical_dag(&mut self,
-        aoa_node_ids: Vec<u32>,
-        aoa_source_node_id: u32,
-        aoa_sink_node_id: u32,
-        aoa_edges_raw: Vec<((u32, u32), (f64, f64, f64, f64), Option<(bool, u64, u64, u64, u64, u64, u64, u64)>)>,
-    ) -> () {
-        let aoa_dag = LowtimeGraph::of_python(
-            aoa_node_ids,
-            aoa_source_node_id,
-            aoa_sink_node_id,
-            aoa_edges_raw,
-        );
-        self.dag = graph_utils::aoa_to_critical_dag(aoa_dag);
-    }
 }
-
-// // not exposed to Python
-// impl PhillipsDessouky {
-// }

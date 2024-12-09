@@ -4,17 +4,13 @@
 #[derive(Clone)]
 pub struct Operation {
     is_dummy: bool,
-
     pub duration: u64,
     pub max_duration: u64,
     pub min_duration: u64,
-
     pub earliest_start: u64,
     pub latest_start: u64,
     pub earliest_finish: u64,
     pub latest_finish: u64,
-
-    // cost_model: CostModel,
 }
 
 impl Operation {
@@ -48,25 +44,4 @@ impl Operation {
         self.earliest_finish = 0;
         self.latest_finish = u64::MAX;
     }
-
-    // pub fn get_earliest_start(&self) -> u64 {
-    //     self.earliest_start
-    // }
-
-    // pub fn set_earliest_start(&mut self, new_earliest_start: u64) -> () {
-    //     self.earliest_start = new_earliest_start
-    // }
-
-    // pub fn get_latest_start(&self) -> u64 {
-    //     self.latest_start
-    // }
-
-    // pub fn set_latest_start(&mut self, new_latest_start: u64) -> () {
-    //     self.latest_start = new_latest_start
-    // }
-
-
-    // fn get_cost(&mut self, duration: u32) -> f64 {
-    //     self.cost_model.get_cost(duration)
-    // }
 }

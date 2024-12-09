@@ -3,7 +3,9 @@ use std::time::{
     Duration,
 };
 
-pub fn profile_duration(start: Instant, end: Instant) -> f64 {
+// This function is not used in the codebase, but it is left here
+// to facilitate profiling during development.
+pub fn get_duration(start: Instant, end: Instant) -> f64 {
     let duration: Duration = end.duration_since(start);
     let seconds = duration.as_secs();
     let subsec_nanos = duration.subsec_nanos();

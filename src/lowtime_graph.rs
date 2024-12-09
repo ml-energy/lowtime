@@ -1,6 +1,4 @@
-use std::cmp::Ordering;
 use std::collections::{HashMap, HashSet};
-
 use ordered_float::OrderedFloat;
 use pathfinding::directed::edmonds_karp::{
     SparseCapacity,
@@ -8,13 +6,6 @@ use pathfinding::directed::edmonds_karp::{
     EKFlows,
     edmonds_karp,
 };
-use pathfinding::prelude::topological_sort;
-
-use std::time::Instant;
-use log::{info, debug, Level};
-
-use crate::operation::Operation;
-use crate::utils;
 
 
 #[derive(Clone)]
@@ -43,7 +34,7 @@ impl LowtimeGraph {
         mut node_ids: Vec<u32>,
         source_node_id: u32,
         sink_node_id: u32,
-        edges_raw: Vec<((u32, u32), (f64, f64, f64, f64), Option<(bool, u64, u64, u64, u64, u64, u64, u64)>)>,
+        edges_raw: Vec<((u32, u32), (f64, f64, f64, f64))>,
     ) -> Self {
         let mut graph = LowtimeGraph::new();
         node_ids.sort();
@@ -54,51 +45,25 @@ impl LowtimeGraph {
         edges_raw.iter().for_each(|(
                 (from, to),
                 (capacity, flow, ub, lb),
-                op_details,
             )| {
-            let op = op_details.map(|(
-              is_dummy,
-              duration,
-              max_duration,
-              min_duration,
-              earliest_start,
-              latest_start,
-              earliest_finish,
-              latest_finish,
-            )| Operation::new(
-                is_dummy,
-                duration,
-                max_duration,
-                min_duration,
-                earliest_start,
-                latest_start,
-                earliest_finish,
-                latest_finish
-            ));
-            graph.add_edge(*from, *to, LowtimeEdge::new(op, *capacity, *flow, *ub, *lb))
+            graph.add_edge(*from, *to, LowtimeEdge::new(
+                OrderedFloat(*capacity),
+                OrderedFloat(*flow),
+                OrderedFloat(*ub),
+                OrderedFloat(*lb),
+            ))
         });
         graph
     }
 
     pub fn max_flow(&self) -> EKFlows<u32, OrderedFloat<f64>> {
         let edges_edmonds_karp = self.get_ek_preprocessed_edges();
-
-        // TESTING(ohjun)
-        // info!("self.node_ids.len(): {}", self.node_ids.len());
-        // info!("edges_edmonds_karp.len(): {}", edges_edmonds_karp.len());
-        // info!("self.source_node_id.unwrap(): {}", self.source_node_id.unwrap());
-        // info!("self.sink_node_id.unwrap(): {}", self.sink_node_id.unwrap());
-
-        let profiling_start = Instant::now();
         let (flows, max_flow, min_cut) = edmonds_karp::<_, _, _, SparseCapacity<_>>(
             &self.node_ids,
             &self.source_node_id.unwrap(),
             &self.sink_node_id.unwrap(),
             edges_edmonds_karp,
         );
-        let profiling_end = Instant::now();
-        info!("PROFILING Rust_PhillipsDessouky::max_flow edmonds_karp time: {:.10}s", utils::profile_duration(profiling_start, profiling_end));
-
         (flows, max_flow, min_cut)
     }
 
@@ -130,10 +95,6 @@ impl LowtimeGraph {
         self.edges.get(&node_id).map(|succs| succs.keys())
     }
 
-    // pub fn successors_mut(&mut self, node_id: u32) -> Option<impl Iterator<Item = &u32>> {
-    //     self.edges.get(&node_id).map(|succs| succs.keys())
-    // }
-
     pub fn predecessors(&self, node_id: u32) -> Option<impl Iterator<Item = &u32>> {
         self.preds.get(&node_id).map(|preds| preds.iter())
     }
@@ -152,15 +113,6 @@ impl LowtimeGraph {
 
     pub fn get_node_ids(&self) -> &Vec<u32> {
         &self.node_ids
-    }
-
-    pub fn get_topological_sorted_node_ids(&self) -> Vec<u32> {
-        topological_sort(&vec![self.get_source_node_id()], | node_id | {
-            match self.edges.get(&node_id) {
-                None => vec![],
-                Some(succs) => succs.keys().cloned().collect(),
-            }
-        }).unwrap()
     }
 
     pub fn add_node_id(&mut self, node_id: u32) -> () {
@@ -193,14 +145,7 @@ impl LowtimeGraph {
         self.num_edges += 1;
     }
 
-    // fn get_mut_op(&mut self, from: u32, to: u32) -> Option<&mut LowtimeEdge> {
-    //     self.edges
-    //         .get_mut(&from)
-    //         .and_then(|to_edges| to_edges.get_mut(&to))
-    // }
-
-    // TESTING(ohjun): should make private when testing functions are deleted
-    pub fn get_ek_preprocessed_edges(&self, ) -> Vec<Edge<u32, OrderedFloat<f64>>> {
+    fn get_ek_preprocessed_edges(&self, ) -> Vec<Edge<u32, OrderedFloat<f64>>> {
         let mut processed_edges = Vec::with_capacity(self.num_edges);
         processed_edges.extend(
             self.edges.iter().flat_map(|(from, inner)|
@@ -209,32 +154,10 @@ impl LowtimeGraph {
         )));
         processed_edges
     }
-
-    // TESTING(ohjun)
-    pub fn print_all_capacities(&self) -> () {
-        let mut processed_edges = self.get_ek_preprocessed_edges();
-        processed_edges.sort_by(|((a_from, a_to), _a_cap): &((u32, u32), OrderedFloat<f64>),
-                                 ((b_from, b_to), _b_cap): &((u32, u32), OrderedFloat<f64>)| {
-            // a_from < b_from || (a_from == b_from && a_to < b_to)
-            let from_cmp = a_from.cmp(&b_from);
-            if from_cmp == Ordering::Equal {
-                a_to.cmp(&b_to)
-            }
-            else {
-                from_cmp
-            }
-        });
-        info!("Rust Printing graph:");
-        info!("Num edges: {}", processed_edges.len());
-        processed_edges.iter().for_each(|((from, to), cap)| {
-            info!("{} -> {}: {}", from, to, cap);
-        });
-    }
 }
 
 #[derive(Clone)]
 pub struct LowtimeEdge {
-    op: Option<Operation>,
     capacity: OrderedFloat<f64>,
     flow: OrderedFloat<f64>,
     ub: OrderedFloat<f64>,
@@ -243,49 +166,17 @@ pub struct LowtimeEdge {
 
 impl LowtimeEdge {
     pub fn new(
-        op: Option<Operation>,
-        capacity: f64,
-        flow: f64,
-        ub: f64,
-        lb: f64,
+        capacity: OrderedFloat<f64>,
+        flow: OrderedFloat<f64>,
+        ub: OrderedFloat<f64>,
+        lb: OrderedFloat<f64>,
     ) -> Self {
         LowtimeEdge {
-            op,
-            capacity: OrderedFloat(capacity),
-            flow: OrderedFloat(flow),
-            ub: OrderedFloat(ub),
-            lb: OrderedFloat(lb),
-        }
-    }
-
-    // TODO(ohjun): there's probably a better way to do this with default args
-    pub fn new_only_capacity(capacity: OrderedFloat<f64>) -> Self {
-        LowtimeEdge {
-            op: None,
             capacity,
-            flow: OrderedFloat(0.0),
-            ub: OrderedFloat(0.0),
-            lb: OrderedFloat(0.0),
-        }
-    }
-
-    // TODO(ohjun): there's probably a better way to do this with default args
-    pub fn new_only_flow(flow: OrderedFloat<f64>) -> Self {
-        LowtimeEdge {
-            op: None,
-            capacity: OrderedFloat(0.0),
             flow,
-            ub: OrderedFloat(0.0),
-            lb: OrderedFloat(0.0),
+            ub,
+            lb,
         }
-    }
-
-    pub fn get_op(&self) -> &Operation {
-        self.op.as_ref().unwrap()
-    }
-
-    pub fn get_op_mut(&mut self) -> &mut Operation {
-        self.op.as_mut().unwrap()
     }
 
     pub fn get_capacity(&self) -> OrderedFloat<f64> {
