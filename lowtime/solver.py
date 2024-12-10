@@ -200,7 +200,6 @@ class PhillipsDessouky:
         of all operations are up to date w.r.t. the `duration` of each operation.
         """
         logger.info("Starting Phillips-Dessouky solver.")
-        profiling_setup = time.time()
 
         # Convert the original activity-on-node DAG to activity-on-arc DAG form.
         # AOA DAGs are purely internal. All public input and output of this class
@@ -236,15 +235,9 @@ class PhillipsDessouky:
         num_iters = max_time - min_time + 1
         logger.info("Expected number of PD iterations: %d", num_iters)
 
-        profiling_setup = time.time() - profiling_setup
-        logger.info(
-            "PROFILING PhillipsDessouky::run set up time: %.10fs", profiling_setup
-        )
-
         # Iteratively reduce the execution time of the DAG.
         for iteration in range(sys.maxsize):
             logger.info(">>> Beginning iteration %d/%d", iteration + 1, num_iters)
-            profiling_iter = time.time()
 
             # At this point, `critical_dag` always exists and is what we want.
             # For the first iteration, the critical DAG is computed before the for
@@ -266,13 +259,7 @@ class PhillipsDessouky:
                     sum(op.duration for op in non_dummy_ops),
                 )
 
-            profiling_annotate = time.time()
             self.annotate_capacities(critical_dag)
-            profiling_annotate = time.time() - profiling_annotate
-            logger.info(
-                "PROFILING PhillipsDessouky::annotate_capacities time: %.10fs",
-                profiling_annotate,
-            )
 
             if logger.isEnabledFor(logging.DEBUG):
                 logger.debug("Capacity DAG:")
@@ -286,7 +273,6 @@ class PhillipsDessouky:
                 )
 
             try:
-                profiling_min_cut = time.time()
                 nodes, edges = self.format_rust_inputs(critical_dag)
                 rust_runner = _lowtime_rs.PhillipsDessouky(
                     FP_ERROR,
@@ -296,23 +282,12 @@ class PhillipsDessouky:
                     edges,
                 )
                 s_set, t_set = rust_runner.find_min_cut()
-                profiling_min_cut = time.time() - profiling_min_cut
-                logger.info(
-                    "PROFILING PhillipsDessouky::find_min_cut time: %.10fs",
-                    profiling_min_cut,
-                )
             except LowtimeFlowError as e:
                 logger.info("Could not find minimum cut: %s", e.message)
                 logger.info("Terminating PD iteration.")
                 break
 
-            profiling_reduce = time.time()
             cost_change = self.reduce_durations(critical_dag, s_set, t_set)
-            profiling_reduce = time.time() - profiling_reduce
-            logger.info(
-                "PROFILING PhillipsDessouky::reduce_durations time: %.10fs",
-                profiling_reduce,
-            )
 
             if cost_change == float("inf") or abs(cost_change) < FP_ERROR:
                 logger.info("No further time reduction possible.")
@@ -334,11 +309,6 @@ class PhillipsDessouky:
                 unit_time=self.unit_time,
             )
             logger.info("%s", result)
-            profiling_iter = time.time() - profiling_iter
-            logger.info(
-                "PROFILING PhillipsDessouky::run single iteration time: %.10fs",
-                profiling_iter,
-            )
             yield result
 
     def reduce_durations(
