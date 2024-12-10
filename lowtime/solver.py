@@ -17,7 +17,6 @@
 
 from __future__ import annotations
 
-import time
 import sys
 import logging
 from collections.abc import Generator
