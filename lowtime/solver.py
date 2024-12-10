@@ -294,7 +294,7 @@ class PhillipsDessouky:
                     nodes,
                     critical_dag.graph["source_node"],
                     critical_dag.graph["sink_node"],
-                    edges
+                    edges,
                 )
                 s_set, t_set = rust_runner.find_min_cut()
                 profiling_min_cut = time.time() - profiling_min_cut
