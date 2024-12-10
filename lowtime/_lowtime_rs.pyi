@@ -5,6 +5,7 @@ import networkx as nx
 class PhillipsDessouky:
     def __init__(
         self,
+        fp_error: float,
         node_ids: list[int] | nx.classes.reportviews.NodeView,
         source_node_id: int,
         sink_node_id: int,
