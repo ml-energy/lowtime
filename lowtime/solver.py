@@ -20,7 +20,6 @@ from __future__ import annotations
 import time
 import sys
 import logging
-from collections import deque
 from collections.abc import Generator
 
 import networkx as nx
@@ -161,7 +160,6 @@ class PhillipsDessouky:
         self.aon_dag = dag
         self.unit_time = unit_time_candidates.pop()
 
-    # Helper function for Rust interop
     def format_rust_inputs(
         self,
         dag: nx.DiGraph,
@@ -174,6 +172,7 @@ class PhillipsDessouky:
             ]
         ],
     ]:
+        """Convert Python-side nx.DiGraph into format compatible with Rust-side LowtimeGraph."""
         nodes = dag.nodes
         edges = []
         for from_, to_, edge_attrs in dag.edges(data=True):
