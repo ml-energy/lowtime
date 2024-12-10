@@ -13,7 +13,6 @@ class PhillipsDessouky:
             tuple[
                 tuple[int, int],
                 tuple[float, float, float, float],
-                tuple[bool, int, int, int, int, int, int, int] | None,
             ]
         ],
     ) -> None: ...
