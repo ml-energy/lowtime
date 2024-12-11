@@ -113,8 +113,8 @@ impl PhillipsDessouky {
 
         // Add an edge from t to s with infinite capacity.
         unbound_dag.add_edge(
-            unbound_dag.get_sink_node_id(),
-            unbound_dag.get_source_node_id(),
+            unbound_dag.sink_node_id,
+            unbound_dag.source_node_id,
             LowtimeEdge::new(
                 OrderedFloat(f64::INFINITY), // capacity
                 OrderedFloat(0.0), // flow
@@ -124,8 +124,8 @@ impl PhillipsDessouky {
         );
 
         // Update source and sink on unbound_dag
-        unbound_dag.set_source_node_id(s_prime_id);
-        unbound_dag.set_sink_node_id(t_prime_id);
+        unbound_dag.source_node_id = s_prime_id;
+        unbound_dag.sink_node_id = t_prime_id;
 
         // We're done with constructing the DAG with only flow upper bounds.
         // Find the maximum flow on this DAG.
@@ -285,10 +285,10 @@ impl PhillipsDessouky {
         // source node. That's the s-set, and the rest is the t-set.
         let mut s_set: HashSet<u32> = HashSet::new();
         let mut q: VecDeque<u32> = VecDeque::new();
-        q.push_back(new_residual.get_source_node_id());
+        q.push_back(new_residual.source_node_id);
         while let Some(cur_id) = q.pop_back() {
             s_set.insert(cur_id);
-            if cur_id == new_residual.get_sink_node_id() {
+            if cur_id == new_residual.sink_node_id {
                 break;
             }
             if let Some(succs) = new_residual.successors(cur_id) {

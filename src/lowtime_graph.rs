@@ -11,8 +11,8 @@ use pathfinding::directed::edmonds_karp::{
 #[derive(Clone)]
 pub struct LowtimeGraph {
     pub node_ids: Vec<u32>,
-    source_node_id: u32,
-    sink_node_id: u32,
+    pub source_node_id: u32,
+    pub sink_node_id: u32,
     edges: HashMap<u32, HashMap<u32, LowtimeEdge>>,
     preds: HashMap<u32, HashSet<u32>>,
     num_edges: usize,
@@ -62,22 +62,6 @@ impl LowtimeGraph {
             &self.sink_node_id,
             edges_edmonds_karp,
         )
-    }
-
-    pub fn get_source_node_id(&self) -> u32 {
-        self.source_node_id
-    }
-
-    pub fn set_source_node_id(&mut self, new_source_node_id: u32) -> () {
-        self.source_node_id = new_source_node_id;
-    }
-
-    pub fn get_sink_node_id(&self) -> u32 {
-        self.sink_node_id
-    }
-
-    pub fn set_sink_node_id(&mut self, new_sink_node_id: u32) -> () {
-        self.sink_node_id = new_sink_node_id;
     }
 
     pub fn num_nodes(&self) -> usize {
