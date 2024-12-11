@@ -58,13 +58,12 @@ impl LowtimeGraph {
 
     pub fn max_flow(&self) -> EKFlows<u32, OrderedFloat<f64>> {
         let edges_edmonds_karp = self.get_ek_preprocessed_edges();
-        let (flows, max_flow, min_cut) = edmonds_karp::<_, _, _, SparseCapacity<_>>(
+        edmonds_karp::<_, _, _, SparseCapacity<_>>(
             &self.node_ids,
             &self.source_node_id.unwrap(),
             &self.sink_node_id.unwrap(),
             edges_edmonds_karp,
-        );
-        (flows, max_flow, min_cut)
+        )
     }
 
     pub fn get_source_node_id(&self) -> u32 {
