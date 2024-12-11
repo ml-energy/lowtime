@@ -363,6 +363,205 @@ class PhillipsDessouky:
 
         return cost_change
 
+    def find_min_cut(self, dag: nx.DiGraph) -> tuple[set[int], set[int]]:
+        """Find the min cut of the DAG annotated with lower/upper bound flow capacities.
+
+        Note: this function is not used and instead accelerated by calling
+        rust_runner.find_min_cut. It is left here for reference in case someone wants
+        to modify the algorithm in Python for research.
+
+        Assumptions:
+            - The capacity DAG is in AOA form.
+            - The capacity DAG has been annotated with `lb` and `ub` attributes on edges,
+                representing the lower and upper bounds of the flow on the edge.
+
+        Returns:
+            A tuple of (s_set, t_set) where s_set is the set of nodes on the source side
+            of the min cut and t_set is the set of nodes on the sink side of the min cut.
+            Returns None if no feasible flow exists.
+
+        Raises:
+            LowtimeFlowError: When no feasible flow exists.
+        """
+        source_node = dag.graph["source_node"]
+        sink_node = dag.graph["sink_node"]
+
+        # In order to solve max flow on edges with both lower and upper bounds,
+        # we first need to convert it to another DAG that only has upper bounds.
+        unbound_dag = nx.DiGraph(dag)
+
+        # For every edge, capacity = ub - lb.
+        for _, _, edge_attrs in unbound_dag.edges(data=True):
+            edge_attrs["capacity"] = edge_attrs["ub"] - edge_attrs["lb"]
+
+        # Add a new node s', which will become the new source node.
+        # We constructed the AOA DAG, so we know that node IDs are integers.
+        node_ids: list[int] = list(unbound_dag.nodes)
+        s_prime_id = max(node_ids) + 1
+        unbound_dag.add_node(s_prime_id)
+
+        # For every node u in the original graph, add an edge (s', u) with capacity
+        # equal to the sum of all lower bounds of u's parents.
+        for u in dag.nodes:
+            capacity = 0.0
+            for pred_id in dag.predecessors(u):
+                capacity += dag[pred_id][u]["lb"]
+            unbound_dag.add_edge(s_prime_id, u, capacity=capacity)
+
+        # Add a new node t', which will become the new sink node.
+        t_prime_id = s_prime_id + 1
+        unbound_dag.add_node(t_prime_id)
+
+        # For every node u in the original graph, add an edge (u, t') with capacity
+        # equal to the sum of all lower bounds of u's children.
+        for u in dag.nodes:
+            capacity = 0.0
+            for succ_id in dag.successors(u):
+                capacity += dag[u][succ_id]["lb"]
+            unbound_dag.add_edge(u, t_prime_id, capacity=capacity)
+
+        if logger.isEnabledFor(logging.DEBUG):
+            logger.debug("Unbound DAG")
+            logger.debug("Number of nodes: %d", unbound_dag.number_of_nodes())
+            logger.debug("Number of edges: %d", unbound_dag.number_of_edges())
+            logger.debug(
+                "Sum of capacities: %f",
+                sum(attr["capacity"] for _, _, attr in unbound_dag.edges(data=True)),
+            )
+
+        # Add an edge from t to s with infinite capacity.
+        unbound_dag.add_edge(
+            sink_node,
+            source_node,
+            capacity=float("inf"),
+        )
+
+        # We're done with constructing the DAG with only flow upper bounds.
+        # Find the maximum flow on this DAG.
+        try:
+            _, flow_dict = nx.maximum_flow(
+                unbound_dag,
+                s_prime_id,
+                t_prime_id,
+                capacity="capacity",
+                flow_func=edmonds_karp,
+            )
+        except nx.NetworkXUnbounded as e:
+            raise LowtimeFlowError("ERROR: Infinite flow for unbounded DAG.") from e
+
+        if logger.isEnabledFor(logging.DEBUG):
+            logger.debug("After first max flow")
+            total_flow = 0.0
+            for d in flow_dict.values():
+                for flow in d.values():
+                    total_flow += flow
+            logger.debug("Sum of all flow values: %f", total_flow)
+
+        # Check if residual graph is saturated. If so, we have a feasible flow.
+        for u in unbound_dag.successors(s_prime_id):
+            if (
+                abs(flow_dict[s_prime_id][u] - unbound_dag[s_prime_id][u]["capacity"])
+                > FP_ERROR
+            ):
+                logger.error(
+                    "s' -> %s unsaturated (flow: %s, capacity: %s)",
+                    u,
+                    flow_dict[s_prime_id][u],
+                    unbound_dag[s_prime_id][u]["capacity"],
+                )
+                raise LowtimeFlowError(
+                    "ERROR: Max flow on unbounded DAG didn't saturate."
+                )
+        for u in unbound_dag.predecessors(t_prime_id):
+            if (
+                abs(flow_dict[u][t_prime_id] - unbound_dag[u][t_prime_id]["capacity"])
+                > FP_ERROR
+            ):
+                logger.error(
+                    "%s -> t' unsaturated (flow: %s, capacity: %s)",
+                    u,
+                    flow_dict[u][t_prime_id],
+                    unbound_dag[u][t_prime_id]["capacity"],
+                )
+                raise LowtimeFlowError(
+                    "ERROR: Max flow on unbounded DAG didn't saturate."
+                )
+
+        # We have a feasible flow. Construct a new residual graph with the same
+        # shape as the capacity DAG so that we can find the min cut.
+        # First, retrieve the flow amounts to the original capacity graph, where for
+        # each edge u -> v, the flow amount is `flow + lb`.
+        for u, v in dag.edges:
+            dag[u][v]["flow"] = flow_dict[u][v] + dag[u][v]["lb"]
+
+        # Construct a new residual graph (same shape as capacity DAG) with
+        # u -> v capacity `ub - flow` and v -> u capacity `flow - lb`.
+        residual_graph = nx.DiGraph(dag)
+        for u, v in dag.edges:
+            residual_graph[u][v]["capacity"] = (
+                residual_graph[u][v]["ub"] - residual_graph[u][v]["flow"]
+            )
+            capacity = residual_graph[u][v]["flow"] - residual_graph[u][v]["lb"]
+            if dag.has_edge(v, u):
+                residual_graph[v][u]["capacity"] = capacity
+            else:
+                residual_graph.add_edge(v, u, capacity=capacity)
+
+        # Run max flow on the new residual graph.
+        try:
+            _, flow_dict = nx.maximum_flow(
+                residual_graph,
+                source_node,
+                sink_node,
+                capacity="capacity",
+                flow_func=edmonds_karp,
+            )
+        except nx.NetworkXUnbounded as e:
+            raise LowtimeFlowError(
+                "ERROR: Infinite flow on capacity residual graph."
+            ) from e
+
+        # Add additional flow we get to the original graph
+        for u, v in dag.edges:
+            dag[u][v]["flow"] += flow_dict[u][v]
+            dag[u][v]["flow"] -= flow_dict[v][u]
+
+        # Construct the new residual graph.
+        new_residual = nx.DiGraph(dag)
+        for u, v in dag.edges:
+            new_residual[u][v]["flow"] = dag[u][v]["ub"] - dag[u][v]["flow"]
+            new_residual.add_edge(v, u, flow=dag[u][v]["flow"] - dag[u][v]["lb"])
+
+        if logger.isEnabledFor(logging.DEBUG):
+            logger.debug("New residual graph")
+            logger.debug("Number of nodes: %d", new_residual.number_of_nodes())
+            logger.debug("Number of edges: %d", new_residual.number_of_edges())
+            logger.debug(
+                "Sum of flow: %f",
+                sum(attr["flow"] for _, _, attr in new_residual.edges(data=True)),
+            )
+
+        # Find the s-t cut induced by the second maximum flow above.
+        # Only following `flow > 0` edges, find the set of nodes reachable from
+        # source node. That's the s-set, and the rest is the t-set.
+        s_set = set[int]()
+        q: deque[int] = deque()
+        q.append(source_node)
+        while q:
+            cur_id = q.pop()
+            s_set.add(cur_id)
+            if cur_id == sink_node:
+                break
+            for child_id in list(new_residual.successors(cur_id)):
+                if (
+                    child_id not in s_set
+                    and abs(new_residual[cur_id][child_id]["flow"]) > FP_ERROR
+                ):
+                    q.append(child_id)
+        t_set = set(new_residual.nodes) - s_set
+
+        return s_set, t_set
+
     def annotate_capacities(self, critical_dag: nx.DiGraph) -> None:
         """In-place annotate the critical DAG with flow capacities."""
         # XXX(JW): Is this always large enough?
