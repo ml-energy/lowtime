@@ -11,19 +11,19 @@ use pathfinding::directed::edmonds_karp::{
 #[derive(Clone)]
 pub struct LowtimeGraph {
     node_ids: Vec<u32>,
-    source_node_id: Option<u32>,
-    sink_node_id: Option<u32>,
+    source_node_id: u32,
+    sink_node_id: u32,
     edges: HashMap<u32, HashMap<u32, LowtimeEdge>>,
     preds: HashMap<u32, HashSet<u32>>,
     num_edges: usize,
 }
 
 impl LowtimeGraph {
-    pub fn new() -> Self {
+    pub fn new(source_node_id: u32, sink_node_id: u32) -> Self {
         LowtimeGraph {
             node_ids: Vec::new(),
-            source_node_id: None,
-            sink_node_id: None,
+            source_node_id,
+            sink_node_id,
             edges: HashMap::new(),
             preds: HashMap::new(),
             num_edges: 0,
@@ -36,11 +36,9 @@ impl LowtimeGraph {
         sink_node_id: u32,
         edges_raw: Vec<((u32, u32), (f64, f64, f64, f64))>,
     ) -> Self {
-        let mut graph = LowtimeGraph::new();
+        let mut graph = LowtimeGraph::new(source_node_id, sink_node_id);
         node_ids.sort();
         graph.node_ids = node_ids.clone();
-        graph.source_node_id = Some(source_node_id);
-        graph.sink_node_id = Some(sink_node_id);
 
         edges_raw.iter().for_each(|(
                 (from, to),
@@ -60,26 +58,26 @@ impl LowtimeGraph {
         let edges_edmonds_karp = self.get_ek_preprocessed_edges();
         edmonds_karp::<_, _, _, SparseCapacity<_>>(
             &self.node_ids,
-            &self.source_node_id.unwrap(),
-            &self.sink_node_id.unwrap(),
+            &self.source_node_id,
+            &self.sink_node_id,
             edges_edmonds_karp,
         )
     }
 
     pub fn get_source_node_id(&self) -> u32 {
-        self.source_node_id.unwrap()
+        self.source_node_id
     }
 
     pub fn set_source_node_id(&mut self, new_source_node_id: u32) -> () {
-        self.source_node_id = Some(new_source_node_id);
+        self.source_node_id = new_source_node_id;
     }
 
     pub fn get_sink_node_id(&self) -> u32 {
-        self.sink_node_id.unwrap()
+        self.sink_node_id
     }
 
     pub fn set_sink_node_id(&mut self, new_sink_node_id: u32) -> () {
-        self.sink_node_id = Some(new_sink_node_id);
+        self.sink_node_id = new_sink_node_id;
     }
 
     pub fn num_nodes(&self) -> usize {
