@@ -10,7 +10,7 @@ use pathfinding::directed::edmonds_karp::{
 
 #[derive(Clone)]
 pub struct LowtimeGraph {
-    node_ids: Vec<u32>,
+    pub node_ids: Vec<u32>,
     source_node_id: u32,
     sink_node_id: u32,
     edges: HashMap<u32, HashMap<u32, LowtimeEdge>>,
@@ -106,10 +106,6 @@ impl LowtimeGraph {
         self.edges.iter_mut().flat_map(|(from, inner)| {
             inner.iter_mut().map(move |(to, edge)| (from, to, edge))
         })
-    }
-
-    pub fn get_node_ids(&self) -> &Vec<u32> {
-        &self.node_ids
     }
 
     pub fn add_node_id(&mut self, node_id: u32) -> () {

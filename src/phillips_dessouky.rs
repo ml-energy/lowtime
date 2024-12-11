@@ -60,12 +60,12 @@ impl PhillipsDessouky {
 
         // Add a new node s', which will become the new source node.
         // We constructed the AOA DAG, so we know that node IDs are integers.
-        let s_prime_id = unbound_dag.get_node_ids().last().unwrap() + 1;
+        let s_prime_id = unbound_dag.node_ids.last().unwrap() + 1;
         unbound_dag.add_node_id(s_prime_id);
 
         // For every node u in the original graph, add an edge (s', u) with capacity
         // equal to the sum of all lower bounds of u's parents.
-        let orig_node_ids = self.dag.get_node_ids();
+        let orig_node_ids = &self.dag.node_ids;
         for u in orig_node_ids.iter() {
             let mut capacity = OrderedFloat(0.0);
             if let Some(preds) = unbound_dag.predecessors(*u) {
@@ -300,7 +300,7 @@ impl PhillipsDessouky {
                 }
             }
         }
-        let all_nodes: HashSet<u32> = new_residual.get_node_ids().into_iter().copied().collect();
+        let all_nodes: HashSet<u32> = new_residual.node_ids.iter().copied().collect();
         let t_set: HashSet<u32> = all_nodes.difference(&s_set).copied().collect();
         (s_set, t_set)
     }
