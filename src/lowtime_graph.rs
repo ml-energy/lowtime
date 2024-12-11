@@ -209,5 +209,4 @@ impl LowtimeEdge {
     pub fn get_lb(&self) -> OrderedFloat<f64> {
         self.lb
     }
-
 }
