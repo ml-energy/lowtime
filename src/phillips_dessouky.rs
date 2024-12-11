@@ -286,8 +286,7 @@ impl PhillipsDessouky {
         let mut s_set: HashSet<u32> = HashSet::new();
         let mut q: VecDeque<u32> = VecDeque::new();
         q.push_back(new_residual.get_source_node_id());
-        while !q.is_empty() {
-            let cur_id = q.pop_back().unwrap();
+        while let Some(cur_id) = q.pop_back() {
             s_set.insert(cur_id);
             if cur_id == new_residual.get_sink_node_id() {
                 break;
