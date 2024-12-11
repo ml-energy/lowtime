@@ -55,7 +55,7 @@ impl PhillipsDessouky {
 
         // For every edge, capacity = ub - lb.
         unbound_dag.edges_mut().for_each(|(_from, _to, edge)|
-            edge.set_capacity(edge.get_ub() - edge.get_lb())
+            edge.capacity = edge.ub - edge.lb
         );
 
         // Add a new node s', which will become the new source node.
@@ -70,7 +70,7 @@ impl PhillipsDessouky {
             let mut capacity = OrderedFloat(0.0);
             if let Some(preds) = unbound_dag.predecessors(*u) {
                 capacity = preds.fold(OrderedFloat(0.0), |acc, pred_id| {
-                    acc + unbound_dag.get_edge(*pred_id, *u).get_lb()
+                    acc + unbound_dag.get_edge(*pred_id, *u).lb
                 });
             }
             unbound_dag.add_edge(s_prime_id, *u, LowtimeEdge::new(
@@ -91,7 +91,7 @@ impl PhillipsDessouky {
             let mut capacity = OrderedFloat(0.0);
             if let Some(succs) = unbound_dag.successors(*u) {
                 capacity = succs.fold(OrderedFloat(0.0), |acc, succ_id| {
-                    acc + unbound_dag.get_edge(*u, *succ_id).get_lb()
+                    acc + unbound_dag.get_edge(*u, *succ_id).lb
                 });
             }
             unbound_dag.add_edge(*u, t_prime_id, LowtimeEdge::new(
@@ -107,7 +107,7 @@ impl PhillipsDessouky {
             debug!("Number of nodes: {}", unbound_dag.num_nodes());
             debug!("Number of edges: {}", unbound_dag.num_edges());
             let total_capacity = unbound_dag.edges()
-                .fold(OrderedFloat(0.0), |acc, (_from, _to, edge)| acc + edge.get_capacity());
+                .fold(OrderedFloat(0.0), |acc, (_from, _to, edge)| acc + edge.capacity);
             debug!("Sum of capacities: {}", total_capacity);
         }
 
@@ -159,14 +159,14 @@ impl PhillipsDessouky {
                 let flow = flow_dict.get(&s_prime_id)
                     .and_then(|inner| inner.get(u))
                     .unwrap_or(&OrderedFloat(0.0));
-                let cap = unbound_dag.get_edge(s_prime_id, *u).get_capacity();
+                let cap = unbound_dag.get_edge(s_prime_id, *u).capacity;
                 let diff = (flow - cap).into_inner().abs();
                 if diff > self.fp_error {
                     error!(
                         "s' -> {} unsaturated (flow: {}, capacity: {})",
                         u,
                         flow_dict[&s_prime_id][u],
-                        unbound_dag.get_edge(s_prime_id, *u).get_capacity(),
+                        unbound_dag.get_edge(s_prime_id, *u).capacity,
                     );
                     panic!("ERROR: Max flow on unbounded DAG didn't saturate.");
                 }
@@ -177,14 +177,14 @@ impl PhillipsDessouky {
                 let flow = flow_dict.get(u)
                     .and_then(|inner| inner.get(&t_prime_id))
                     .unwrap_or(&OrderedFloat(0.0));
-                let cap = unbound_dag.get_edge(*u, t_prime_id).get_capacity();
+                let cap = unbound_dag.get_edge(*u, t_prime_id).capacity;
                 let diff = (flow - cap).into_inner().abs();
                 if diff > self.fp_error {
                     error!(
                         "{} -> t' unsaturated (flow: {}, capacity: {})",
                         u,
                         flow_dict[u][&t_prime_id],
-                        unbound_dag.get_edge(*u, t_prime_id).get_capacity(),
+                        unbound_dag.get_edge(*u, t_prime_id).capacity,
                     );
                     panic!("ERROR: Max flow on unbounded DAG didn't saturate.");
                 }
@@ -199,7 +199,7 @@ impl PhillipsDessouky {
             let flow = flow_dict.get(u)
                 .and_then(|inner| inner.get(v))
                 .unwrap_or(&OrderedFloat(0.0));
-            edge.set_flow(flow + edge.get_lb());
+            edge.flow = flow + edge.lb;
         }
 
         // Construct a new residual graph (same shape as capacity DAG) with
@@ -209,19 +209,19 @@ impl PhillipsDessouky {
             // Rounding small negative values to 0.0 avoids pathfinding::edmonds_karp
             // from entering unreachable code. Has no impact on correctness in test runs.
             let residual_uv_edge = residual_graph.get_edge_mut(*u, *v);
-            let mut uv_capacity = residual_uv_edge.get_ub() - residual_uv_edge.get_flow();
+            let mut uv_capacity = residual_uv_edge.ub - residual_uv_edge.flow;
             if uv_capacity.into_inner().abs() < self.fp_error {
                 uv_capacity = OrderedFloat(0.0);
             }
-            residual_uv_edge.set_capacity(uv_capacity);
+            residual_uv_edge.capacity = uv_capacity;
 
-            let mut vu_capacity = residual_uv_edge.get_flow() - residual_uv_edge.get_lb();
+            let mut vu_capacity = residual_uv_edge.flow - residual_uv_edge.lb;
             if vu_capacity.into_inner().abs() < self.fp_error {
                 vu_capacity = OrderedFloat(0.0);
             }
 
             match self.dag.has_edge(*v, *u) {
-                true => residual_graph.get_edge_mut(*v, *u).set_capacity(vu_capacity),
+                true => residual_graph.get_edge_mut(*v, *u).capacity = vu_capacity,
                 false => residual_graph.add_edge(*v, *u, LowtimeEdge::new(
                     vu_capacity,
                     OrderedFloat(0.0), // flow
@@ -251,21 +251,21 @@ impl PhillipsDessouky {
 
         // Add additional flow we get to the original graph
         for (u, v, edge) in self.dag.edges_mut() {
-            edge.incr_flow(*flow_dict.get(u)
+            edge.flow += *flow_dict.get(u)
                 .and_then(|inner| inner.get(v))
-                .unwrap_or(&OrderedFloat(0.0)));
-            edge.decr_flow(*flow_dict.get(v)
+                .unwrap_or(&OrderedFloat(0.0));
+            edge.flow -= *flow_dict.get(v)
                 .and_then(|inner| inner.get(u))
-                .unwrap_or(&OrderedFloat(0.0)));
+                .unwrap_or(&OrderedFloat(0.0));
         }
 
         // Construct the new residual graph.
         let mut new_residual = self.dag.clone();
         for (u, v, edge) in self.dag.edges() {
-            new_residual.get_edge_mut(*u, *v).set_flow(edge.get_ub() - edge.get_flow());
+            new_residual.get_edge_mut(*u, *v).flow = edge.ub - edge.flow;
             new_residual.add_edge(*v, *u, LowtimeEdge::new(
                 OrderedFloat(0.0), // capacity
-                edge.get_flow() - edge.get_lb(), // flow
+                edge.flow - edge.lb, // flow
                 OrderedFloat(0.0), // ub
                 OrderedFloat(0.0), // lb
             ));
@@ -276,7 +276,7 @@ impl PhillipsDessouky {
             debug!("Number of nodes: {}", new_residual.num_nodes());
             debug!("Number of edges: {}", new_residual.num_edges());
             let total_flow = unbound_dag.edges()
-                .fold(OrderedFloat(0.0), |acc, (_from, _to, edge)| acc + edge.get_flow());
+                .fold(OrderedFloat(0.0), |acc, (_from, _to, edge)| acc + edge.flow);
             debug!("Sum of capacities: {}", total_flow);
         }
 
@@ -293,7 +293,7 @@ impl PhillipsDessouky {
             }
             if let Some(succs) = new_residual.successors(cur_id) {
                 for child_id in succs {
-                    let flow = new_residual.get_edge(cur_id, *child_id).get_flow().into_inner();
+                    let flow = new_residual.get_edge(cur_id, *child_id).flow.into_inner();
                     if !s_set.contains(child_id) && flow.abs() > self.fp_error {
                         q.push_back(*child_id);
                     }

@@ -147,7 +147,7 @@ impl LowtimeGraph {
         processed_edges.extend(
             self.edges.iter().flat_map(|(from, inner)|
             inner.iter().map(|(to, edge)|
-                ((*from, *to), edge.get_capacity())
+                ((*from, *to), edge.capacity)
         )));
         processed_edges
     }
@@ -155,10 +155,10 @@ impl LowtimeGraph {
 
 #[derive(Clone)]
 pub struct LowtimeEdge {
-    capacity: OrderedFloat<f64>,
-    flow: OrderedFloat<f64>,
-    ub: OrderedFloat<f64>,
-    lb: OrderedFloat<f64>,
+    pub capacity: OrderedFloat<f64>,
+    pub flow: OrderedFloat<f64>,
+    pub ub: OrderedFloat<f64>,
+    pub lb: OrderedFloat<f64>,
 }
 
 impl LowtimeEdge {
@@ -174,37 +174,5 @@ impl LowtimeEdge {
             ub,
             lb,
         }
-    }
-
-    pub fn get_capacity(&self) -> OrderedFloat<f64> {
-        self.capacity
-    }
-
-    pub fn set_capacity(&mut self, new_capacity: OrderedFloat<f64>) -> () {
-        self.capacity = new_capacity
-    }
-
-    pub fn get_flow(&self) -> OrderedFloat<f64> {
-        self.flow
-    }
-
-    pub fn set_flow(&mut self, new_flow: OrderedFloat<f64>) -> () {
-        self.flow = new_flow;
-    }
-
-    pub fn incr_flow(&mut self, flow: OrderedFloat<f64>) -> () {
-        self.flow += flow;
-    }
-
-    pub fn decr_flow(&mut self, flow: OrderedFloat<f64>) -> () {
-        self.flow -= flow;
-    }
-
-    pub fn get_ub(&self) -> OrderedFloat<f64> {
-        self.ub
-    }
-
-    pub fn get_lb(&self) -> OrderedFloat<f64> {
-        self.lb
     }
 }
