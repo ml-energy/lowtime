@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import sys
 import logging
+from collections import deque
 from collections.abc import Generator
 
 import networkx as nx
