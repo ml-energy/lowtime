@@ -46,9 +46,9 @@ impl LowtimeGraph {
             )| {
             graph.add_edge(*from, *to, LowtimeEdge::new(
                 OrderedFloat(*capacity),
-                OrderedFloat(*flow),
-                OrderedFloat(*ub),
-                OrderedFloat(*lb),
+                *flow,
+                *ub,
+                *lb,
             ))
         });
         graph
@@ -136,17 +136,17 @@ impl LowtimeGraph {
 #[derive(Clone)]
 pub struct LowtimeEdge {
     pub capacity: OrderedFloat<f64>,
-    pub flow: OrderedFloat<f64>,
-    pub ub: OrderedFloat<f64>,
-    pub lb: OrderedFloat<f64>,
+    pub flow: f64,
+    pub ub: f64,
+    pub lb: f64,
 }
 
 impl LowtimeEdge {
     pub fn new(
         capacity: OrderedFloat<f64>,
-        flow: OrderedFloat<f64>,
-        ub: OrderedFloat<f64>,
-        lb: OrderedFloat<f64>,
+        flow: f64,
+        ub: f64,
+        lb: f64,
     ) -> Self {
         LowtimeEdge {
             capacity,
